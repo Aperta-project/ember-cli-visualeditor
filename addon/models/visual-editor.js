@@ -47,6 +47,42 @@ var VisualEditorModel = Ember.Object.extend(Ember.Evented, {
     }
   },
 
+  // A minimalistic version to convert a pieve of HTML to VE linear data
+  _convertHtmlToData: function(html) {
+    var converter = new ve.dm.Converter(ve.dm.modelRegistry, ve.dm.nodeFactory, ve.dm.annotationFactory, ve.dm.metaItemFactory);
+    converter.contextStack = [];
+    var el = window.document.createElement('div');
+    el.innerHTML = html;
+    return converter.getDataFromDomSubtree(el);
+  },
+
+  // The collection as array of html strings
+  addCollection: function(collectionId, collection) {
+    var surface = this.get('surface');
+    if (surface) {
+      var documentModel = surface.getDocument();
+      var internalList = documentModel.getInternalList();
+      _.each(collection, function(itemHtml, itemId) {
+        try {
+          // First insert an InternalItemNode into the InternalList via transaction.
+          // This way, the data ownership is given to InternalList and we can
+          // apply changes/transactions later
+          var linearData = this._convertHtmlToData(itemHtml);
+          var insertion = internalList.getItemInsertion(collectionId, itemId, linearData);
+          documentModel.commit(insertion.transaction);
+          // To be able to retrieve the collection more conveniently
+          // the node needs to be registered as a keyed node
+          var node = internalList.getItemNode(insertion.index);
+          internalList.addNode(collectionId, itemId, internalList.keys.length, node);
+        } catch (error) {
+          console.error(error);
+        }
+      }, this);
+    } else {
+      console.error('No surface.');
+    }
+  },
+
   toHtml: function() {
     var surface = this.get('surface');
     if (surface) {
@@ -57,6 +93,10 @@ var VisualEditorModel = Ember.Object.extend(Ember.Evented, {
       return null;
     }
   },
+
+  // getCollection: function(collectionId) {
+
+  // },
 
   toText: function() {
     var surface = this.get('surface');
