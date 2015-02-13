@@ -29,6 +29,8 @@ var VisualEditorModel = Ember.Object.extend(Ember.Evented, {
         documentModel = new ve.dm.Document([
           { type: 'paragraph', internal: { generated: 'wrapper' } },
           { type: '/paragraph' },
+          { type: 'internalList' },
+          { type: '/internalList' },
         ]);
       } else {
         var htmlDoc = window.document.implementation.createHTMLDocument();
@@ -56,6 +58,34 @@ var VisualEditorModel = Ember.Object.extend(Ember.Evented, {
     return converter.getDataFromDomSubtree(el);
   },
 
+  // HACK: don't know why InternalList.getItemInsertion isn't working anymore
+  // the insert offset is somehow wrong
+  // seems that doc.fixupInsertion causes problems
+  _transactionForInternalItemInsertion: function ( doc, groupName, key, data ) {
+    var internalList = doc.getInternalList();
+    var index = internalList.getKeyIndex( groupName, key );
+    var tx;
+    if ( index === undefined ) {
+      index = internalList.getItemNodeCount();
+      internalList.keyIndexes[groupName + '/' + key] = index;
+      var itemData = [{ type: 'internalItem' }].concat( data,  [{ type: '/internalItem' }] );
+      tx = new ve.dm.Transaction();
+      var offset = internalList.getListNode().getRange().end;
+      tx.pushRetain(offset);
+      // Insert data
+      tx.pushReplace(
+        doc, offset, 0, itemData, undefined, 0, itemData.length
+      );
+      tx.pushFinalRetain(doc, offset);
+    } else {
+      tx = null;
+    }
+    return {
+      transaction: tx,
+      index: index
+    };
+  },
+
   // The collection as array of html strings
   addCollection: function(collectionId, collection) {
     var surface = this.get('surface');
@@ -63,20 +93,21 @@ var VisualEditorModel = Ember.Object.extend(Ember.Evented, {
       var documentModel = surface.getDocument();
       var internalList = documentModel.getInternalList();
       _.each(collection, function(itemHtml, itemId) {
-        try {
+        // try {
           // First insert an InternalItemNode into the InternalList via transaction.
           // This way, the data ownership is given to InternalList and we can
           // apply changes/transactions later
           var linearData = this._convertHtmlToData(itemHtml);
+          // var insertion = this._transactionForInternalItemInsertion(documentModel, collectionId, itemId, linearData);
           var insertion = internalList.getItemInsertion(collectionId, itemId, linearData);
           documentModel.commit(insertion.transaction);
           // To be able to retrieve the collection more conveniently
           // the node needs to be registered as a keyed node
           var node = internalList.getItemNode(insertion.index);
           internalList.addNode(collectionId, itemId, internalList.keys.length, node);
-        } catch (error) {
-          console.error(error);
-        }
+        // } catch (error) {
+        //   console.error(error);
+        // }
       }, this);
     } else {
       console.error('No surface.');
