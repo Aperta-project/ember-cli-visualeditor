@@ -31,7 +31,7 @@ var VisualEditorComponent = Ember.Component.extend({
     surface = this.createSurfaceUI();
     this.set('surface', surface);
     $(this.element).empty().append(surface.$element);
-    // ve.ui.Surface needs to be initialized after been injected into the DOM
+    // ve.ui.Surface needs to be initialized after being injected into the DOM
     // so, if this component is already in the DOM we need to call surface.initialize right away
     // (... as oposed to do it on 'didInsertElement')
     if (this._state === "inDOM") {
