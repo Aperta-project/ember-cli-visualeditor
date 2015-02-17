@@ -16,6 +16,8 @@ var VisualEditorComponent = Ember.Component.extend({
 
   classNameBindings: ['isEnabled:enabled:disabled'],
 
+  $fileUpload: $('<input id="ve-file-upload" type="file" style="visibility:hidden;position:fixed;top:-1000px;"/>'),
+
   init: function() {
     this._super();
     Ember.assert("'model' should be of type ve.dm.Surface", this.get('model') instanceof VisualEditorModel);
@@ -39,7 +41,12 @@ var VisualEditorComponent = Ember.Component.extend({
   }.observes('model.surface'),
 
   createSurfaceUI: function() {
-    return new ve.ui.DesktopSurface(this.get('model').get('surface'));
+    var surface = new ve.ui.DesktopSurface(this.get('model').get('surface'));
+    // HACK: inject the file-upload element.
+    // It would be nicer to have some API for extensions.
+    // E.g., a figure extension could be called to inject its image upload field
+    surface.$element.append(this.$fileUpload);
+    return surface;
   },
 
   beforeInsertElement: function() {
@@ -87,7 +94,7 @@ var VisualEditorComponent = Ember.Component.extend({
     var surface = this.get('surface');
     this.set('isFocused', true);
     surface.getView().focus();
-  }
+  },
 
 });
 
