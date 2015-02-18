@@ -16,7 +16,7 @@ var VisualEditorComponent = Ember.Component.extend({
 
   classNameBindings: ['isEnabled:enabled:disabled'],
 
-  $fileUpload: $('<input id="ve-file-upload" type="file" style="visibility:hidden;position:fixed;top:-1000px;"/>'),
+  $fileUpload: $('<input id="ve-file-upload" type="file" style="position:fixed;top:-1000px;"/>'),
 
   init: function() {
     this._super();
