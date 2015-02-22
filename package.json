@@ -1,7 +1,7 @@
 {
   "name": "ember-cli-visualeditor",
   "version": "0.0.0",
-  "repository": "",
+  "repository": "https://github.com/substance/ember-cli-visualeditor/",
   "engines": {
     "node": ">= 0.10.0"
   },
