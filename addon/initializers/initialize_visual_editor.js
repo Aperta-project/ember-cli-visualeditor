@@ -67,7 +67,7 @@ var initializeVisualEditor = function(env) {
     return;
   }
 
-  var assetsRoot = options.assetsRoot || "";
+  var assetsRoot = env["baseURL"] + (options.assetsRoot || "");
   // append a trailing "/" to the assets route
   if (assetsRoot[assetsRoot.length-1] !== "/") {
     assetsRoot += "/";
@@ -91,11 +91,16 @@ var initializeVisualEditor = function(env) {
   }
 
   // if assets are included in the bundle, then just initialize the platform
-  if (scriptsAlreadyImported) {
+  if (scriptsAlreadyImported || options.manual) {
     return _initPlatform();
   } else {
     var promise;
     var scriptSrc;
+
+    // throw if VE has already been loaded
+    if (window.ve && window.ve.dm && window.ve.dm.Surface) {
+      throw new Error('ember-cli-visualeditor: Invalid configuration. ' + JSON.stringify(options));
+    }
 
     if (env.environment === "production" && !options.forceUnminified) {
       scriptSrc = assetsRoot + "ember-cli-visualeditor/visualEditor.min.js";
