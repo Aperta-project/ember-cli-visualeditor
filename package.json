@@ -18,7 +18,7 @@
     "grunt-contrib-copy": "^0.7.0",
     "grunt-contrib-uglify": "^0.7.0",
     "grunt-subgrunt": "^0.4.3",
-    "visualeditor": "substance/VisualEditor.git#tahi"
+    "visualeditor": "substance/VisualEditor.git#resilient"
   },
   "description": "Ember addon that provides VisualEditor.",
   "keywords": [
