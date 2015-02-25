@@ -16290,7 +16290,7 @@ OO.ui.theme = new OO.ui.ApexTheme();
  * Released under the MIT license
  * http://ve.mit-license.org
  *
- * Date: 2015-02-19T10:21:52Z
+ * Date: 2015-02-25T13:34:38Z
  */
 /*!
  * UnicodeJS v0.1.3
@@ -31373,6 +31373,79 @@ ve.dm.SurfaceFragment.prototype.removeContent = function () {
 	return this;
 };
 
+// TODO would be good if this would be a built-in feature
+ve.dm.SurfaceFragment.prototype.isResilient = function(node) {
+	if (node.isResilient) {
+		return node.isResilient();
+	}
+	var htmlAttrs = node.getHtmlAttributes()[0];
+	return (htmlAttrs && htmlAttrs.values["data-mode"] === "resilient");
+};
+
+ve.dm.SurfaceFragment.prototype.deleteResilient = function(node, rangeToRemove, transformedRanges) {
+	var hasResilient = false;
+	var outerRange, innerRange, maskedInnerRange, maskedOuterRange;
+	var childRanges, childHasResilient;
+
+	for (var i = 0; i < node.children.length; i++) {
+		var child = node.children[i];
+		outerRange = child.getOuterRange();
+		if (outerRange.start > rangeToRemove.end || outerRange.end < rangeToRemove.start) {
+			continue;
+		}
+		innerRange = child.getRange();
+		maskedOuterRange = new ve.Range(
+			Math.max(outerRange.start, rangeToRemove.start),
+			Math.min(outerRange.end, rangeToRemove.end)
+		);
+		// delete the child if it is not resilient and
+		var isFull = rangeToRemove.containsRange(outerRange);
+		var isResilient = this.isResilient(child);
+		if (isResilient) {
+			hasResilient = true;
+			if (child.canHaveChildren()) {
+				var contentOffset = Math.min(this.document.data.getNearestContentOffset(innerRange.start,1), innerRange.end);
+				if (contentOffset >= innerRange.end) {
+					contentOffset = innerRange.start;
+				}
+				maskedInnerRange = new ve.Range(
+					// HACK: need this as otherwise the first open tag gets deleted
+					// when backspacing at the first position
+					Math.max(contentOffset, rangeToRemove.start),
+					Math.min(innerRange.end, rangeToRemove.end)
+				);
+				childRanges = [];
+				childHasResilient = this.deleteResilient(child, maskedInnerRange, childRanges);
+				if (childHasResilient) {
+						transformedRanges = transformedRanges.concat(childRanges);
+				} else {
+					transformedRanges.push(maskedInnerRange);
+				}
+			}
+		} else if (isFull) {
+			transformedRanges.push(outerRange);
+		} else {
+			if (child.canHaveChildren()) {
+				maskedInnerRange = new ve.Range(
+					Math.max(innerRange.start, rangeToRemove.start),
+					Math.min(innerRange.end, rangeToRemove.end)
+				);
+				childRanges = [];
+				childHasResilient = this.deleteResilient(child, maskedInnerRange, childRanges);
+				if (childHasResilient) {
+					hasResilient = true;
+					transformedRanges = transformedRanges.concat(childRanges);
+				} else {
+					transformedRanges.push(maskedOuterRange);
+				}
+			} else {
+				transformedRanges.push(maskedOuterRange);
+			}
+		}
+	}
+	return hasResilient;
+};
+
 /**
  * Delete content and correct selection
  *
@@ -31380,7 +31453,7 @@ ve.dm.SurfaceFragment.prototype.removeContent = function () {
  * @param {number} [directionAfterDelete=-1] Direction to move after delete: 1 or -1 or 0
  * @chainable
  */
-ve.dm.SurfaceFragment.prototype.delete = function ( directionAfterDelete ) {
+ve.dm.SurfaceFragment.prototype.delete = function ( directionAfterDelete, withoutResilience) {
 	if ( !( this.selection instanceof ve.dm.LinearSelection ) ) {
 		return this;
 	}
@@ -31393,68 +31466,87 @@ ve.dm.SurfaceFragment.prototype.delete = function ( directionAfterDelete ) {
 		return this;
 	}
 
-	// If selection spans entire document (selectAll) then
-	// replace with an empty paragraph
-	internalListRange = this.document.getInternalList().getListNode().getOuterRange();
-	if ( rangeToRemove.start === 0 && rangeToRemove.end >= internalListRange.start ) {
-		tx = ve.dm.Transaction.newFromReplacement( this.document, new ve.Range( 0, internalListRange.start ), [
-			{ type: 'paragraph' },
-			{ type: '/paragraph' }
-		] );
-		this.change( tx );
-		rangeAfterRemove = new ve.Range( 1 );
-	} else {
-		tx = ve.dm.Transaction.newFromRemoval( this.document, rangeToRemove );
-		this.change( tx );
-		rangeAfterRemove = tx.translateRange( rangeToRemove );
-	}
-	if ( !rangeAfterRemove.isCollapsed() ) {
-		// If after processing removal transaction range is not collapsed it means that not
-		// everything got merged nicely (at this moment transaction processor is capable of merging
-		// nodes of the same type and at the same depth level only), so we process with another
-		// merging that takes remaining data from endNode and inserts it at the end of startNode,
-		// endNode or recursively its parent (if have only one child) gets removed.
-		//
-		// If startNode has no content then we just delete that node instead of merging.
-		// This prevents content being inserted into empty structure which, e.g. and empty heading
-		// will be deleted, rather than "converting" the paragraph beneath to a heading.
+	var hasResilient = false;
 
-		endNode = this.document.getBranchNodeFromOffset( rangeAfterRemove.end, false );
-
-		// If endNode is within our rangeAfterRemove, then we shouldn't delete it
-		if ( endNode.getRange().start >= rangeAfterRemove.end ) {
-			startNode = this.document.getBranchNodeFromOffset( rangeAfterRemove.start, false );
-			if ( startNode.getRange().isCollapsed() ) {
-				// Remove startNode
-				this.change( [
-					ve.dm.Transaction.newFromRemoval(
-						this.document, startNode.getOuterRange()
-					)
-				] );
-			} else {
-				endNodeData = this.document.getData( endNode.getRange() );
-				nodeToDelete = endNode;
-				nodeToDelete.traverseUpstream( function ( node ) {
-					var parent = node.getParent();
-					if ( parent.children.length === 1 ) {
-						nodeToDelete = parent;
-						return true;
-					} else {
-						return false;
-					}
-				} );
-				// Move contents of endNode into startNode, and delete nodeToDelete
-				this.change( [
-					ve.dm.Transaction.newFromRemoval(
-						this.document, nodeToDelete.getOuterRange()
-					),
-					ve.dm.Transaction.newFromInsertion(
-						this.document, rangeAfterRemove.start, endNodeData
-					)
-				] );
+	if (!withoutResilience) {
+		var rangesToRemove = [];
+		hasResilient = this.deleteResilient(this.document.documentNode, rangeToRemove, rangesToRemove);
+		if (hasResilient) {
+			// remove each computed range from right to left
+			// TODO: maybe we could do a low-level delete here?
+			for (var i = rangesToRemove.length - 1; i >= 0; i--) {
+				var fragment = new ve.dm.SurfaceFragment( this.getSurface(),
+					new ve.dm.LinearSelection(this.getDocument(), rangesToRemove[i]));
+				fragment.delete(directionAfterDelete, "withoutResilience");
 			}
+			rangeAfterRemove = new ve.Range( rangeToRemove.start );
 		}
-		rangeAfterRemove = new ve.Range( rangeAfterRemove.start );
+	}
+
+	if (!hasResilient) {
+		// If selection spans entire document (selectAll) then
+		// replace with an empty paragraph
+		internalListRange = this.document.getInternalList().getListNode().getOuterRange();
+		if ( rangeToRemove.start === 0 && rangeToRemove.end >= internalListRange.start ) {
+			tx = ve.dm.Transaction.newFromReplacement( this.document, new ve.Range( 0, internalListRange.start ), [
+				{ type: 'paragraph' },
+				{ type: '/paragraph' }
+			] );
+			this.change( tx );
+			rangeAfterRemove = new ve.Range( 1 );
+		} else {
+			tx = ve.dm.Transaction.newFromRemoval( this.document, rangeToRemove );
+			this.change( tx );
+			rangeAfterRemove = tx.translateRange( rangeToRemove );
+		}
+		if ( !rangeAfterRemove.isCollapsed() ) {
+			// If after processing removal transaction range is not collapsed it means that not
+			// everything got merged nicely (at this moment transaction processor is capable of merging
+			// nodes of the same type and at the same depth level only), so we process with another
+			// merging that takes remaining data from endNode and inserts it at the end of startNode,
+			// endNode or recursively its parent (if have only one child) gets removed.
+			//
+			// If startNode has no content then we just delete that node instead of merging.
+			// This prevents content being inserted into empty structure which, e.g. and empty heading
+			// will be deleted, rather than "converting" the paragraph beneath to a heading.
+
+			endNode = this.document.getBranchNodeFromOffset( rangeAfterRemove.end, false );
+
+			// If endNode is within our rangeAfterRemove, then we shouldn't delete it
+			if ( endNode.getRange().start >= rangeAfterRemove.end ) {
+				startNode = this.document.getBranchNodeFromOffset( rangeAfterRemove.start, false );
+				if ( startNode.getRange().isCollapsed() ) {
+					// Remove startNode
+					this.change( [
+						ve.dm.Transaction.newFromRemoval(
+							this.document, startNode.getOuterRange()
+						)
+					] );
+				} else {
+					endNodeData = this.document.getData( endNode.getRange() );
+					nodeToDelete = endNode;
+					nodeToDelete.traverseUpstream( function ( node ) {
+						var parent = node.getParent();
+						if ( parent.children.length === 1 ) {
+							nodeToDelete = parent;
+							return true;
+						} else {
+							return false;
+						}
+					} );
+					// Move contents of endNode into startNode, and delete nodeToDelete
+					this.change( [
+						ve.dm.Transaction.newFromRemoval(
+							this.document, nodeToDelete.getOuterRange()
+						),
+						ve.dm.Transaction.newFromInsertion(
+							this.document, rangeAfterRemove.start, endNodeData
+						)
+					] );
+				}
+			}
+			rangeAfterRemove = new ve.Range( rangeAfterRemove.start );
+		}
 	}
 	// rangeAfterRemove is now guaranteed to be collapsed so make sure that it is a content offset
 	if ( !this.document.data.isContentOffset( rangeAfterRemove.start ) ) {
@@ -38465,6 +38557,60 @@ ve.dm.InlineImageNode.static.toDomElements = function ( dataElement, doc ) {
 /* Registration */
 
 ve.dm.modelRegistry.register( ve.dm.InlineImageNode );
+
+/*!
+ * VisualEditor DataModel SectionNode class.
+ *
+ * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
+ */
+
+/**
+ * DataModel list node.
+ *
+ * @class
+ * @extends ve.dm.BranchNode
+ *
+ * @constructor
+ * @param {Object} [element] Reference to element in linear model
+ * @param {ve.dm.Node[]} [children]
+ */
+ve.dm.SectionNode = function VeDmSectionNode() {
+  // Parent constructor
+  ve.dm.SectionNode.super.apply( this, arguments );
+};
+
+/* Inheritance */
+
+OO.inheritClass( ve.dm.SectionNode, ve.dm.BranchNode );
+
+/* Static Properties */
+
+ve.dm.SectionNode.static.name = 'section';
+
+ve.dm.SectionNode.static.matchTagNames = [ 'section' ];
+
+ve.dm.SectionNode.static.toDataElement = function ( domElements ) {
+  return { type: this.name, attributes: { } };
+};
+
+ve.dm.SectionNode.static.toDomElements = function ( dataElement, doc ) {
+  var element = doc.createElement( 'section' );
+  return [ element ];
+};
+
+/* Methods */
+
+ve.dm.SectionNode.prototype.canHaveSlugAfter = function () {
+  return false;
+};
+
+ve.dm.SectionNode.prototype.canHaveSlugBefore = function () {
+  return false;
+};
+
+/* Registration */
+
+ve.dm.modelRegistry.register( ve.dm.SectionNode );
 
 /*!
  * VisualEditor DataModel LanguageAnnotation class.
@@ -49276,6 +49422,29 @@ ve.ce.InlineImageNode.static.tagName = 'img';
 /* Registration */
 
 ve.ce.nodeFactory.register( ve.ce.InlineImageNode );
+
+ve.ce.SectionNode = function VeCeSectionNode() {
+  // Parent constructor
+  ve.ce.SectionNode.super.apply( this, arguments );
+
+  this.$element.addClass('ve-ce-sectionnode');
+};
+
+/* Inheritance */
+
+OO.inheritClass( ve.ce.SectionNode, ve.ce.BranchNode );
+
+/* Static Properties */
+
+ve.ce.SectionNode.static.name = 'section';
+
+ve.ce.SectionNode.static.tagName = 'section';
+
+/* Methods */
+
+/* Registration */
+
+ve.ce.nodeFactory.register( ve.ce.SectionNode );
 
 /*!
  * VisualEditor ContentEditable LanguageAnnotation class.
