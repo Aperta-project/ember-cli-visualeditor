@@ -5,13 +5,8 @@ import veMock from '../lib/ve-mock';
 var _loadedScripts = {};
 
 var _scripts = [
-  'lib/jquery-i18n.js',
-  'lib/jquery-uls.js',
-  'lib/oojs.js',
-  'lib/oojs-ui.js',
   'visualEditor-base.js',
-  'visualEditor-dm.js',
-  'visualEditor-ce.js',
+  'visualEditor-model.js',
   'visualEditor-ui.js'
 ];
 

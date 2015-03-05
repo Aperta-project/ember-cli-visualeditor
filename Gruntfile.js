@@ -64,50 +64,29 @@ module.exports = function ( grunt ) {
       }
     },
     concat: {
-      "jquery-i18n": {
-        dest: 'vendor/lib/jquery-i18n.js',
-        src: [
-          'node_modules/visualeditor/lib/jquery.i18n/src/jquery.i18n.js',
-          'node_modules/visualeditor/lib/jquery.i18n/src/jquery.i18n.messagestore.js',
-          'node_modules/visualeditor/lib/jquery.i18n/src/jquery.i18n.parser.js',
-          'node_modules/visualeditor/lib/jquery.i18n/src/jquery.i18n.emitter.js',
-          'node_modules/visualeditor/lib/jquery.i18n/src/jquery.i18n.language.js',
-          'node_modules/visualeditor/lib/jquery.i18n/src/jquery.i18n.fallbacks.js'
-        ]
-      },
-      "jquery-uls": {
-        dest: 'vendor/lib/jquery-uls.js',
-        src: [
-          'node_modules/visualeditor/lib/jquery.uls/src/jquery.uls.data.js',
-          'node_modules/visualeditor/lib/jquery.uls/src/jquery.uls.data.utils.js',
-        ]
-      },
-      "oojs-ui": {
-        dest: 'vendor/lib/oojs-ui.js',
-        src: [
-          'node_modules/visualeditor/lib/oojs-ui/oojs-ui.js',
-          'node_modules/visualeditor/lib/oojs-ui/oojs-ui-apex.js'
-        ]
-      },
       "visualEditor-base": {
         dest: 'vendor/visualEditor-base.js',
-        src: getVeFileList('unicodejs')
+        src:  []
+              .concat(getVeFileList('jquery'))
+              .concat(getVeFileList('jquery.i18n'))
+              .concat(getVeFileList('oojs'))
+              .concat(getVeFileList('oojs-ui'))
+              .concat(getVeFileList('oojs-ui-apex'))
+              .concat(getVeFileList('unicodejs'))
               .concat(getVeFileList('rangefix'))
               .concat(getVeFileList('visualEditor.base.build'))
               .concat(getVeFileList('visualEditor.core.build', /^src\/ve\./))
               .concat(getVeFileList('visualEditor.standalone.build'))
       },
-      "visualEditor-dm": {
-        dest: 'vendor/visualEditor-dm.js',
+      "visualEditor-model": {
+        dest: 'vendor/visualEditor-model.js',
         src: getVeFileList('visualEditor.core.build', /^src\/dm/)
-      },
-      "visualEditor-ce": {
-        dest: 'vendor/visualEditor-ce.js',
-        src: getVeFileList('visualEditor.core.build', /^src\/ce/)
       },
       "visualEditor-ui": {
         dest: 'vendor/visualEditor-ui.js',
-        src: getVeFileList('visualEditor.core.build', /^src\/ui/)
+        src: []
+              .concat(getVeFileList('visualEditor.core.build', /^src\/ce/))
+              .concat(getVeFileList('visualEditor.core.build', /^src\/ui/))
               .concat(getVeFileList('visualEditor.desktop.build'))
       },
       "one-css-file": {
