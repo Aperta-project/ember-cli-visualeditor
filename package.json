@@ -8,8 +8,8 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "jquery": "^2.1.3",
-    "merge": "^1.2.0"
+    "merge": "^1.2.0",
+    "ember-cli-lazyloader": "substance/ember-cli-lazyloader.git#master"
   },
   "devDependencies": {
     "grunt": "^0.4.5",
