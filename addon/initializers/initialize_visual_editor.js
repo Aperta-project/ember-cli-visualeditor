@@ -2,59 +2,40 @@
 
 import veMock from '../lib/ve-mock';
 
-
 var _loadedScripts = {};
+
+var _scripts = [
+  'lib/jquery-i18n.js',
+  'lib/jquery-uls.js',
+  'lib/oojs.js',
+  'lib/oojs-ui.js',
+  'visualEditor-base.js',
+  'visualEditor-dm.js',
+  'visualEditor-ce.js',
+  'visualEditor-ui.js'
+];
 
 // This version injects a script instead of using global.eval
 // which eases debugging (e.g., stacktraces make sense)
-var injectScript = function(src) {
-  var promise = window.jQuery.Deferred();
-
+var injectScript = function(src, cb) {
+  console.log('#### Load script %s', src);
   if (_loadedScripts[src]) {
-    return promise.resolve();
+    return cb();
   }
-
   var headEl = document.head || document.getElementsByTagName("head")[0];
   var scriptEl = window.document.createElement('script');
   scriptEl.type = "text\/javascript";
   scriptEl.src = src;
   scriptEl.onload = function() {
-    promise.resolve();
     _loadedScripts[src] = true;
+    cb();
   };
   scriptEl.onerror = function (error) {
+    var err = new URIError("The script " + error.target.src + " is not accessible.");
     console.error('Could not load', src);
-    promise.reject(new URIError("The script " + error.target.src + " is not accessible."));
+    cb(err);
   };
   headEl.appendChild(scriptEl);
-  return promise;
-};
-
-var loadScriptWithEval = function(src) {
-  var promise = window.jQuery.Deferred();
-  if (_loadedScripts[src]) {
-    return promise.resolve();
-  }
-
-  $.ajax(src, {
-    method: "GET",
-    cache: false,
-    error: function(xhr, status, msg) {
-      promise.reject(msg);
-    },
-    success: function(data) {
-      try {
-        window.jQuery.globalEval(data);
-        _loadedScripts[src] = true;
-        promise.resolve();
-      } catch (err) {
-        console.error('Could not evaluate loaded script', err.stack);
-        promise.reject(err);
-      }
-    }
-  });
-
-  return promise;
 };
 
 var initializeVisualEditor = function(env) {
@@ -73,11 +54,6 @@ var initializeVisualEditor = function(env) {
     assetsRoot += "/";
   }
 
-  // if option 'includeAssets' is used, scripts and stylesheets are
-  // imported via ember-cli-visualeditor/index.js
-  var scriptsAlreadyImported = options.includeAssets;
-  var useEval = options.useEval;
-
   function _initPlatform() {
     // HACK: this produces a failing request with fallback to 'en'
     // so we use 'en' right away
@@ -91,42 +67,40 @@ var initializeVisualEditor = function(env) {
   }
 
   // if assets are included in the bundle, then just initialize the platform
-  if (scriptsAlreadyImported) {
+  var promise = window.jQuery.Deferred();
+
+  var i = 0;
+  var loadScript = function(err) {
+    if (err) {
+      promise.reject(err);
+    } else if (i >= _scripts.length) {
+      promise.resolve();
+    } else {
+      var scriptUrl = assetsRoot + "ember-cli-visualeditor/"+_scripts[i++];
+      injectScript(scriptUrl, loadScript);
+    }
+  };
+
+  promise.done(function() {
+    var stylesheet = assetsRoot + "ember-cli-visualeditor/styles/visualEditor.css";
+    if (!_loadedScripts[stylesheet]) {
+      $('<link/>', {
+         rel: 'stylesheet',
+         type: 'text/css',
+         href: stylesheet
+      }).appendTo('head');
+      _loadedScripts[stylesheet] = true;
+    }
+
     return _initPlatform();
-  } else {
-    var promise;
-    var scriptSrc;
+  }).fail(function() {
+    console.error('Failed to load assets for ember-cli-visualeditor', arguments);
+  });
 
-    if (env.environment === "production" && !options.forceUnminified) {
-      scriptSrc = assetsRoot + "ember-cli-visualeditor/visualEditor.min.js";
-    } else {
-      scriptSrc = assetsRoot + "ember-cli-visualeditor/visualEditor.js";
-    }
+  // start the loading sequence
+  loadScript();
 
-    if (useEval) {
-      promise = loadScriptWithEval(scriptSrc);
-    } else {
-      promise = injectScript(scriptSrc);
-    }
-
-    promise.done(function() {
-      var stylesheet = assetsRoot + "ember-cli-visualeditor/styles/visualEditor.css";
-      if (!_loadedScripts[stylesheet]) {
-        $('<link/>', {
-           rel: 'stylesheet',
-           type: 'text/css',
-           href: stylesheet
-        }).appendTo('head');
-        _loadedScripts[stylesheet] = true;
-      }
-
-      return _initPlatform();
-    }).fail(function() {
-      console.error('Failed to load assets for ember-cli-visualeditor', arguments);
-    });
-
-    return promise;
-  }
+  return promise;
 };
 
 export default initializeVisualEditor;

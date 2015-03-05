@@ -7,19 +7,6 @@ module.exports = {
   name: 'ember-cli-visualeditor',
 
   treeForPublic: function() {
-    var options = this.getOptions(this.app);
-
-    // do not add assets if configured manually
-    if (options.manual) {
-      return;
-    }
-
-    var visualEditorScript;
-    if (this.app.env === "production" && !options.forceUnminified) {
-      visualEditorScript = "visualEditor.min.js";
-    } else {
-      visualEditorScript = "visualEditor.js";
-    }
     return this.mergeTrees([
       this.pickFiles('node_modules/' + this.name + '/vendor/i18n/', {
         srcDir: '/',
@@ -32,7 +19,16 @@ module.exports = {
       this.pickFiles('node_modules/' + this.name + '/vendor/', {
         srcDir: '/',
         destDir: 'assets/' + this.name + '/',
-        files: [visualEditorScript]
+        files: [
+          'lib/jquery-i18n.js',
+          'lib/jquery-uls.js',
+          'lib/oojs.js',
+          'lib/oojs-ui.js',
+          'visualEditor-base.js',
+          'visualEditor-dm.js',
+          'visualEditor-ce.js',
+          'visualEditor-ui.js'
+        ]
       })
     ]);
   },
@@ -48,28 +44,10 @@ module.exports = {
   },
 
   included: function included(app) {
-
     var fingerprint = app.options.fingerprint;
     if (fingerprint) {
       fingerprint.exclude = fingerprint.exclude || [];
       fingerprint.exclude.push(this.name);
-    }
-
-    var options = this.getOptions(app);
-    // do not add assets if configured manually
-    if (options.manual) {
-      return;
-    }
-
-    // Note: including assets is necessary if you have VE extensions as source files (not as addons)
-    // in your app
-    if (options.includeAssets) {
-      app.import("vendor/styles/visualEditor.css");
-      if (app.env === "production" && !options.forceUnminified) {
-        app.import("vendor/visualEditor.min.js");
-      } else {
-        app.import("vendor/visualEditor.js");
-      }
     }
   },
 

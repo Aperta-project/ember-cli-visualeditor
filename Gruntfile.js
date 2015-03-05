@@ -1,4 +1,24 @@
 
+var _ = require('lodash');
+var path = require('path');
+
+var veModules = require('visualeditor/build/modules.json');
+
+function getVeFileList(key, re) {
+  var srcDir = 'node_modules/visualeditor';
+  var files = veModules[key].scripts;
+  var result = [];
+  _.each(files, function(f) {
+    if (_.isString(f)) {
+      if (!re || re.exec(f)) {
+        result.push(path.join(srcDir, f));
+      }
+    }
+  });
+  console.log("## VisualEditor files for (%s, %s): %s", key, (re && re.toString()), JSON.stringify(result, null, 2));
+  return result;
+}
+
 /*jshint node:true */
 module.exports = function ( grunt ) {
   grunt.loadNpmTasks('grunt-subgrunt');
@@ -19,11 +39,6 @@ module.exports = function ( grunt ) {
       }
     },
     copy: {
-      "ve-main": {
-        files: [
-          { expand: true, cwd: 'node_modules/visualeditor/dist/', src: 'visualEditor.*', dest: 'tmp/' }
-        ]
-      },
       "ve-i18n": {
         expand: true,
         cwd: 'node_modules/visualeditor/i18n/',
@@ -38,7 +53,7 @@ module.exports = function ( grunt ) {
       },
       "oojs": {
         files: [
-          { src: 'node_modules/visualeditor/lib/oojs/oojs.jquery.js', dest: 'tmp/oojs.js' }
+          { src: 'node_modules/visualeditor/lib/oojs/oojs.jquery.js', dest: 'vendor/lib/oojs.js' }
         ]
       },
       "oojs-ui": {
@@ -50,54 +65,50 @@ module.exports = function ( grunt ) {
     },
     concat: {
       "jquery-i18n": {
-        dest: 'tmp/jquery-i18n.js',
+        dest: 'vendor/lib/jquery-i18n.js',
         src: [
           'node_modules/visualeditor/lib/jquery.i18n/src/jquery.i18n.js',
           'node_modules/visualeditor/lib/jquery.i18n/src/jquery.i18n.messagestore.js',
           'node_modules/visualeditor/lib/jquery.i18n/src/jquery.i18n.parser.js',
           'node_modules/visualeditor/lib/jquery.i18n/src/jquery.i18n.emitter.js',
           'node_modules/visualeditor/lib/jquery.i18n/src/jquery.i18n.language.js',
-          'node_modules/visualeditor/lib/jquery.i18n/src/jquery.i18n.fallbacks.js',
-          // 'node_modules/visualeditor/lib/jquery.i18n/src/languages/bs.js',
-          // 'node_modules/visualeditor/lib/jquery.i18n/src/languages/dsb.js',
-          // 'node_modules/visualeditor/lib/jquery.i18n/src/languages/fi.js',
-          // 'node_modules/visualeditor/lib/jquery.i18n/src/languages/fi.js',
-          // 'node_modules/visualeditor/lib/jquery.i18n/src/languages/ga.js',
-          // 'node_modules/visualeditor/lib/jquery.i18n/src/languages/he.js',
-          // 'node_modules/visualeditor/lib/jquery.i18n/src/languages/hsb.js',
-          // 'node_modules/visualeditor/lib/jquery.i18n/src/languages/hu.js',
-          // 'node_modules/visualeditor/lib/jquery.i18n/src/languages/hy.js',
-          // 'node_modules/visualeditor/lib/jquery.i18n/src/languages/la.js',
-          // 'node_modules/visualeditor/lib/jquery.i18n/src/languages/ml.js',
-          // 'node_modules/visualeditor/lib/jquery.i18n/src/languages/os.js',
-          // 'node_modules/visualeditor/lib/jquery.i18n/src/languages/ru.js',
-          // 'node_modules/visualeditor/lib/jquery.i18n/src/languages/sl.js',
-          // 'node_modules/visualeditor/lib/jquery.i18n/src/languages/uk.js',
+          'node_modules/visualeditor/lib/jquery.i18n/src/jquery.i18n.fallbacks.js'
         ]
       },
       "jquery-uls": {
-        dest: 'tmp/jquery-uls.js',
+        dest: 'vendor/lib/jquery-uls.js',
         src: [
           'node_modules/visualeditor/lib/jquery.uls/src/jquery.uls.data.js',
           'node_modules/visualeditor/lib/jquery.uls/src/jquery.uls.data.utils.js',
         ]
       },
       "oojs-ui": {
-        dest: 'tmp/oojs-ui.js',
+        dest: 'vendor/lib/oojs-ui.js',
         src: [
           'node_modules/visualeditor/lib/oojs-ui/oojs-ui.js',
           'node_modules/visualeditor/lib/oojs-ui/oojs-ui-apex.js'
         ]
       },
-      "one-js-file": {
-        dest: 'vendor/visualEditor.js',
-        src: [
-          'tmp/jquery-i18n.js',
-          'tmp/jquery-uls.js',
-          'tmp/oojs.js',
-          'tmp/oojs-ui.js',
-          'tmp/visualEditor.js'
-        ]
+      "visualEditor-base": {
+        dest: 'vendor/visualEditor-base.js',
+        src: getVeFileList('unicodejs')
+              .concat(getVeFileList('rangefix'))
+              .concat(getVeFileList('visualEditor.base.build'))
+              .concat(getVeFileList('visualEditor.core.build', /^src\/ve\./))
+              .concat(getVeFileList('visualEditor.standalone.build'))
+      },
+      "visualEditor-dm": {
+        dest: 'vendor/visualEditor-dm.js',
+        src: getVeFileList('visualEditor.core.build', /^src\/dm/)
+      },
+      "visualEditor-ce": {
+        dest: 'vendor/visualEditor-ce.js',
+        src: getVeFileList('visualEditor.core.build', /^src\/ce/)
+      },
+      "visualEditor-ui": {
+        dest: 'vendor/visualEditor-ui.js',
+        src: getVeFileList('visualEditor.core.build', /^src\/ui/)
+              .concat(getVeFileList('visualEditor.desktop.build'))
       },
       "one-css-file": {
         dest: 'vendor/styles/visualEditor.css',
@@ -106,17 +117,9 @@ module.exports = function ( grunt ) {
           'tmp/visualEditor.css',
         ]
       }
-    },
-    uglify: {
-      "one-js-file": {
-        files: {
-          'vendor/visualEditor.min.js': ['vendor/visualEditor.js']
-        }
-      },
     }
   });
 
-  grunt.registerTask( 'build', [ 'clean', 'subgrunt', 'copy', 'concat', 'uglify' ] );
+  grunt.registerTask( 'build', [ 'clean', 'subgrunt', 'copy', 'concat' ] );
   grunt.registerTask( 'default', [ 'build' ] );
-
 };
