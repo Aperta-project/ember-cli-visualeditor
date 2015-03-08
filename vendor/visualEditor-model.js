@@ -36,9 +36,11 @@ ve.dm.Model = function VeDmModel( element ) {
 	this.element = element || { type: this.constructor.static.name };
 };
 
-/* Static Properties */
+/* Inheritance */
 
-ve.dm.Model.static = {};
+OO.initClass( ve.dm.Model );
+
+/* Static Properties */
 
 /**
  * Symbolic name for this model class. Must be set to a unique string by every subclass.
@@ -189,74 +191,22 @@ ve.dm.Model.static.toDomElements = function ( dataElement, doc ) {
 ve.dm.Model.static.enableAboutGrouping = false;
 
 /**
- * Which HTML attributes should be preserved for this model type. HTML attributes on the DOM
- * elements that match this specification will be stored as attributes in the linear model. The
- * attributes will be stored in the .htmlAttributes property of the linear model element.
- *
- * When converting back to DOM, these HTML attributes will be restored except for attributes that
- * were already set by #toDomElements.
+ * Which HTML attributes should be preserved for this model type. When converting back to DOM,
+ * these HTML attributes will be restored except for attributes that were already set by #toDomElements.
  *
  * The value of this property can be one of the following:
  *
  * - true, to preserve all attributes (default)
  * - false, to preserve none
- * - a string, to preserve only that attribute
- * - a regular expression matching attributes that should be preserved
- * - an array of strings or regular expressions
- * - an object with the following keys:
- *   - blacklist: specification of attributes not to preserve (boolean|string|RegExp|Array)
- *   - whitelist: specification of attributes to preserve
- *
- * If only a blacklist is specified, all attributes will be preserved except the ones matching
- * the blacklist. If only a whitelist is specified, only those attributes matching the whitelist
- * will be preserved. If both are specified, only attributes that both match the whitelist and
- * do not match the blacklist will be preserved.
+ * - a function that takes an attribute name and returns true or false
  *
  * @static
- * @property {boolean|string|RegExp|Array|Object}
+ * @property {boolean|Function}
  * @inheritable
  */
-ve.dm.Model.static.storeHtmlAttributes = true;
+ve.dm.Model.static.preserveHtmlAttributes = true;
 
 /* Static methods */
-
-/**
- * Determine whether an attribute name matches an attribute specification.
- *
- * @param {string} attribute Attribute name
- * @param {boolean|string|RegExp|Array|Object} spec Attribute specification, see #storeHtmlAttributes
- * @returns {boolean} Attribute matches spec
- */
-ve.dm.Model.matchesAttributeSpec = function ( attribute, spec ) {
-	function matches( subspec ) {
-		if ( subspec instanceof RegExp ) {
-			return !!subspec.exec( attribute );
-		}
-		if ( typeof subspec === 'boolean' ) {
-			return subspec;
-		}
-		return attribute === subspec;
-	}
-
-	function matchesArray( specArray ) {
-		var i, len;
-		if ( !Array.isArray( specArray ) ) {
-			specArray = [ specArray ];
-		}
-		for ( i = 0, len = specArray.length; i < len; i++ ) {
-			if ( matches( specArray[i] ) ) {
-				return true;
-			}
-		}
-		return false;
-	}
-
-	if ( spec.whitelist === undefined && spec.blacklist === undefined ) {
-		// Not an object, treat spec as a whitelist
-		return matchesArray( spec );
-	}
-	return matchesArray( spec.whitelist || true ) && !matchesArray( spec.blacklist || false );
-};
 
 /**
  * Get hash object of a linear model data element.
@@ -269,7 +219,10 @@ ve.dm.Model.static.getHashObject = function ( dataElement ) {
 	return {
 		type: dataElement.type,
 		attributes: dataElement.attributes,
-		htmlAttributes: dataElement.htmlAttributes
+		originalDomElements: dataElement.originalDomElements &&
+			dataElement.originalDomElements.map( function ( el ) {
+				return el.outerHTML;
+			} ).join( '' )
 	};
 };
 
@@ -281,44 +234,6 @@ ve.dm.Model.static.getHashObject = function ( dataElement ) {
  */
 ve.dm.Model.static.getMatchRdfaTypes = function () {
 	return this.matchRdfaTypes;
-};
-
-/**
- * Remove a specified HTML attribute from all DOM elements in the model.
- *
- * @static
- * @param {Object} dataElement Data element
- * @param {string} attribute Attribute name
- */
-ve.dm.Model.static.removeHtmlAttribute = function ( dataElement, attribute ) {
-	function removeAttributeRecursive( children ) {
-		var i;
-		for ( i = 0; i < children.length; i++ ) {
-			if ( children[i].values ) {
-				delete children[i].values[attribute];
-				if ( ve.isEmptyObject( children[i].values ) ) {
-					delete children[i].values;
-				}
-			}
-			if ( children[i].children ) {
-				removeAttributeRecursive( children[i].children );
-				if ( !children[i].children.length ) {
-					delete children[i].children;
-				}
-			}
-			if ( ve.isEmptyObject( children[i] ) ) {
-				children.splice( i, 1 );
-				i--;
-			}
-		}
-	}
-
-	if ( dataElement.htmlAttributes ) {
-		removeAttributeRecursive( dataElement.htmlAttributes );
-		if ( !dataElement.htmlAttributes.length ) {
-			delete dataElement.htmlAttributes;
-		}
-	}
 };
 
 /* Methods */
@@ -393,11 +308,11 @@ ve.dm.Model.prototype.getAttributes = function ( prefix ) {
 };
 
 /**
- * Get the preserved HTML attributes.
- * @returns {Object[]} HTML attribute list, or empty array
+ * Get the DOM element(s) this model was originally converted from, if any.
+ * @return {HTMLElement[]} DOM elements this model was converted from, empty if not applicable
  */
-ve.dm.Model.prototype.getHtmlAttributes = function () {
-	return ( this.element && this.element.htmlAttributes ) || [];
+ve.dm.Model.prototype.getOriginalDomElements = function () {
+	return ( this.element && this.element.originalDomElements ) || [];
 };
 
 /**
@@ -1819,8 +1734,7 @@ ve.dm.metaItemFactory = new ve.dm.MetaItemFactory();
 /*!
  * VisualEditor DataModel ClassAttribute class.
  *
- * @copyright 2011-2015 VisualEditor Team and others; see AUTHORS.txt
- * @license The MIT License (MIT); see LICENSE.txt
+ * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
  */
 
 /**
@@ -1912,7 +1826,10 @@ ve.dm.ClassAttributeNode.static.getClassAttrFromAttributes = function ( attribut
 	// If no meaningful change in classes, preserve order
 	if (
 		attributes.originalClasses &&
-		ve.compare( attributes.originalClasses.trim().split( /\s+/ ).sort(), classNames.sort() )
+		ve.compare(
+			$.unique( attributes.originalClasses.trim().split( /\s+/ ) ).sort(),
+			$.unique( classNames ).sort()
+		)
 	) {
 		return attributes.originalClasses;
 	} else if ( classNames.length > 0 ) {
@@ -1923,7 +1840,7 @@ ve.dm.ClassAttributeNode.static.getClassAttrFromAttributes = function ( attribut
 };
 
 /*!
- * VisualEditor DataModel Alignable node.
+ * VisualEditor DataModel AlignableNode class.
  *
  * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
  */
@@ -1933,77 +1850,27 @@ ve.dm.ClassAttributeNode.static.getClassAttrFromAttributes = function ( attribut
  *
  * @class
  * @abstract
+ * @extends ve.dm.ClassAttributeNode
+ *
  * @constructor
  */
 ve.dm.AlignableNode = function VeDmAlignableNode() {
+	// Parent constructor
+	ve.dm.AlignableNode.super.apply( this, arguments );
 };
 
 /* Inheritance */
 
-OO.initClass( ve.dm.AlignableNode );
+OO.inheritClass( ve.dm.AlignableNode, ve.dm.ClassAttributeNode );
 
 /* Static properties */
 
-/**
- * CSS class to use for each alignment
- *
- * @static
- * @property {Object}
- * @inheritable
- */
-ve.dm.AlignableNode.static.cssClasses = {
-	left: 've-align-left',
-	right: 've-align-right',
-	center: 've-align-center'
-};
+ve.dm.AlignableNode.static.isAlignable = true;
 
-/**
- * Creates attributes for the data element from DOM elements
- *
- * @static
- * @param {Node[]} domElements DOM elements from converter
- * @param {ve.dm.Converter} converter Converter object
- * @return {Object} Attributes for data element
- */
-ve.dm.AlignableNode.static.toDataElementAttributes = function ( domElements ) {
-	var a, align,
-		classList = domElements[0].classList,
-		cssClasses = this.cssClasses;
-
-	for ( a in cssClasses ) {
-		if ( classList.contains( cssClasses[a] ) ) {
-			align = a;
-			break;
-		}
-	}
-
-	if ( align ) {
-		return {
-			align: align,
-			originalAlign: align
-		};
-	} else {
-		return {};
-	}
-};
-
-/**
- * Modify DOM element from the data element during toDomElements
- *
- * @param {Node} domElement Parent DOM element
- * @param {Object} dataElement Linear model element
- * @param {HTMLDocument} doc HTML document for creating elements
- * @return {Object} Attributes for DOM element
- */
-ve.dm.AlignableNode.static.modifyDomElement = function ( domElement, dataElement ) {
-	if ( dataElement.attributes.align !== dataElement.attributes.originalAlign ) {
-		if ( dataElement.attributes.originalAlign ) {
-			$( domElement ).removeClass( 've-align-' + dataElement.attributes.originalAlign );
-		}
-		if ( dataElement.attributes.align ) {
-			$( domElement ).addClass( 've-align-' + dataElement.attributes.align );
-		}
-	}
+ve.dm.AlignableNode.static.classAttributes = {
+	've-align-left': { align: 'left' },
+	've-align-right': { align: 'right' },
+	've-align-center': { align: 'center' }
 };
 
 /*!
@@ -3244,6 +3111,15 @@ ve.dm.Node.static.isContent = false;
 ve.dm.Node.static.isFocusable = false;
 
 /**
+ * Whether this node type is alignable.
+ *
+ * @static
+ * @property {boolean}
+ * @inheritable
+ */
+ve.dm.Node.static.isAlignable = false;
+
+/**
  * Whether this node type can contain content. The children of content container nodes must be
  * content nodes.
  *
@@ -3509,6 +3385,13 @@ ve.dm.Node.prototype.isFocusable = function () {
 };
 
 /**
+ * @inheritdoc ve.Node
+ */
+ve.dm.Node.prototype.isAlignable = function () {
+	return this.constructor.static.isAlignable;
+};
+
+/**
  * Check if the node can have a slug before it.
  *
  * @method
@@ -3700,6 +3583,11 @@ ve.dm.Node.prototype.canBeMergedWith = function ( node ) {
 		n2 = n2.getParent();
 	}
 	return true;
+};
+
+ve.dm.Node.prototype.isResilient = function() {
+	var el = this.getOriginalDomElements()[0];
+	return (el && ( el.dataset.mode === "resilient" ) );
 };
 
 /*!
@@ -4083,7 +3971,7 @@ ve.dm.Annotation.prototype.getDomElements = function ( doc ) {
  */
 ve.dm.Annotation.prototype.getComparableObject = function () {
 	var hashObject = this.getHashObject();
-	delete hashObject.htmlAttributes;
+	delete hashObject.originalDomElements;
 	return hashObject;
 };
 
@@ -4096,15 +3984,13 @@ ve.dm.Annotation.prototype.getComparableObject = function () {
  * @returns {Object} An object all HTML attributes except data-parsoid
  */
 ve.dm.Annotation.prototype.getComparableHtmlAttributes = function () {
-	var comparableAttributes, attributes = this.getHtmlAttributes();
-
-	if ( attributes[0] ) {
-		comparableAttributes = ve.copy( attributes[0].values );
+	var comparableAttributes, domElements = this.getOriginalDomElements();
+	if ( domElements[0] ) {
+		comparableAttributes = ve.getDomAttributes( domElements[0] );
 		delete comparableAttributes['data-parsoid'];
 		return comparableAttributes;
-	} else {
-		return {};
 	}
+	return {};
 };
 
 /**
@@ -4134,10 +4020,10 @@ ve.dm.Annotation.prototype.getComparableObjectForSerialization = function () {
  * @returns {boolean} The annotation was generated
  */
 ve.dm.Annotation.prototype.isGenerated = function () {
-	// Only annotations and nodes generated by the converter have htmlAttributes set.
-	// If this annotation was not generated by the converter, this.getHtmlAttributes()
+	// Only annotations and nodes generated by the converter have originalDomElements set.
+	// If this annotation was not generated by the converter, this.getOriginalDomElements()
 	// will return an empty array.
-	return this.getHtmlAttributes().length > 0;
+	return this.getOriginalDomElements().length > 0;
 };
 
 /**
@@ -6230,8 +6116,8 @@ ve.dm.Transaction.newFromRemoval = function ( doc, range, removeMetadata ) {
  * @returns {ve.dm.Transaction} Transaction that inserts the nodes and updates the internal list
  */
 ve.dm.Transaction.newFromDocumentInsertion = function ( doc, offset, newDoc, newDocRange ) {
-	var i, len, merge, data, metadata, listData, listMetadata, oldEndOffset, newEndOffset, tx,
-		insertion, spliceItemRange, spliceListNodeRange,
+	var i, len, storeMerge, listMerge, data, metadata, listData, listMetadata, linearData,
+		oldEndOffset, newEndOffset, tx, insertion, spliceItemRange, spliceListNodeRange,
 		listNode = doc.internalList.getListNode(),
 		listNodeRange = listNode.getRange(),
 		newListNode = newDoc.internalList.getListNode(),
@@ -6259,13 +6145,13 @@ ve.dm.Transaction.newFromDocumentInsertion = function ( doc, offset, newDoc, new
 	}
 
 	// Merge the stores
-	merge = doc.getStore().merge( newDoc.getStore() );
+	storeMerge = doc.getStore().merge( newDoc.getStore() );
 	// Remap the store indexes in the data
-	data.remapStoreIndexes( merge );
+	data.remapStoreIndexes( storeMerge );
 
-	merge = doc.internalList.merge( newDoc.internalList, newDoc.origInternalListLength || 0 );
+	listMerge = doc.internalList.merge( newDoc.internalList, newDoc.origInternalListLength || 0 );
 	// Remap the indexes in the data
-	data.remapInternalListIndexes( merge.mapping, doc.internalList );
+	data.remapInternalListIndexes( listMerge.mapping, doc.internalList );
 	// Get data for the new internal list
 	if ( newDoc.origDoc === doc ) {
 		// newDoc is a document slice based on doc, so all the internal list items present in doc
@@ -6278,7 +6164,13 @@ ve.dm.Transaction.newFromDocumentInsertion = function ( doc, offset, newDoc, new
 			oldEndOffset = listNodeRange.start;
 			newEndOffset = newListNodeRange.start;
 		}
-		listData = newDoc.getData( new ve.Range( newListNodeRange.start, newEndOffset ), true )
+		linearData = new ve.dm.ElementLinearData(
+			doc.getStore(),
+			newDoc.getData( new ve.Range( newListNodeRange.start, newEndOffset ), true )
+		);
+		// Remap indexes in data coming from newDoc
+		linearData.remapStoreIndexes( storeMerge );
+		listData = linearData.data
 			.concat( doc.getData( new ve.Range( oldEndOffset, listNodeRange.end ), true ) );
 		listMetadata = newDoc.getMetadata( new ve.Range( newListNodeRange.start, newEndOffset ), true )
 			.concat( doc.getMetadata( new ve.Range( oldEndOffset, listNodeRange.end ), true ) );
@@ -6287,11 +6179,17 @@ ve.dm.Transaction.newFromDocumentInsertion = function ( doc, offset, newDoc, new
 		listData = doc.getData( listNodeRange, true );
 		listMetadata = doc.getMetadata( listNodeRange, true );
 	}
-	for ( i = 0, len = merge.newItemRanges.length; i < len; i++ ) {
-		listData = listData.concat( newDoc.getData( merge.newItemRanges[i], true ) );
+	for ( i = 0, len = listMerge.newItemRanges.length; i < len; i++ ) {
+		linearData = new ve.dm.ElementLinearData(
+			doc.getStore(),
+			newDoc.getData( listMerge.newItemRanges[i], true )
+		);
+		// Remap indexes in data coming from newDoc
+		linearData.remapStoreIndexes( storeMerge );
+		listData = listData.concat( linearData.data );
 		// We don't have to worry about merging metadata at the edges, because there can't be
 		// metadata between internal list items
-		listMetadata = listMetadata.concat( newDoc.getMetadata( merge.newItemRanges[i], true ) );
+		listMetadata = listMetadata.concat( newDoc.getMetadata( listMerge.newItemRanges[i], true ) );
 	}
 
 	tx = new ve.dm.Transaction();
@@ -8048,10 +7946,13 @@ ve.dm.TableSelection = function VeDmTableSelection( doc, tableRange, fromCol, fr
 	this.tableRange = tableRange;
 	this.tableNode = null;
 
+	toCol = toCol === undefined ? fromCol : toCol;
+	toRow = toRow === undefined ? fromRow : toRow;
+
 	this.fromCol = fromCol;
 	this.fromRow = fromRow;
-	this.toCol = toCol === undefined ? this.fromCol : toCol;
-	this.toRow = toRow === undefined ? this.fromRow : toRow;
+	this.toCol = toCol;
+	this.toRow = toRow;
 	this.startCol = fromCol < toCol ? fromCol : toCol;
 	this.startRow = fromRow < toRow ? fromRow : toRow;
 	this.endCol = fromCol < toCol ? toCol : fromCol;
@@ -9116,11 +9017,8 @@ ve.dm.Surface.prototype.selectFirstContentOffset = function () {
 	if ( firstOffset !== -1 ) {
 		// Found a content offset
 		this.setLinearSelection( new ve.Range( firstOffset ) );
-	} else if ( this.getDocument().hasSlugAtOffset( 0 ) ) {
-		// Found a slug at 0
-		this.setLinearSelection( new ve.Range( 0 ) );
 	} else {
-		// Document is full of slugless structural nodes, just give up
+		// Document is full of structural nodes, just give up
 		this.setNullSelection();
 	}
 };
@@ -9376,9 +9274,9 @@ ve.dm.SurfaceFragment = function VeDmSurfaceFragment( surface, selection, noAuto
 	this.historyPointer = this.document.getCompleteHistoryLength();
 };
 
-/* Static Properties */
+/* Inheritance */
 
-ve.dm.SurfaceFragment.static = {};
+OO.initClass( ve.dm.SurfaceFragment );
 
 /* Methods */
 
@@ -10042,6 +9940,9 @@ ve.dm.SurfaceFragment.prototype.annotateContent = function ( method, nameOrAnnot
  * different from what a normal range translation would do: the insertion might occur
  * at a different offset if that is needed to make the document balanced.
  *
+ * If the content is a plain text string containing linebreaks, each line will be wrapped
+ * in a paragraph.
+ *
  * @method
  * @param {string|Array} content Content to insert, can be either a string or array of data
  * @param {boolean} annotate Content should be automatically annotated to match surrounding content
@@ -10052,7 +9953,7 @@ ve.dm.SurfaceFragment.prototype.insertContent = function ( content, annotate ) {
 		return this;
 	}
 
-	var annotations, tx, offset, newRange;
+	var i, l, lines, annotations, tx, offset, newRange;
 
 	if ( !this.getSelection( true ).isCollapsed() ) {
 		// If we're replacing content, use the annotations selected
@@ -10064,7 +9965,20 @@ ve.dm.SurfaceFragment.prototype.insertContent = function ( content, annotate ) {
 	offset = this.getSelection( true ).getRange().start;
 	// Auto-convert content to array of plain text characters
 	if ( typeof content === 'string' ) {
-		content = content.split( '' );
+		lines = content.split( /[\r\n]+/ );
+
+		if ( lines.length > 1 ) {
+			content = [];
+			for ( i = 0, l = lines.length; i < l; i++ ) {
+				if ( lines[i].length ) {
+					content.push( { type: 'paragraph' } );
+					content = content.concat( lines[i].split( '' ) );
+					content.push( { type: '/paragraph' } );
+				}
+			}
+		} else {
+			content = content.split( '' );
+		}
 	}
 	if ( content.length ) {
 		if ( annotate && !annotations ) {
@@ -10147,79 +10061,6 @@ ve.dm.SurfaceFragment.prototype.removeContent = function () {
 	return this;
 };
 
-// TODO would be good if this would be a built-in feature
-ve.dm.SurfaceFragment.prototype.isResilient = function(node) {
-	if (node.isResilient) {
-		return node.isResilient();
-	}
-	var htmlAttrs = node.getHtmlAttributes()[0];
-	return (htmlAttrs && htmlAttrs.values["data-mode"] === "resilient");
-};
-
-ve.dm.SurfaceFragment.prototype.deleteResilient = function(node, rangeToRemove, transformedRanges) {
-	var hasResilient = false;
-	var outerRange, innerRange, maskedInnerRange, maskedOuterRange;
-	var childRanges, childHasResilient;
-
-	for (var i = 0; i < node.children.length; i++) {
-		var child = node.children[i];
-		outerRange = child.getOuterRange();
-		if (outerRange.start > rangeToRemove.end || outerRange.end < rangeToRemove.start) {
-			continue;
-		}
-		innerRange = child.getRange();
-		maskedOuterRange = new ve.Range(
-			Math.max(outerRange.start, rangeToRemove.start),
-			Math.min(outerRange.end, rangeToRemove.end)
-		);
-		// delete the child if it is not resilient and
-		var isFull = rangeToRemove.containsRange(outerRange);
-		var isResilient = this.isResilient(child);
-		if (isResilient) {
-			hasResilient = true;
-			if (child.canHaveChildren()) {
-				var contentOffset = Math.min(this.document.data.getNearestContentOffset(innerRange.start,1), innerRange.end);
-				if (contentOffset >= innerRange.end) {
-					contentOffset = innerRange.start;
-				}
-				maskedInnerRange = new ve.Range(
-					// HACK: need this as otherwise the first open tag gets deleted
-					// when backspacing at the first position
-					Math.max(contentOffset, rangeToRemove.start),
-					Math.min(innerRange.end, rangeToRemove.end)
-				);
-				childRanges = [];
-				childHasResilient = this.deleteResilient(child, maskedInnerRange, childRanges);
-				if (childHasResilient) {
-						transformedRanges = transformedRanges.concat(childRanges);
-				} else {
-					transformedRanges.push(maskedInnerRange);
-				}
-			}
-		} else if (isFull) {
-			transformedRanges.push(outerRange);
-		} else {
-			if (child.canHaveChildren()) {
-				maskedInnerRange = new ve.Range(
-					Math.max(innerRange.start, rangeToRemove.start),
-					Math.min(innerRange.end, rangeToRemove.end)
-				);
-				childRanges = [];
-				childHasResilient = this.deleteResilient(child, maskedInnerRange, childRanges);
-				if (childHasResilient) {
-					hasResilient = true;
-					transformedRanges = transformedRanges.concat(childRanges);
-				} else {
-					transformedRanges.push(maskedOuterRange);
-				}
-			} else {
-				transformedRanges.push(maskedOuterRange);
-			}
-		}
-	}
-	return hasResilient;
-};
-
 /**
  * Delete content and correct selection
  *
@@ -10227,87 +10068,80 @@ ve.dm.SurfaceFragment.prototype.deleteResilient = function(node, rangeToRemove, 
  * @param {number} [directionAfterDelete=-1] Direction to move after delete: 1 or -1 or 0
  * @chainable
  */
-ve.dm.SurfaceFragment.prototype.delete = function ( directionAfterDelete, withoutResilience) {
+ve.dm.SurfaceFragment.prototype.delete = function ( directionAfterDelete ) {
 	if ( !( this.selection instanceof ve.dm.LinearSelection ) ) {
 		return this;
 	}
 
-	var rangeAfterRemove, internalListRange,
-		tx, startNode, endNode, endNodeData, nodeToDelete,
+	var rangeAfterRemove,
+		tx, startNode, endNode, endNodeData, nodeToDelete, isResilient,
 		rangeToRemove = this.getSelection( true ).getRange();
 
 	if ( rangeToRemove.isCollapsed() ) {
 		return this;
 	}
 
-	var hasResilient = false;
+	// traverse up to the node which completely spans rangeToRemove
+	var root = this.getDocument().getDocumentNode().getNodeFromOffset( rangeToRemove.start );
 
-	if (!withoutResilience) {
-		var rangesToRemove = [];
-		hasResilient = this.deleteResilient(this.document.documentNode, rangeToRemove, rangesToRemove);
-		if (hasResilient) {
-			// remove each computed range from right to left
-			// TODO: maybe we could do a low-level delete here?
-			for (var i = rangesToRemove.length - 1; i >= 0; i--) {
-				var fragment = new ve.dm.SurfaceFragment( this.getSurface(),
-					new ve.dm.LinearSelection(this.getDocument(), rangesToRemove[i]));
-				fragment.delete(directionAfterDelete, "withoutResilience");
-			}
-			rangeAfterRemove = new ve.Range( rangeToRemove.start );
+	// trivial case: rangeToRemove is completely within the leaf node (99% use case for 1-char deletions)
+	if (root.getRange().containsRange(rangeToRemove)) {
+		tx = ve.dm.Transaction.newFromRemoval( this.document, rangeToRemove );
+		this.change( tx );
+		rangeAfterRemove = tx.translateRange( rangeToRemove );
+	} else {
+		while (!root.getOuterRange().containsRange(rangeToRemove)) {
+			root = root.getParent();
 		}
+		rangeAfterRemove = this._deleteResilient(root, rangeToRemove, rangeToRemove);
 	}
 
-	if (!hasResilient) {
-		// If selection spans entire document (selectAll) then
-		// replace with an empty paragraph
-		internalListRange = this.document.getInternalList().getListNode().getOuterRange();
-		if ( rangeToRemove.start === 0 && rangeToRemove.end >= internalListRange.start ) {
-			tx = ve.dm.Transaction.newFromReplacement( this.document, new ve.Range( 0, internalListRange.start ), [
-				{ type: 'paragraph' },
-				{ type: '/paragraph' }
-			] );
-			this.change( tx );
-			rangeAfterRemove = new ve.Range( 1 );
-		} else {
-			tx = ve.dm.Transaction.newFromRemoval( this.document, rangeToRemove );
-			this.change( tx );
-			rangeAfterRemove = tx.translateRange( rangeToRemove );
-		}
-		if ( !rangeAfterRemove.isCollapsed() ) {
-			// If after processing removal transaction range is not collapsed it means that not
-			// everything got merged nicely (at this moment transaction processor is capable of merging
-			// nodes of the same type and at the same depth level only), so we process with another
-			// merging that takes remaining data from endNode and inserts it at the end of startNode,
-			// endNode or recursively its parent (if have only one child) gets removed.
-			//
-			// If startNode has no content then we just delete that node instead of merging.
-			// This prevents content being inserted into empty structure which, e.g. and empty heading
-			// will be deleted, rather than "converting" the paragraph beneath to a heading.
+	if ( !rangeAfterRemove.isCollapsed() ) {
+		// If after processing removal transaction range is not collapsed it means that not
+		// everything got merged nicely (at this moment transaction processor is capable of merging
+		// nodes of the same type and at the same depth level only), so we process with another
+		// merging that takes remaining data from endNode and inserts it at the end of startNode,
+		// endNode or recursively its parent (if have only one child) gets removed.
+		//
+		// If startNode has no content then we just delete that node instead of merging.
+		// This prevents content being inserted into empty structure which, e.g. and empty heading
+		// will be deleted, rather than "converting" the paragraph beneath to a heading.
 
-			endNode = this.document.getBranchNodeFromOffset( rangeAfterRemove.end, false );
+		endNode = this.document.getBranchNodeFromOffset( rangeAfterRemove.end, false );
 
-			// If endNode is within our rangeAfterRemove, then we shouldn't delete it
-			if ( endNode.getRange().start >= rangeAfterRemove.end ) {
-				startNode = this.document.getBranchNodeFromOffset( rangeAfterRemove.start, false );
-				if ( startNode.getRange().isCollapsed() ) {
-					// Remove startNode
-					this.change( [
-						ve.dm.Transaction.newFromRemoval(
-							this.document, startNode.getOuterRange()
-						)
-					] );
-				} else {
-					endNodeData = this.document.getData( endNode.getRange() );
-					nodeToDelete = endNode;
-					nodeToDelete.traverseUpstream( function ( node ) {
-						var parent = node.getParent();
-						if ( parent.children.length === 1 ) {
-							nodeToDelete = parent;
-							return true;
-						} else {
-							return false;
-						}
-					} );
+		// If endNode is within our rangeAfterRemove, then we shouldn't delete it
+		if ( endNode.getRange().start >= rangeAfterRemove.end ) {
+			startNode = this.document.getBranchNodeFromOffset( rangeAfterRemove.start, false );
+			if ( startNode.getRange().isCollapsed() && !startNode.isResilient() ) {
+				// Remove startNode
+				this.change( [
+					ve.dm.Transaction.newFromRemoval(
+						this.document, startNode.getOuterRange()
+					)
+				] );
+			} else {
+				endNodeData = this.document.getData( endNode.getRange() );
+				nodeToDelete = endNode;
+				nodeToDelete.traverseUpstream( function ( node ) {
+					var parent = node.getParent();
+					if ( parent.children.length === 1 ) {
+						nodeToDelete = parent;
+						return true;
+					} else {
+						return false;
+					}
+				} );
+				// check if the node is within a resilient branch
+				isResilient = false;
+				nodeToDelete.traverseUpstream( function ( node ) {
+					if (node === root) {
+						return false;
+					}
+					isResilient = node.isResilient();
+					return !isResilient;
+				} );
+				// only delete if it has no resilient ancestors
+				if (!isResilient) {
 					// Move contents of endNode into startNode, and delete nodeToDelete
 					this.change( [
 						ve.dm.Transaction.newFromRemoval(
@@ -10319,9 +10153,20 @@ ve.dm.SurfaceFragment.prototype.delete = function ( directionAfterDelete, withou
 					] );
 				}
 			}
-			rangeAfterRemove = new ve.Range( rangeAfterRemove.start );
 		}
+		rangeAfterRemove = new ve.Range( rangeAfterRemove.start );
 	}
+
+	// insert an empty paragraph if the document is empty after all
+	if (this.document.getDocumentNode().getLength() === 0) {
+		tx = ve.dm.Transaction.newFromInsertion( this.document, 0, [
+			{ type: 'paragraph' },
+			{ type: '/paragraph' }
+		] );
+		this.change( tx );
+		rangeAfterRemove = new ve.Range( 1 );
+	}
+
 	// rangeAfterRemove is now guaranteed to be collapsed so make sure that it is a content offset
 	if ( !this.document.data.isContentOffset( rangeAfterRemove.start ) ) {
 		rangeAfterRemove = this.document.getRelativeRange(
@@ -10333,6 +10178,105 @@ ve.dm.SurfaceFragment.prototype.delete = function ( directionAfterDelete, withou
 	this.change( [], new ve.dm.LinearSelection( this.getDocument(), rangeAfterRemove ) );
 
 	return this;
+};
+
+ve.dm.SurfaceFragment.prototype._deleteResilient = function ( node, rangeToRemove, rangeAfterRemove ) {
+	var isResilient = [],
+		children = [],
+		child, i, leftOffset, rightOffset, tx;
+
+	// Trivial case: nothing to remove
+	if (rangeToRemove.isCollapsed()) {
+		return rangeAfterRemove;
+	}
+
+	// Treat LeafNodes normally
+	// Note: if the node itself is resilient, rangeToRemove should have been prepared to be a valid inner content range
+	if (!node.canHaveChildren()) {
+		tx = ve.dm.Transaction.newFromRemoval( this.document, rangeToRemove );
+		this.change( tx );
+		rangeAfterRemove = tx.translateRange( rangeAfterRemove );
+		return rangeAfterRemove;
+	}
+
+	// Prepare a isResilient lookup table which is necessary to
+	// compute proper inner content ranges (see below)
+	for (i = 0; i < node.children.length; i++) {
+		child = node.children[i];
+		if (child.getOuterRange().intersects(rangeToRemove)) {
+			children.push(child);
+			isResilient.push(child.isResilient());
+		}
+	}
+
+	// Performing deletions in reverse order so that the ranges do not interfer with other recursion levels
+	for (i = children.length - 1; i >= 0; i--) {
+		child = children[i];
+		// Resilient nodes do not get deleted (only if the parent gets deleted)
+		// Instead, deletion is done on an inner content range
+		// Note: it is important to compute a valid content range based on content offsets.
+		if (child.isResilient()) {
+			leftOffset = Math.max(
+				// make sure that the computed content offset is still within the node (minimum with end)
+				Math.min(this.document.data.getNearestContentOffset(child.getRange().start, 1), child.getRange().end),
+				rangeToRemove.start
+			);
+			rightOffset = Math.min(
+				// make sure that the computed content offset is still within the node (maximum with start)
+				Math.max(this.document.data.getNearestContentOffset(child.getRange().end, -1), child.getRange().start),
+				rangeToRemove.end
+			);
+			// delete inner range recursively
+			rangeAfterRemove = this._deleteResilient(child, new ve.Range(leftOffset, rightOffset), rangeAfterRemove);
+		}
+		// Normal non-resilient nodes...
+		else {
+			// trivial case: delete the whole node if it is fully selected
+			if ( rangeToRemove.containsRange( child.getOuterRange() ) ) {
+				tx = ve.dm.Transaction.newFromRemoval( this.document, child.getOuterRange() );
+				this.change( tx );
+				rangeAfterRemove = tx.translateRange( rangeAfterRemove );
+			}
+			// Otherwise, delete recursively
+			// Note: this is important so that resilient nodes on an inner level are considered a well
+			else {
+				// We need to be careful that we do not delete open/close tags in presence of a resilient sibling,
+				// as the according close/open tag of the resilient node doesn't get deleted.
+				// Example:
+				//   [<p>,a,b,c,</p>,<p>,d,e,f,</p>]
+				//
+				//   Consider the deletion of range [3,7[ (= c-> e)
+				//   Without resilience, the tags at [4,5] can be deleted even when the range is
+				//   split (as done here) into [3,5[ and  [5,7[
+				//     -> [<p>,a,b,e,f,</p>]
+				//
+				//   Now consider the first node resilient, which means that [4] is not deleted.
+				//   This, the second tag [5] must not be deleted, accordingly.
+				//   To retain a valid structure, the following ranges need to be deleted instead: [3, 4[, [6, 7[
+				//     -> [<p>,a,b</p>,<p>,e,f,</p>]
+				//
+				if (isResilient[i-1]) {
+					leftOffset = Math.max(
+						Math.min( this.document.data.getNearestContentOffset(child.getOuterRange().start, 1), child.getOuterRange().end ),
+						rangeToRemove.start
+					);
+				} else {
+					leftOffset = Math.max(child.getOuterRange().start, rangeToRemove.start);
+				}
+				if (isResilient[i+1]) {
+					rightOffset = Math.min(
+						Math.max( this.document.data.getNearestContentOffset(child.getOuterRange().end, -1), child.getOuterRange().start),
+						rangeToRemove.end
+					);
+				} else {
+					rightOffset = Math.min(child.getOuterRange().end, rangeToRemove.end);
+				}
+				rangeAfterRemove = this._deleteResilient(child, new ve.Range(leftOffset, rightOffset), rangeAfterRemove);
+			}
+		}
+	}
+
+	return rangeAfterRemove;
 };
 
 /**
@@ -12087,9 +12031,11 @@ ve.dm.LinearData = function VeDmLinearData( store, data ) {
 	this.data = data || [];
 };
 
-/* Static Methods */
+/* Inheritance */
 
-ve.dm.LinearData.static = {};
+OO.initClass( ve.dm.LinearData );
+
+/* Static Methods */
 
 /**
  * Get the type of an element
@@ -12835,7 +12781,7 @@ ve.dm.Converter = function VeDmConverter( modelRegistry, nodeFactory, annotation
 /* Static Properties */
 
 /**
- * List of HTML attribute names that {#buildHtmlAttributeList} should store computed values for.
+ * List of HTML attribute names that {#renderHtmlAttributeList} should use computed values for.
  * @type {string[]}
  */
 ve.dm.Converter.computedAttributes = [ 'href', 'src' ];
@@ -12932,97 +12878,60 @@ ve.dm.Converter.openAndCloseAnnotations = function ( currentSet, targetSet, open
 };
 
 /**
- * Build an HTML attribute list for attribute preservation.
- *
- * The attribute list is an array of objects, one for each DOM element. Each object contains a
- * map with attribute keys and values in .values, a map with a subset of the attribute keys and
- * their computed values in .computed (see {#computedAttributes}), and an array of attribute lists
- * for the child nodes in .children .
+ * Copy attributes from one set of DOM elements to another.
  *
  * @static
- * @param {HTMLElement[]} domElements Array of DOM elements to build attribute list for
- * @param {boolean|string|RegExp|Array|Object} spec Attribute specification, see ve.dm.Model
- * @param {boolean} [deep=false] If true, recurse into children. If false, .children will be empty
- * @param {Object[]} [attributeList] Existing attribute list to populate; used for recursion
- * @returns {Object[]|undefined} Attribute list, or undefined if empty
- */
-ve.dm.Converter.buildHtmlAttributeList = function ( domElements, spec, deep, attributeList ) {
-	var i, ilen, j, jlen, domAttributes, childList, attrName,
-		empty = true;
-	attributeList = attributeList || [];
-	for ( i = 0, ilen = domElements.length; i < ilen; i++ ) {
-		domAttributes = domElements[i].attributes || [];
-		attributeList[i] = { values: {} };
-		for ( j = 0, jlen = domAttributes.length; j < jlen; j++ ) {
-			attrName = domAttributes[j].name;
-			if ( ve.dm.Model.matchesAttributeSpec( attrName, spec ) ) {
-				attributeList[i].values[attrName] = domAttributes[j].value;
-				if ( ve.indexOf( attrName, this.computedAttributes ) !== -1 ) {
-					if ( !attributeList[i].computed ) {
-						attributeList[i].computed = {};
-					}
-					attributeList[i].computed[attrName] = domElements[i][attrName];
-				}
-				empty = false;
-			}
-		}
-		if ( deep ) {
-			attributeList[i].children = [];
-			childList = ve.dm.Converter.buildHtmlAttributeList(
-				// Use .children rather than .childNodes so we don't mess around with things that
-				// can't have attributes anyway. Unfortunately, non-element nodes have .children
-				// set to undefined so we have to coerce it to an array in that case.
-				domElements[i].children || [], spec, deep, attributeList[i].children
-			);
-			if ( childList ) {
-				empty = false;
-			} else {
-				delete attributeList[i].children;
-			}
-		}
-	}
-	return empty ? undefined : attributeList;
-};
-
-/**
- * Render an attribute list onto a set of DOM elements.
- *
- * Attributes set to undefined will be removed. The attribute specification restricts which
- * attributes are rendered.
- *
- * @static
- * @param {Object[]} attributeList Attribute list, see buildHtmlAttributeList()
- * @param {HTMLElement[]} domElements Array of DOM elements to render onto
- * @param {boolean|string|RegExp|Array|Object} [spec=true] Attribute specification, see ve.dm.Model
+ * @param {HTMLElement[]} originalDomElements Array of DOM elements to render from
+ * @param {HTMLElement[]} targetDomElements Array of DOM elements to render onto
+ * @param {boolean|Function} [filter=true] Attribute filter
  * @param {boolean} [computed=false] If true, use the computed values of attributes where available
- * @param {boolean} [overwrite=false] If true, overwrite attributes that are already set
+ * @param {boolean} [deep=false] Recurse into child nodes
  */
-ve.dm.Converter.renderHtmlAttributeList = function ( attributeList, domElements, spec, computed, overwrite ) {
-	var i, ilen, key, values, value;
-	if ( spec === undefined ) {
-		spec = true;
+ve.dm.Converter.renderHtmlAttributeList = function ( originalDomElements, targetDomElements, filter, computed, deep ) {
+	var i, ilen, j, jlen, attrs, value;
+	if ( filter === undefined ) {
+		filter = true;
 	}
-	if ( spec === false ) {
+	if ( filter === false ) {
 		return;
 	}
-	for ( i = 0, ilen = attributeList.length; i < ilen; i++ ) {
-		if ( !domElements[i] ) {
+
+	for ( i = 0, ilen = originalDomElements.length; i < ilen; i++ ) {
+		if ( !targetDomElements[i] ) {
 			continue;
 		}
-		values = attributeList[i].values;
-		for ( key in values ) {
-			if ( ve.dm.Model.matchesAttributeSpec( key, spec ) ) {
-				value = computed && attributeList[i].computed && attributeList[i].computed[key] || values[key];
-				if ( value === undefined ) {
-					domElements[i].removeAttribute( key );
-				} else if ( overwrite || !domElements[i].hasAttribute( key ) ) {
-					domElements[i].setAttribute( key, value );
+		attrs = originalDomElements[i].attributes;
+		if ( !attrs ) {
+			continue;
+		}
+		for ( j = 0, jlen = attrs.length; j < jlen; j++ ) {
+			if (
+				!targetDomElements[i].hasAttribute( attrs[j].name ) &&
+				( filter === true || filter( attrs[j].name ) )
+			) {
+				if ( computed && ve.dm.Converter.computedAttributes.indexOf( attrs[j].name ) !== -1 ) {
+					value = originalDomElements[i][attrs[j].name];
+				} else {
+					value = attrs[j].value;
 				}
+				targetDomElements[i].setAttribute( attrs[j].name, value );
+			}
+
+			if ( filter === true || filter( attrs[j].name ) ) {
+				value = computed && ve.dm.Converter.computedAttributes.indexOf( attrs[j].name ) !== -1 ?
+					originalDomElements[i][attrs[j].name] :
+					attrs[j].value;
 			}
 		}
-		if ( attributeList[i].children ) {
+
+		// Descend into element children only (skipping text nodes and comment nodes)
+		if ( deep && originalDomElements[i].children.length > 0 ) {
 			ve.dm.Converter.renderHtmlAttributeList(
-				attributeList[i].children, domElements[i].children, spec, computed, overwrite
+				originalDomElements[i].children,
+				targetDomElements[i].children,
+				filter,
+				computed,
+				true
 			);
 		}
 	}
@@ -13115,6 +13024,23 @@ ve.dm.Converter.prototype.isExpectingContent = function () {
 };
 
 /**
+ * Whether the converter can currently accept a child node with the given type.
+ *
+ * @method
+ * @param {string} nodeType
+ * @returns {boolean|null} Whether the node type is valid, or null if not converting
+ */
+ve.dm.Converter.prototype.isValidChildNodeType = function ( nodeType ) {
+	var childTypes,
+		context = this.getCurrentContext();
+	if ( !context ) {
+		return null;
+	}
+	childTypes = this.nodeFactory.getChildNodeTypes( context.branchType );
+	return ( childTypes === null || ve.indexOf( nodeType, childTypes ) !== -1 );
+};
+
+/**
  * Whether the conversion is currently inside a wrapper paragraph generated by the converter.
  * Note that this is specific to the current recursion level.
  *
@@ -13164,8 +13090,19 @@ ve.dm.Converter.prototype.getDomElementsFromDataElement = function ( dataElement
 	if ( !Array.isArray( domElements ) && !( nodeClass.prototype instanceof ve.dm.Annotation ) ) {
 		throw new Error( 'toDomElements() failed to return an array when converting element of type ' + dataElement.type );
 	}
-	if ( dataElement.htmlAttributes ) {
-		ve.dm.Converter.renderHtmlAttributeList( dataElement.htmlAttributes, domElements );
+	// Optimization: don't call renderHtmlAttributeList if returned domElements are equal to the originals
+	if ( dataElement.originalDomElements && !ve.isEqualDomElements( domElements, dataElement.originalDomElements ) ) {
+		ve.dm.Converter.renderHtmlAttributeList(
+			dataElement.originalDomElements,
+			domElements,
+			nodeClass.static.preserveHtmlAttributes,
+			// computed
+			false,
+			// deep
+			!( nodeClass instanceof ve.dm.Node ) ||
+				!this.nodeFactory.canNodeHaveChildren( dataElement.type ) ||
+				this.nodeFactory.doesNodeHandleOwnChildren( dataElement.type )
+		);
 	}
 	return domElements;
 };
@@ -13409,9 +13346,9 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 		return true;
 	}
 
-	var i, childNode, childNodes, childDataElements, text, childTypes, matches,
+	var i, childNode, childNodes, childDataElements, text, matches,
 		wrappingParagraph, prevElement, childAnnotations, modelName, modelClass,
-		annotation, childIsContent, aboutGroup, htmlAttributes, emptyParagraph,
+		annotation, childIsContent, aboutGroup, emptyParagraph,
 		modelRegistry = this.modelRegistry,
 		data = [],
 		nextWhitespace = '',
@@ -13474,14 +13411,12 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 					modelClass = this.modelRegistry.lookup( childDataElements[0].type );
 				}
 
+				if ( childDataElements && childDataElements[0] ) {
+					childDataElements[0].originalDomElements = childNodes;
+				}
+
 				// Now take the appropriate action based on that
 				if ( modelClass.prototype instanceof ve.dm.Annotation ) {
-					htmlAttributes = ve.dm.Converter.buildHtmlAttributeList(
-						childNodes, modelClass.static.storeHtmlAttributes
-					);
-					if ( htmlAttributes ) {
-						childDataElements[0].htmlAttributes = htmlAttributes;
-					}
 					annotation = this.annotationFactory.create( modelName, childDataElements[0] );
 					// Start wrapping if needed
 					if ( !context.inWrapper && !context.expectingContent ) {
@@ -13509,12 +13444,6 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 				} else {
 					// Node or meta item
 					if ( modelClass.prototype instanceof ve.dm.MetaItem ) {
-						htmlAttributes = ve.dm.Converter.buildHtmlAttributeList(
-							childNodes, modelClass.static.storeHtmlAttributes, true
-						);
-						if ( htmlAttributes ) {
-							childDataElements[0].htmlAttributes = htmlAttributes;
-						}
 						// No additional processing needed
 						// Write to data and continue
 						if ( childDataElements.length === 1 ) {
@@ -13585,12 +13514,6 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 						this.nodeFactory.canNodeHaveChildren( childDataElements[0].type ) &&
 						!this.nodeFactory.doesNodeHandleOwnChildren( childDataElements[0].type )
 					) {
-						htmlAttributes = ve.dm.Converter.buildHtmlAttributeList(
-							childNodes, modelClass.static.storeHtmlAttributes
-						);
-						if ( htmlAttributes ) {
-							childDataElements[0].htmlAttributes = htmlAttributes;
-						}
 						// Recursion
 						// Opening and closing elements are added by the recursion too
 						outputWrappedMetaItems( 'restore' );
@@ -13602,12 +13525,6 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 					} else {
 						if ( childDataElements.length === 1 ) {
 							childDataElements.push( { type: '/' + childDataElements[0].type } );
-						}
-						htmlAttributes = ve.dm.Converter.buildHtmlAttributeList(
-							childNodes, modelClass.static.storeHtmlAttributes, true
-						);
-						if ( htmlAttributes ) {
-							childDataElements[0].htmlAttributes = htmlAttributes;
 						}
 						// Write childDataElements directly
 						outputWrappedMetaItems( 'restore' );
@@ -13760,11 +13677,10 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 
 	// If we're closing a node that doesn't have any children, but could contain a paragraph,
 	// add a paragraph. This prevents things like empty list items
-	childTypes = this.nodeFactory.getChildNodeTypes( context.branchType );
 	if ( context.branchType !== 'paragraph' && wrapperElement && data[data.length - 1] === wrapperElement &&
 		!context.inWrapper && !this.nodeFactory.canNodeContainContent( context.branchType ) &&
 		!this.nodeFactory.isNodeContent( context.branchType ) &&
-		( childTypes === null || ve.indexOf( 'paragraph', childTypes ) !== -1 )
+		this.isValidChildNodeType( 'paragraph' )
 	) {
 		emptyParagraph = { type: 'paragraph', internal: { generated: 'empty' } };
 		processNextWhitespace( emptyParagraph );
@@ -15340,7 +15256,7 @@ ve.dm.ElementLinearData.prototype.remapInternalListKeys = function ( internalLis
  * @param {Object} rules Sanitization rules
  * @param {string[]} [rules.blacklist] Blacklist of model types which aren't allowed
  * @param {Object} [rules.conversions] Model type conversions to apply, e.g. { heading: 'paragraph' }
- * @param {boolean} [rules.removeHtmlAttributes] Remove all left over HTML attributes
+ * @param {boolean} [rules.removeOriginalDomElements] Remove references to DOM elements data was converted from
  * @param {boolean} [plainText=false] Remove all formatting for plain text import
  * @param {boolean} [keepEmptyContentBranches=false] Preserve empty content branch nodes
  */
@@ -15351,18 +15267,18 @@ ve.dm.ElementLinearData.prototype.sanitize = function ( rules, plainText, keepEm
 	if ( plainText ) {
 		emptySet = new ve.dm.AnnotationSet( this.getStore() );
 	} else {
-		if ( rules.removeHtmlAttributes ) {
-			// Remove HTML attributes from annotations
+		if ( rules.removeOriginalDomElements ) {
+			// Remove originalDomElements from annotations
 			for ( i = 0, len = allAnnotations.getLength(); i < len; i++ ) {
-				delete allAnnotations.get( i ).element.htmlAttributes;
+				delete allAnnotations.get( i ).element.originalDomElements;
 			}
 		}
 
 		// Create annotation set to remove from blacklist
 		setToRemove = allAnnotations.filter( function ( annotation ) {
 			return ve.indexOf( annotation.name, rules.blacklist ) !== -1 || (
-					// If HTML attributes are stripped, remove spans
-					annotation.name === 'textStyle/span' && rules.removeHtmlAttributes
+					// If original DOM element references are being removed, remove spans
+					annotation.name === 'textStyle/span' && rules.removeOriginalDomElements
 				);
 		} );
 	}
@@ -15421,9 +15337,9 @@ ve.dm.ElementLinearData.prototype.sanitize = function ( rules, plainText, keepEm
 				this.setAnnotationsAtOffset( i, annotations );
 			}
 		}
-		if ( this.isOpenElementData( i ) && rules.removeHtmlAttributes ) {
-			// Remove HTML attributes from nodes
-			delete this.getData( i ).htmlAttributes;
+		if ( this.isOpenElementData( i ) && rules.removeOriginalDomElements ) {
+			// Remove originalDomElements from nodes
+			delete this.getData( i ).originalDomElements;
 		}
 	}
 };
@@ -15644,9 +15560,11 @@ ve.dm.MetaLinearData.prototype.setAnnotationsAtOffsetAndIndex = function ( offse
 ve.dm.GeneratedContentNode = function VeDmGeneratedContentNode() {
 };
 
-/* Static methods */
+/* Inheritance */
 
-ve.dm.GeneratedContentNode.static = {};
+OO.initClass( ve.dm.GeneratedContentNode );
+
+/* Static methods */
 
 /**
  * Store HTML of DOM elements, hashed on data element
@@ -15700,7 +15618,7 @@ OO.mixinClass( ve.dm.AlienNode, ve.dm.GeneratedContentNode );
 
 ve.dm.AlienNode.static.name = 'alien';
 
-ve.dm.AlienNode.static.storeHtmlAttributes = false;
+ve.dm.AlienNode.static.preserveHtmlAttributes = false;
 
 ve.dm.AlienNode.static.enableAboutGrouping = true;
 
@@ -16437,8 +16355,8 @@ ve.dm.TableCellNode.static.defaultAttributes = { style: 'data' };
 ve.dm.TableCellNode.static.matchTagNames = [ 'td', 'th' ];
 
 // Blacklisting 'colspan' and 'rowspan' as they are managed explicitly
-ve.dm.TableCellNode.static.storeHtmlAttributes = {
-	blacklist: ['colspan', 'rowspan']
+ve.dm.TableCellNode.static.preserveHtmlAttributes = function ( attribute ) {
+	return attribute !== 'colspan' && attribute !== 'rowspan';
 };
 
 /* Static Methods */
@@ -17114,14 +17032,17 @@ OO.inheritClass( ve.dm.BlockImageNode, ve.dm.BranchNode );
 
 OO.mixinClass( ve.dm.BlockImageNode, ve.dm.ImageNode );
 
+// Mixin Alignable's parent class
+OO.mixinClass( ve.dm.BlockImageNode, ve.dm.ClassAttributeNode );
+
 OO.mixinClass( ve.dm.BlockImageNode, ve.dm.AlignableNode );
 
 /* Static Properties */
 
 ve.dm.BlockImageNode.static.name = 'blockImage';
 
-ve.dm.BlockImageNode.static.storeHtmlAttributes = {
-	blacklist: [ 'src', 'width', 'height', 'href' ]
+ve.dm.BlockImageNode.static.preserveHtmlAttributes = function ( attribute ) {
+	return ve.indexOf( attribute, [ 'src', 'width', 'height', 'href' ] ) === -1;
 };
 
 ve.dm.BlockImageNode.static.handlesOwnChildren = true;
@@ -17144,6 +17065,7 @@ ve.dm.BlockImageNode.static.toDataElement = function ( domElements, converter ) 
 
 	var dataElement,
 		figure = domElements[0],
+		classAttr = figure.getAttribute( 'class' ),
 		img = findChildren( figure, 'img' )[0] || null,
 		caption = findChildren( figure, 'figcaption' )[0] || null,
 		attributes = {
@@ -17157,12 +17079,14 @@ ve.dm.BlockImageNode.static.toDataElement = function ( domElements, converter ) 
 		attributes.alt = altText;
 	}
 
+	this.setClassAttributes( attributes, classAttr );
+
 	attributes.width = width !== undefined && width !== '' ? Number( width ) : null;
 	attributes.height = height !== undefined && height !== '' ? Number( height ) : null;
 
 	dataElement = {
 		type: this.name,
-		attributes: ve.extendObject( ve.dm.AlignableNode.static.toDataElementAttributes( domElements, converter ), attributes )
+		attributes: attributes
 	};
 
 	if ( !caption ) {
@@ -17186,6 +17110,7 @@ ve.dm.BlockImageNode.static.toDomElements = function ( data, doc, converter ) {
 	var dataElement = data[0],
 		width = dataElement.attributes.width,
 		height = dataElement.attributes.height,
+		classAttr = this.getClassAttrFromAttributes( dataElement.attributes ),
 		figure = doc.createElement( 'figure' ),
 		img = doc.createElement( 'img' ),
 		wrapper = doc.createElement( 'div' ),
@@ -17199,6 +17124,10 @@ ve.dm.BlockImageNode.static.toDomElements = function ( data, doc, converter ) {
 	}
 	figure.appendChild( img );
 
+	if ( classAttr ) {
+		figure.className = classAttr;
+	}
+
 	// If length of captionData is smaller or equal to 2 it means that there is no caption or that
 	// it is empty - in both cases we are going to skip appending <figcaption>.
 	if ( captionData.length > 2 ) {
@@ -17207,8 +17136,6 @@ ve.dm.BlockImageNode.static.toDomElements = function ( data, doc, converter ) {
 			figure.appendChild( wrapper.firstChild );
 		}
 	}
-
-	ve.dm.AlignableNode.static.modifyDomElement( figure, dataElement );
 
 	return [ figure ];
 };
@@ -18273,7 +18200,7 @@ ve.dm.AlienMetaItem.static.name = 'alienMeta';
 
 ve.dm.AlienMetaItem.static.matchTagNames = [ 'meta', 'link' ];
 
-ve.dm.AlienMetaItem.static.storeHtmlAttributes = false;
+ve.dm.AlienMetaItem.static.preserveHtmlAttributes = false;
 
 ve.dm.AlienMetaItem.static.toDataElement = function ( domElements ) {
 	return {
@@ -18320,10 +18247,7 @@ ve.dm.CommentMetaItem.static.name = 'commentMeta';
 
 ve.dm.CommentMetaItem.static.matchTagNames = [];
 
-// mwTransclusionMetaItems are generated by ve.dm.CommentNode#toDataElement
-// when comments are encountered outside of content branch nodes
-
-ve.dm.CommentMetaItem.static.storeHtmlAttributes = false;
+ve.dm.CommentMetaItem.static.preserveHtmlAttributes = false;
 
 ve.dm.CommentMetaItem.static.toDomElements = function ( dataElement, doc ) {
 	return [ doc.createComment( dataElement.attributes.text ) ];
@@ -18366,16 +18290,15 @@ OO.mixinClass( ve.dm.CommentNode, ve.dm.FocusableNode );
 
 ve.dm.CommentNode.static.isContent = true;
 
-ve.dm.CommentNode.static.storeHtmlAttributes = false;
+ve.dm.CommentNode.static.preserveHtmlAttributes = false;
 
 ve.dm.CommentNode.static.toDataElement = function ( domElements, converter ) {
 	var text = domElements[0].nodeType === Node.COMMENT_NODE ?
 		domElements[0].data :
 		domElements[0].getAttribute( 'data-ve-comment' );
 	return {
-		// Only use CommentNode for comments in ContentBranchNodes; otherwise use
-		// CommentMetaItem
-		type: converter.isExpectingContent() && text !== '' ? 'comment' : 'commentMeta',
+		// Disallows comment nodes between table rows and such
+		type: converter.isValidChildNodeType( 'comment' ) && text !== '' ? 'comment' : 'commentMeta',
 		attributes: {
 			text: text
 		}

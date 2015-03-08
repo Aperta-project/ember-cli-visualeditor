@@ -58,7 +58,7 @@ ve.ce.getDomText = function ( element ) {
 			nodeType === Node.DOCUMENT_NODE ||
 			nodeType === Node.DOCUMENT_FRAGMENT_NODE
 		) {
-			if ( $element.hasClass( 've-ce-branchNode-blockSlugWrapper' ) ) {
+			if ( $element.hasClass( 've-ce-branchNode-blockSlug' ) ) {
 				// Block slugs are not represented in the model at all, but they do
 				// contain a single nbsp/FEFF character in the DOM, so make sure
 				// that character isn't counted
@@ -112,7 +112,7 @@ ve.ce.getDomHash = function ( element ) {
 		return '#';
 	} else if ( nodeType === Node.ELEMENT_NODE || nodeType === Node.DOCUMENT_NODE ) {
 		hash += '<' + nodeName + '>';
-		if ( !$( element ).hasClass( 've-ce-branchNode-blockSlugWrapper' ) ) {
+		if ( !$( element ).hasClass( 've-ce-branchNode-blockSlug' ) ) {
 			// Traverse its children
 			for ( element = element.firstChild; element; element = element.nextSibling ) {
 				hash += ve.ce.getDomHash( element );
@@ -345,17 +345,17 @@ ve.ce.getOffset = function ( domNode, domOffset ) {
  * Gets the linear offset of a given slug
  *
  * @method
- * @param {jQuery} $node jQuery slug selection
+ * @param {HTMLElement} element Slug DOM element
  * @returns {number} Linear model offset
  * @throws {Error}
  */
-ve.ce.getOffsetOfSlug = function ( $node ) {
-	var model;
-	if ( $node.index() === 0 ) {
-		model = $node.parent().data( 'view' ).getModel();
+ve.ce.getOffsetOfSlug = function ( element ) {
+	var model, $element = $( element );
+	if ( $element.index() === 0 ) {
+		model = $element.parent().data( 'view' ).getModel();
 		return model.getOffset() + ( model.isWrapped() ? 1 : 0 );
-	} else if ( $node.prev().length ) {
-		model = $node.prev().data( 'view' ).getModel();
+	} else if ( $element.prev().length ) {
+		model = $element.prev().data( 'view' ).getModel();
 		return model.getOffset() + model.getOuterLength();
 	} else {
 		throw new Error( 'Incorrect slug location' );
@@ -428,16 +428,6 @@ ve.ce.RangeState = function VeCeRangeState( old, $surfaceElement, docNode, selec
 	this.contentChanged = null;
 
 	/**
-	 * @property {boolean} leftBlockSlug Whether the range left a block slug
-	 */
-	this.leftBlockSlug = null;
-
-	/**
-	 * @property {boolean} enteredBlockSlug Whether the range entered a block slug
-	 */
-	this.enteredBlockSlug = null;
-
-	/**
 	 * @property {ve.Range|null} veRange The current selection range
 	 */
 	this.veRange = null;
@@ -446,11 +436,6 @@ ve.ce.RangeState = function VeCeRangeState( old, $surfaceElement, docNode, selec
 	 * @property {ve.ce.BranchNode|null} node The current branch node
 	 */
 	this.node = null;
-
-	/**
-	 * @property {jQuery|null} $slugWrapper The current slug wrapper
-	 */
-	this.$slugWrapper = null;
 
 	/**
 	 * @property {string} text Plain text of current branch node
@@ -480,7 +465,7 @@ OO.initClass( ve.ce.RangeState );
  * @param {boolean} selectionOnly The caller promises the content has not changed from old
  */
 ve.ce.RangeState.prototype.saveState = function ( old, $surfaceElement, docNode, selectionOnly ) {
-	var $nodeOrSlug, selection, anchorNodeChanged;
+	var $node, selection, anchorNodeChanged;
 
 	// Freeze selection out of live object.
 	selection = ( function ( liveSelection ) {
@@ -512,9 +497,6 @@ ve.ce.RangeState.prototype.saveState = function ( old, $surfaceElement, docNode,
 		// No change; use old values for speed
 		this.selectionChanged = false;
 		this.veRange = old.veRange;
-		this.$slugWrapper = old.$slugWrapper;
-		this.leftBlockSlug = false;
-		this.enteredBlockSlug = false;
 	} else {
 		this.selectionChanged = true;
 		this.veRange = ve.ce.veRangeFromSelection( selection );
@@ -524,20 +506,12 @@ ve.ce.RangeState.prototype.saveState = function ( old, $surfaceElement, docNode,
 
 	if ( !anchorNodeChanged ) {
 		this.node = old.node;
-		this.$slugWrapper = old.$slugWrapper;
 	} else {
-		$nodeOrSlug = $( selection.anchorNode ).closest(
-			'.ve-ce-branchNode, .ve-ce-branchNode-blockSlugWrapper'
-		);
-		if ( $nodeOrSlug.length === 0 ) {
+		$node = $( selection.anchorNode ).closest( '.ve-ce-branchNode' );
+		if ( $node.length === 0 ) {
 			this.node = null;
-			this.$slugWrapper = null;
-		} else if ( $nodeOrSlug.hasClass( 've-ce-branchNode-blockSlugWrapper' ) ) {
-			this.node = null;
-			this.$slugWrapper = $nodeOrSlug;
 		} else {
-			this.node = $nodeOrSlug.data( 'view' );
-			this.$slugWrapper = null;
+			this.node = $node.data( 'view' );
 			// Check this node belongs to our document
 			if ( this.node && this.node.root !== docNode ) {
 				this.node = null;
@@ -560,19 +534,7 @@ ve.ce.RangeState.prototype.saveState = function ( old, $surfaceElement, docNode,
 		this.hash = ve.ce.getDomHash( this.node.$element[0] );
 	}
 
-	this.leftBlockSlug = (
-		old &&
-		old.$slugWrapper &&
-		!old.$slugWrapper.is( this.$slugWrapper )
-	);
-	this.enteredBlockSlug = (
-		old &&
-		this.$slugWrapper &&
-		this.$slugWrapper.length > 0 &&
-		!this.$slugWrapper.is( old.$slugWrapper )
-	);
-
-	// Only set contentChanged if we're still in the same branch node/block slug
+	// Only set contentChanged if we're still in the same branch node
 	this.contentChanged = (
 		!selectionOnly &&
 		old &&
@@ -1048,11 +1010,15 @@ ve.ce.View = function VeCeView( model, config ) {
 
 	// Render attributes from original DOM elements
 	ve.dm.Converter.renderHtmlAttributeList(
-		this.model.getHtmlAttributes(),
+		this.model.getOriginalDomElements(),
 		this.$element,
 		this.constructor.static.renderHtmlAttributes,
 		// computed attributes
-		true
+		true,
+		// deep
+		!ve.dm.nodeFactory.lookup( this.model.getType() ) ||
+			!ve.dm.nodeFactory.canNodeHaveChildren( this.model.getType() ) ||
+			ve.dm.nodeFactory.doesNodeHandleOwnChildren( this.model.getType() )
 	);
 };
 
@@ -1075,7 +1041,7 @@ OO.mixinClass( ve.ce.View, OO.EventEmitter );
 /* Static members */
 
 /**
- * Allowed attributes for DOM elements, in the same format as ve.dm.Model#storeHtmlAttributes
+ * Allowed attributes for DOM elements, in the same format as ve.dm.Model#preserveHtmlAttributes
  *
  * This list includes attributes that are generally safe to include in HTML loaded from a
  * foreign source and displaying it inside the browser. It doesn't include any event attributes,
@@ -1089,14 +1055,16 @@ OO.mixinClass( ve.ce.View, OO.EventEmitter );
  * @property {boolean|string|RegExp|Array|Object}
  * @inheritable
  */
-ve.ce.View.static.renderHtmlAttributes = [
-	'abbr', 'about', 'align', 'alt', 'axis', 'bgcolor', 'border', 'cellpadding', 'cellspacing',
-	'char', 'charoff', 'cite', 'class', 'clear', 'color', 'colspan', 'datatype', 'datetime',
-	'dir', 'face', 'frame', 'headers', 'height', 'href', 'id', 'itemid', 'itemprop', 'itemref',
-	'itemscope', 'itemtype', 'lang', 'noshade', 'nowrap', 'property', 'rbspan', 'rel',
-	'resource', 'rev', 'rowspan', 'rules', 'scope', 'size', 'span', 'src', 'start', 'style',
-	'summary', 'title', 'type', 'typeof', 'valign', 'value', 'width'
-];
+ve.ce.View.static.renderHtmlAttributes = function ( attribute ) {
+	return ve.indexOf( attribute, [
+		'abbr', 'about', 'align', 'alt', 'axis', 'bgcolor', 'border', 'cellpadding', 'cellspacing',
+		'char', 'charoff', 'cite', 'class', 'clear', 'color', 'colspan', 'datatype', 'datetime',
+		'dir', 'face', 'frame', 'headers', 'height', 'href', 'id', 'itemid', 'itemprop', 'itemref',
+		'itemscope', 'itemtype', 'lang', 'noshade', 'nowrap', 'property', 'rbspan', 'rel',
+		'resource', 'rev', 'rowspan', 'rules', 'scope', 'size', 'span', 'src', 'start', 'style',
+		'summary', 'title', 'type', 'typeof', 'valign', 'value', 'width'
+	] ) !== -1;
+};
 
 /* Methods */
 
@@ -1418,6 +1386,13 @@ ve.ce.Node.prototype.isFocusable = function () {
 /**
  * @inheritdoc ve.Node
  */
+ve.ce.Node.prototype.isAlignable = function () {
+	return this.model.isAlignable();
+};
+
+/**
+ * @inheritdoc ve.Node
+ */
 ve.ce.Node.prototype.hasSignificantWhitespace = function () {
 	return this.model.hasSignificantWhitespace();
 };
@@ -1498,6 +1473,9 @@ ve.ce.BranchNode = function VeCeBranchNode( model, config ) {
 	// Parent constructor
 	ve.ce.Node.call( this, model, config );
 
+	// DOM changes (keep in sync with #onSetup)
+	this.$element.addClass( 've-ce-branchNode' );
+
 	// Properties
 	this.tagName = this.$element.get( 0 ).nodeName.toLowerCase();
 	this.slugNodes = [];
@@ -1514,14 +1492,6 @@ ve.ce.BranchNode = function VeCeBranchNode( model, config ) {
 OO.inheritClass( ve.ce.BranchNode, ve.ce.Node );
 
 OO.mixinClass( ve.ce.BranchNode, ve.BranchNode );
-
-/* Events */
-
-/**
- * @event rewrap
- * @param {jQuery} $old
- * @param {jQuery} $new
- */
 
 /* Static Properties */
 
@@ -1569,62 +1539,57 @@ ve.ce.BranchNode.inputDebugInlineSlugTemplate = $( '<span>' )
  * @property {HTMLElement}
  */
 ve.ce.BranchNode.blockSlugTemplate = $( '<div>' )
-	.addClass( 've-ce-branchNode-blockSlugWrapper ve-ce-branchNode-blockSlugWrapper-unfocused' )
-	.append(
-		$( '<p>' )
-			// TODO: work around ce=false IE9 bug
-			.prop( 'contentEditable', 'false' )
-			.addClass( 've-ce-branchNode-slug ve-ce-branchNode-blockSlug' )
-			.html( '&#xFEFF;' )
-	)
+	.addClass( 've-ce-branchNode-slug ve-ce-branchNode-blockSlug' )
+	// TODO: work around ce=false IE9 bug
+	.prop( 'contentEditable', 'false' )
 	.get( 0 );
 
 /* Methods */
 
 /**
- * Handle setup event.
- *
- * @method
+ * @inheritdoc
  */
 ve.ce.BranchNode.prototype.onSetup = function () {
+	// Parent method
 	ve.ce.Node.prototype.onSetup.call( this );
-	this.$element.addClass( 've-ce-branchNode' );
-};
 
-/**
- * Handle teardown event.
- *
- * @method
- */
-ve.ce.BranchNode.prototype.onTeardown = function () {
-	ve.ce.Node.prototype.onTeardown.call( this );
-	this.$element.removeClass( 've-ce-branchNode' );
+	// DOM changes (duplicated from constructor in case this.$element is replaced)
+	this.$element.addClass( 've-ce-branchNode' );
 };
 
 /**
  * Update the DOM wrapper.
  *
- * WARNING: The contents, .data( 'view' ) and any classes the wrapper already has will be moved to
- * the new wrapper, but other attributes and any other information added using $.data() will be
- * lost upon updating the wrapper. To retain information added to the wrapper, subscribe to the
- * 'rewrap' event and copy information from the {$old} wrapper the {$new} wrapper.
+ * WARNING: The contents, .data( 'view' ), the contentEditable property and any classes the wrapper
+ * already has will be moved to  the new wrapper, but other attributes and any other information
+ * added using $.data() will be lost upon updating the wrapper. To retain information added to the
+ * wrapper, subscribe to the 'teardown' and 'setup' events.
  *
  * @method
- * @fires rewrap
+ * @fires teardown
+ * @fires setup
  */
 ve.ce.BranchNode.prototype.updateTagName = function () {
-	var $wrapper,
+	var wrapper,
 		tagName = this.getTagName();
 
 	if ( tagName !== this.tagName ) {
 		this.emit( 'teardown' );
-		$wrapper = this.$( document.createElement( tagName ) );
+		wrapper = document.createElement( tagName );
+		// Copy classes
+		wrapper.className = this.$element[0].className;
+		// Copy contentEditable
+		wrapper.contentEditable = this.$element[0].contentEditable;
 		// Move contents
-		$wrapper.append( this.$element.contents() );
+		while ( this.$element[0].firstChild ) {
+			wrapper.appendChild( this.$element[0].firstChild );
+		}
 		// Swap elements
-		this.$element.replaceWith( $wrapper );
+		if ( this.$element[0].parentNode ) {
+			this.$element[0].parentNode.replaceChild( wrapper, this.$element[0] );
+		}
 		// Use new element from now on
-		this.$element = $wrapper;
+		this.$element = $( wrapper );
 		this.emit( 'setup' );
 		// Remember which tag name we are using now
 		this.tagName = tagName;
@@ -1654,12 +1619,16 @@ ve.ce.BranchNode.prototype.onModelUpdate = function ( transaction ) {
 ve.ce.BranchNode.prototype.onSplice = function ( index ) {
 	var i, j,
 		length,
-		args = Array.prototype.slice.call( arguments ),
+		args = [],
 		$anchor,
 		afterAnchor,
 		node,
 		parentNode,
 		removals;
+
+	for ( i = 0, length = arguments.length; i < length; i++ ) {
+		args.push( arguments[i] );
+	}
 	// Convert models to views and attach them to this node
 	if ( args.length >= 3 ) {
 		for ( i = 2, length = args.length; i < length; i++ ) {
@@ -1712,7 +1681,7 @@ ve.ce.BranchNode.prototype.onSplice = function ( index ) {
  * @method
  */
 ve.ce.BranchNode.prototype.setupSlugs = function () {
-	var i, slugTemplate, slugNode, child,
+	var i, slugTemplate, slugNode, child, slugButton,
 		isBlock = this.canHaveChildrenNotContent(),
 		doc = this.getElementDocument();
 
@@ -1744,7 +1713,24 @@ ve.ce.BranchNode.prototype.setupSlugs = function () {
 			this.$element[0].appendChild( slugNode );
 		}
 		this.slugNodes[i] = slugNode;
+		if ( isBlock ) {
+			slugButton = new OO.ui.ButtonWidget( {
+				label: ve.msg( 'visualeditor-slug-insert' ),
+				icon: 'add',
+				framed: false
+			} ).on( 'click', this.onSlugClick.bind( this, slugNode ) );
+			$( slugNode ).append( slugButton.$element );
+		}
 	}
+};
+
+/**
+ * Handle slug click events
+ *
+ * @param {HTMLElement} slugNode Slug node clicked
+ */
+ve.ce.BranchNode.prototype.onSlugClick = function ( slugNode ) {
+	this.getRoot().getSurface().createSlug( slugNode );
 };
 
 /**
@@ -1817,6 +1803,7 @@ ve.ce.ContentBranchNode = function VeCeContentBranchNode( model, config ) {
 
 	// Properties
 	this.lastTransaction = null;
+	this.rendered = false;
 	this.unicornAnnotations = null;
 	this.unicorns = null;
 
@@ -2139,18 +2126,22 @@ ve.ce.ContentBranchNode.prototype.renderContents = function () {
 
 	// Return if unchanged. Test by building the new version and checking DOM-equality.
 	// However we have to normalize to cope with consecutive text nodes. We can't normalize
-	// the attached version, because that would close IMEs.
-
-	oldWrapper = this.$element[0].cloneNode( true );
-	newWrapper = this.$element[0].cloneNode( false );
-	while ( rendered.firstChild ) {
-		newWrapper.appendChild( rendered.firstChild );
+	// the attached version, because that would close IMEs. As an optimization, don't perform
+	// this checking if this node has never rendered before.
+	if ( this.rendered ) {
+		oldWrapper = this.$element[0].cloneNode( true );
+		newWrapper = this.$element[0].cloneNode( false );
+		while ( rendered.firstChild ) {
+			newWrapper.appendChild( rendered.firstChild );
+		}
+		ve.normalizeNode( oldWrapper );
+		ve.normalizeNode( newWrapper );
+		if ( newWrapper.isEqualNode( oldWrapper ) ) {
+			return false;
+		}
+		rendered = newWrapper;
 	}
-	ve.normalizeNode( oldWrapper );
-	ve.normalizeNode( newWrapper );
-	if ( newWrapper.isEqualNode( oldWrapper ) ) {
-		return false;
-	}
+	this.rendered = true;
 
 	this.unicornAnnotations = unicornInfo.annotations || null;
 	this.unicorns = unicornInfo.unicorns || null;
@@ -2164,7 +2155,7 @@ ve.ce.ContentBranchNode.prototype.renderContents = function () {
 	}
 
 	// Reattach nodes
-	this.constructor.static.appendRenderedContents( this.$element[0], newWrapper );
+	this.constructor.static.appendRenderedContents( this.$element[0], rendered );
 
 	// Set unicorning status
 	if ( this.getRoot() ) {
@@ -2232,7 +2223,7 @@ ve.ce.LeafNode = function VeCeLeafNode( model ) {
 	// Parent constructor
 	ve.ce.Node.apply( this, arguments );
 
-	// DOM changes
+	// DOM changes (keep in sync with #onSetup)
 	if ( model.isWrapped() ) {
 		this.$element.addClass( 've-ce-leafNode' );
 	}
@@ -2250,16 +2241,17 @@ ve.ce.LeafNode.static.tagName = 'span';
 
 /* Methods */
 
-/** */
+/**
+ * @inheritdoc
+ */
 ve.ce.LeafNode.prototype.onSetup = function () {
+	// Parent method
 	ve.ce.Node.prototype.onSetup.call( this );
-	this.$element.addClass( 've-ce-leafNode' );
-};
 
-/** */
-ve.ce.LeafNode.prototype.onTeardown = function () {
-	ve.ce.Node.prototype.onTeardown.call( this );
-	this.$element.removeClass( 've-ce-leafNode' );
+	// DOM changes (duplicated from constructor in case this.$element is replaced)
+	if ( this.model.isWrapped() ) {
+		this.$element.addClass( 've-ce-leafNode' );
+	}
 };
 
 /**
@@ -2285,6 +2277,46 @@ ve.ce.LeafNode.prototype.getAnnotatedHtml = function () {
 };
 
 /*!
+ * VisualEditor ContentEditable ClassAttributeNode class.
+ *
+ * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
+ */
+
+/**
+ * ContentEditable class-attribute node.
+ *
+ * @class
+ * @abstract
+ *
+ * @constructor
+ * @param {jQuery} [$classedElement=this.$element] Element to which attribute-based classes are attached
+ */
+ve.ce.ClassAttributeNode = function VeCeClassAttributeNode( $classedElement, config ) {
+	config = config || {};
+
+	// Properties
+	this.$classedElement = $classedElement || this.$element;
+	this.currentAttributeClasses = '';
+
+	// Events
+	this.connect( this, { setup: 'updateAttributeClasses' } );
+	this.model.connect( this, { attributeChange: 'updateAttributeClasses' } );
+};
+
+/* Inheritance */
+
+OO.initClass( ve.ce.ClassAttributeNode );
+
+/**
+ * Update classes from attributes
+ */
+ve.ce.ClassAttributeNode.prototype.updateAttributeClasses = function () {
+	this.$classedElement.removeClass( this.currentAttributeClasses );
+	this.currentAttributeClasses = this.model.constructor.static.getClassAttrFromAttributes( this.model.element.attributes );
+	this.$classedElement.addClass( this.currentAttributeClasses );
+};
+
+/*!
  * VisualEditor ContentEditable AlignableNode class.
  *
  * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
@@ -2295,22 +2327,20 @@ ve.ce.LeafNode.prototype.getAnnotatedHtml = function () {
  *
  * @class
  * @abstract
+ * @extends ve.ce.ClassAttributeNode
  *
  * @constructor
  */
-ve.ce.AlignableNode = function VeCeAlignableNode( $alignable, config ) {
-	config = config || {};
+ve.ce.AlignableNode = function VeCeAlignableNode() {
+	// Parent constructor
+	ve.ce.AlignableNode.super.apply( this, arguments );
 
-	this.$alignable = $alignable || this.$element;
-
-	// Events
-	this.connect( this, { setup: 'onAlignableSetup' } );
-	this.model.connect( this, { attributeChange: 'onAlignableAttributeChange' } );
+	this.align = null;
 };
 
 /* Inheritance */
 
-OO.initClass( ve.ce.AlignableNode );
+OO.inheritClass( ve.ce.AlignableNode, ve.ce.ClassAttributeNode );
 
 /* Events */
 
@@ -2320,35 +2350,14 @@ OO.initClass( ve.ce.AlignableNode );
  */
 
 /**
- * Handle attribute change events
- *
- * @param {string} key Key
- * @param {string} from Old value
- * @param {string} to New value
+ * @inheritdoc
  */
-ve.ce.AlignableNode.prototype.onAlignableAttributeChange = function ( key, from, to ) {
-	var cssClasses;
-	if ( key === 'align' ) {
-		cssClasses = this.model.constructor.static.cssClasses;
-		if ( from && cssClasses[from] ) {
-			this.$alignable.removeClass( cssClasses[from] );
-		}
-		if ( to && cssClasses[to] ) {
-			this.$alignable.addClass( cssClasses[to] );
-		}
-		this.emit( 'align', to );
-	}
-};
-
-/**
- * Handle node setup
- */
-ve.ce.AlignableNode.prototype.onAlignableSetup = function () {
-	var align = this.model.getAttribute( 'align' ),
-		cssClasses = this.model.constructor.static.cssClasses;
-	if ( align && cssClasses[align] ) {
-		this.$alignable.addClass( cssClasses[align] );
+ve.ce.AlignableNode.prototype.updateAttributeClasses = function () {
+	ve.ce.AlignableNode.super.prototype.updateAttributeClasses.apply( this, arguments );
+	var align = this.model.getAttribute( 'align' );
+	if ( align && align !== this.align ) {
 		this.emit( 'align', align );
+		this.align = align;
 	}
 };
 
@@ -2388,6 +2397,11 @@ ve.ce.FocusableNode = function VeCeFocusableNode( $focusable ) {
 	this.rects = null;
 	this.boundingRect = null;
 	this.startAndEndRects = null;
+
+	// DOM changes
+	this.$element
+		.addClass( 've-ce-focusableNode' )
+		.prop( 'contentEditable', 'false' );
 
 	// Events
 	this.connect( this, {
@@ -2450,7 +2464,7 @@ ve.ce.FocusableNode.prototype.onFocusableSetup = function () {
 
 	this.surface = this.getRoot().getSurface();
 
-	// DOM changes
+	// DOM changes (duplicated from constructor in case this.$element is replaced)
 	this.$element
 		.addClass( 've-ce-focusableNode' )
 		.prop( 'contentEditable', 'false' );
@@ -2755,9 +2769,10 @@ ve.ce.FocusableNode.prototype.redrawHighlights = function () {
  * Calculate position of highlights
  */
 ve.ce.FocusableNode.prototype.calculateHighlights = function () {
-	var i, l,
+	var i, l, $set,
 		rects = [],
 		filteredRects = [],
+		webkitColumns = 'webkitColumnCount' in document.createElement( 'div' ).style,
 		surfaceOffset = this.surface.getSurface().getBoundingClientRect();
 
 	function contains( rect1, rect2 ) {
@@ -2767,14 +2782,38 @@ ve.ce.FocusableNode.prototype.calculateHighlights = function () {
 			rect2.bottom <= rect1.bottom;
 	}
 
-	this.$focusable.find( '*' ).addBack().each( function () {
-		var i, j, il, jl, contained, clientRects;
+	function process( el ) {
+		var i, j, il, jl, contained, clientRects,
+			$el = $( el );
 
-		if ( $( this ).hasClass( 've-ce-noHighlight' ) ) {
+		if ( $el.hasClass( 've-ce-noHighlight' ) ) {
 			return;
 		}
 
-		clientRects = this.getClientRects();
+		if (
+			webkitColumns &&
+			( $el.css( '-webkit-column-count' ) || $el.css( '-webkit-column-size' ) )
+		) {
+			// Chrome incorrectly measures children of nodes with columns [1], let's
+			// just ignore them rather than render a possibly bizarre highlight. They
+			// will usually not be positioned, because Chrome also doesn't position
+			// them correctly [2] and so people avoid doing it.
+			//
+			// Of course there are other ways to render a node outside the bounding
+			// box of its parent, like negative margin. We do not handle these cases,
+			// and the highlight may not correctly cover the entire node if that
+			// happens. This can't be worked around without implementing CSS
+			// layouting logic ourselves, which is not worth it.
+			//
+			// [1] http://code.google.com/p/chromium/issues/detail?id=391271
+			// [2] https://code.google.com/p/chromium/issues/detail?id=291616
+
+			// jQuery keeps nodes in its collections in document order, so the
+			// children have not been processed yet and can be safely removed.
+			$set = $set.not( $el.find( '*' ) );
+		}
+
+		clientRects = el.getClientRects();
 
 		for ( i = 0, il = clientRects.length; i < il; i++ ) {
 			contained = false;
@@ -2795,7 +2834,13 @@ ve.ce.FocusableNode.prototype.calculateHighlights = function () {
 				rects.push( clientRects[i] );
 			}
 		}
-	} );
+	}
+
+	$set = this.$focusable.find( '*' ).addBack();
+	// Calling process() may change $set.length
+	for ( i = 0; i < $set.length; i++ ) {
+		process( $set[i] );
+	}
 
 	// Elements with a width/height of 0 return a clientRect with a width/height of 1
 	// As elements with an actual width/height of 1 aren't that useful anyway, just
@@ -3549,8 +3594,7 @@ ve.ce.Surface = function VeCeSurface( model, ui, options ) {
 	this.surfaceObserver.connect( this, {
 		contentChange: 'onSurfaceObserverContentChange',
 		rangeChange: 'onSurfaceObserverRangeChange',
-		branchNodeChange: 'onSurfaceObserverBranchNodeChange',
-		slugEnter: 'onSurfaceObserverSlugEnter'
+		branchNodeChange: 'onSurfaceObserverBranchNodeChange'
 	} );
 	this.model.connect( this, {
 		select: 'onModelSelect',
@@ -3756,7 +3800,7 @@ ve.ce.Surface.prototype.destroy = function () {
 
 	// Disconnect DOM events on the document
 	this.$document.off( 'focusin focusout', this.onDocumentFocusInOutHandler );
-	this.$document.off( 'mousedown', this.documentFocusChangeHandler );
+	this.$document.off( 'mousedown', this.debounceFocusChange );
 
 	// Disconnect DOM events on the window
 	this.$window.off( 'resize', this.onWindowResizeHandler );
@@ -4141,6 +4185,7 @@ ve.ce.Surface.prototype.activate = function () {
 		if ( OO.ui.contains( this.$documentNode[0], this.nativeSelection.anchorNode, true ) ) {
 			// The selection has been placed back in the document, either by the user clicking
 			// or by the closing window updating the model. Poll in case it was the user clicking.
+			this.surfaceObserver.clear();
 			this.surfaceObserver.pollOnce();
 		} else {
 			// Clear focused node so onModelSelect re-selects it if necessary
@@ -4462,9 +4507,7 @@ ve.ce.Surface.prototype.onDocumentDragOver = function ( e ) {
 ve.ce.Surface.prototype.onDocumentDrop = function ( e ) {
 	// Properties may be nullified by other events, so cache before setTimeout
 	var selectionJSON, dragSelection, dragRange, originFragment, originData,
-		targetRange, targetOffset, targetFragment, dragHtml, dragText,
-		i, l, name, insert,
-		fileHandlers = [],
+		targetRange, targetOffset, targetFragment,
 		dataTransfer = e.originalEvent.dataTransfer,
 		$dropTarget = this.$lastDropTarget,
 		dropPosition = this.lastDropPosition;
@@ -4472,6 +4515,31 @@ ve.ce.Surface.prototype.onDocumentDrop = function ( e ) {
 	// Prevent native drop event from modifying view
 	e.preventDefault();
 
+	// Determine drop position
+	if ( this.relocatingNode && !this.relocatingNode.getModel().isContent() ) {
+		// Block level drag and drop: use the lastDropTarget to get the targetOffset
+		if ( $dropTarget ) {
+			targetRange = $dropTarget.data( 'view' ).getModel().getOuterRange();
+			if ( dropPosition === 'top' ) {
+				targetOffset = targetRange.start;
+			} else {
+				targetOffset = targetRange.end;
+			}
+		} else {
+			return;
+		}
+	} else {
+		targetOffset = this.getOffsetFromCoords(
+			e.originalEvent.pageX - this.$document.scrollLeft(),
+			e.originalEvent.pageY - this.$document.scrollTop()
+		);
+		if ( targetOffset === -1 ) {
+			return;
+		}
+	}
+	targetFragment = this.getModel().getLinearFragment( new ve.Range( targetOffset ) );
+
+	// Get source range from drag data
 	try {
 		selectionJSON = dataTransfer.getData( 'application-x/VisualEditor' );
 	} catch ( err ) {
@@ -4482,7 +4550,6 @@ ve.ce.Surface.prototype.onDocumentDrop = function ( e ) {
 			selectionJSON = null;
 		}
 	}
-
 	if ( this.relocatingNode ) {
 		dragRange = this.relocatingNode.getModel().getOuterRange();
 	} else if ( selectionJSON ) {
@@ -4490,77 +4557,22 @@ ve.ce.Surface.prototype.onDocumentDrop = function ( e ) {
 		if ( dragSelection instanceof ve.dm.LinearSelection ) {
 			dragRange = dragSelection.getRange();
 		}
-	} else if ( dataTransfer.files.length ) {
-		for ( i = 0, l = dataTransfer.files.length; i < l; i++ ) {
-			name = ve.ui.dataTransferHandlerFactory.getHandlerNameForType( dataTransfer.files[i].type );
-			if ( name ) {
-				fileHandlers.push(
-					ve.ui.dataTransferHandlerFactory.create( name, this.surface, dataTransfer.files[i] )
-				);
-			}
-		}
-	} else {
-		try {
-			dragHtml = dataTransfer.getData( 'text/html' );
-			if ( !dragHtml ) {
-				dragText = dataTransfer.getData( 'text/plain' );
-			}
-		} catch ( err ) {
-			dragText = dataTransfer.getData( 'text' );
-		}
 	}
 
-	if ( ( dragRange && !dragRange.isCollapsed() ) || fileHandlers.length || dragHtml || dragText  ) {
-		if ( this.relocatingNode && !this.relocatingNode.getModel().isContent() ) {
-			// Block level drag and drop: use the lastDropTarget to get the targetOffset
-			if ( $dropTarget ) {
-				targetRange = $dropTarget.data( 'view' ).getModel().getOuterRange();
-				if ( dropPosition === 'top' ) {
-					targetOffset = targetRange.start;
-				} else {
-					targetOffset = targetRange.end;
-				}
-			} else {
-				return;
-			}
-		} else {
-			targetOffset = this.getOffsetFromCoords(
-				e.originalEvent.pageX - this.$document.scrollLeft(),
-				e.originalEvent.pageY - this.$document.scrollTop()
-			);
-			if ( targetOffset === -1 ) {
-				return;
-			}
-		}
+	// Internal drop
+	if ( dragRange ) {
+		// Get a fragment and data of the node being dragged
+		originFragment = this.getModel().getLinearFragment( dragRange );
+		originData = originFragment.getData();
 
-		targetFragment = this.getModel().getLinearFragment( new ve.Range( targetOffset ) );
+		// Remove node from old location
+		originFragment.removeContent();
 
-		if ( dragRange ) {
-			// Get a fragment and data of the node being dragged
-			originFragment = this.getModel().getLinearFragment( dragRange );
-			originData = originFragment.getData();
-
-			// Remove node from old location
-			originFragment.removeContent();
-
-			// Re-insert data at new location
-			targetFragment.insertContent( originData );
-		} else if ( fileHandlers.length ) {
-			insert = function ( docOrData ) {
-				if ( docOrData instanceof ve.dm.Document ) {
-					targetFragment.collapseToEnd().insertDocument( docOrData );
-				} else {
-					targetFragment.collapseToEnd().insertContent( docOrData );
-				}
-			};
-			for ( i = 0, l = fileHandlers.length; i < l; i++ ) {
-				fileHandlers[i].getInsertableData().done( insert );
-			}
-		} else if ( dragHtml ) {
-			targetFragment.insertHtml( dragHtml, this.getSurface().getImportRules() );
-		} else if ( dragText ) {
-			targetFragment.insertContent( dragText );
-		}
+		// Re-insert data at new location
+		targetFragment.insertContent( originData );
+	} else {
+		// External drop
+		this.handleDataTransfer( dataTransfer, false, targetFragment );
 	}
 	this.endRelocation();
 };
@@ -4705,7 +4717,7 @@ ve.ce.Surface.prototype.onDocumentKeyPress = function ( e ) {
  */
 ve.ce.Surface.prototype.afterDocumentKeyDown = function ( e ) {
 	var direction, focusableNode, startOffset, endOffset, offsetDiff,
-		range, fixupCursorForUnicorn,
+		range, fixupCursorForUnicorn, matrix,
 		surface = this,
 		isArrow = (
 			e.keyCode === OO.ui.Keys.UP ||
@@ -4732,7 +4744,7 @@ ve.ce.Surface.prototype.afterDocumentKeyDown = function ( e ) {
 	 * @returns {ve.ce.Node|null} node, or null if not in a focusable node
 	 */
 	function getSurroundingFocusableNode( node, offset, direction ) {
-		var focusNode, $ceNode, focusableNode;
+		var focusNode;
 		if ( node.nodeType === Node.TEXT_NODE ) {
 			focusNode = node;
 		} else if ( direction > 0 && offset < node.childNodes.length ) {
@@ -4742,19 +4754,7 @@ ve.ce.Surface.prototype.afterDocumentKeyDown = function ( e ) {
 		} else {
 			focusNode = node;
 		}
-		$ceNode = $( focusNode ).closest(
-			'[contenteditable], .ve-ce-branchNode'
-		);
-		if ( $ceNode.prop( 'contenteditable' ) !== 'false' ) {
-			return null;
-		}
-		focusableNode = $ceNode.closest(
-			'.ve-ce-branchNode, .ve-ce-leafNode'
-		).data( 'view' );
-		if ( !focusableNode || !focusableNode.isFocusable() ) {
-			return null;
-		}
-		return focusableNode;
+		return $( focusNode ).closest( '.ve-ce-focusableNode, .ve-ce-tableNode' ).data( 'view' ) || null;
 	}
 
 	/**
@@ -4845,7 +4845,20 @@ ve.ce.Surface.prototype.afterDocumentKeyDown = function ( e ) {
 					range = range.flip();
 				}
 			}
-			this.model.setLinearSelection( range );
+			if ( focusableNode instanceof ve.ce.TableNode ) {
+				if ( direction > 0 ) {
+					this.model.setSelection( new ve.dm.TableSelection(
+						this.model.documentModel, range, 0, 0
+					) );
+				} else {
+					matrix = focusableNode.getModel().getMatrix();
+					this.model.setSelection( new ve.dm.TableSelection(
+						this.model.documentModel, range, matrix.getColCount() - 1, matrix.getRowCount() - 1
+					) );
+				}
+			} else {
+				this.model.setLinearSelection( range );
+			}
 			if ( e.keyCode === OO.ui.Keys.LEFT ) {
 				this.cursorDirectionality = direction > 0 ? 'rtl' : 'ltr';
 			} else if ( e.keyCode === OO.ui.Keys.RIGHT ) {
@@ -5115,7 +5128,9 @@ ve.ce.Surface.prototype.onPaste = function ( e ) {
 	this.pasting = true;
 	this.beforePaste( e );
 	setTimeout( function () {
-		surface.afterPaste( e );
+		if ( !e.isDefaultPrevented() ) {
+			surface.afterPaste( e );
+		}
 		surface.surfaceObserver.clear();
 		surface.surfaceObserver.enable();
 
@@ -5143,11 +5158,16 @@ ve.ce.Surface.prototype.beforePaste = function ( e ) {
 	) {
 		range = selection.getRanges()[0];
 	} else {
+		e.preventDefault();
 		return;
 	}
 
 	this.beforePasteData = {};
 	if ( clipboardData ) {
+		if ( this.handleDataTransfer( clipboardData, true ) ) {
+			e.preventDefault();
+			return;
+		}
 		this.beforePasteData.custom = clipboardData.getData( 'text/xcustom' );
 		this.beforePasteData.html = clipboardData.getData( 'text/html' );
 		if ( this.beforePasteData.html ) {
@@ -5247,8 +5267,9 @@ ve.ce.Surface.prototype.beforePaste = function ( e ) {
 ve.ce.Surface.prototype.afterPaste = function () {
 	var clipboardKey, clipboardId, clipboardIndex, range,
 		$elements, parts, pasteData, slice, tx, internalListRange,
-		data, doc, htmlDoc,
+		data, doc, htmlDoc, $images, i,
 		context, left, right, contextRange,
+		items = [],
 		importantSpan = 'span[id],span[typeof],span[rel]',
 		importRules = this.getSurface().getImportRules(),
 		beforePasteData = this.beforePasteData || {},
@@ -5407,6 +5428,17 @@ ve.ce.Surface.prototype.afterPaste = function () {
 			// in edge cases (e.g. pasting a single MWReference)
 			htmlDoc = ve.createDocumentFromHtml( this.$pasteTarget.html() );
 		}
+		// Some browsers don't provide pasted image data through the clipboardData API and
+		// instead create img tags with data URLs, so detect those here
+		$images = $( htmlDoc.body ).find( 'img[src^=data\\:]' );
+		if ( $images.length ) {
+			for ( i = 0; i < $images.length; i++ ) {
+				items.push( ve.ui.DataTransferItem.static.newFromDataUri( $images.eq( i ).attr( 'src' ) ) );
+			}
+			if ( this.handleDataTransferItems( items, true ) ) {
+				return;
+			}
+		}
 		// External paste
 		doc = ve.dm.converter.getModelFromDom( htmlDoc, this.getModel().getDocument().getHtmlDocument() );
 		data = doc.data;
@@ -5490,6 +5522,75 @@ ve.ce.Surface.prototype.afterPaste = function () {
 	this.model.change( tx, selection.collapseToStart() );
 	// Move cursor to end of selection
 	this.model.setSelection( selection.collapseToEnd() );
+};
+
+/**
+ * Handle the insertion of a data transfer object
+ *
+ * @param {DataTransfer} dataTransfer Data transfer
+ * @param {boolean} isPaste Handlers being used for paste
+ * @param {ve.dm.SurfaceFragment} [targetFragment] Fragment to inserto data items at, defaults to current selection
+ * @return {boolean} One more items was handled
+ */
+ve.ce.Surface.prototype.handleDataTransfer = function ( dataTransfer, isPaste, targetFragment ) {
+	var i, l, stringData,
+		items = [],
+		stringTypes = ['text/html', 'text/plain'];
+
+	if ( dataTransfer.items ) {
+		for ( i = 0, l = dataTransfer.items.length; i < l; i++ ) {
+			if ( dataTransfer.items[i].kind !== 'string' ) {
+				items.push( ve.ui.DataTransferItem.static.newFromItem( dataTransfer.items[i] ) );
+			}
+		}
+	} else if ( dataTransfer.files ) {
+		for ( i = 0, l = dataTransfer.files.length; i < l; i++ ) {
+			items.push( ve.ui.DataTransferItem.static.newFromBlob( dataTransfer.files[i] ) );
+		}
+	}
+
+	for ( i = 0, l = stringTypes.length; i < stringTypes.length; i++ ) {
+		stringData = dataTransfer.getData( stringTypes[i] );
+		if ( stringData ) {
+			items.push( ve.ui.DataTransferItem.static.newFromString( stringData, stringTypes[i] ) );
+		}
+	}
+
+	return this.handleDataTransferItems( items, isPaste, targetFragment );
+};
+
+/**
+ * Handle the insertion of data tranfer items
+ *
+ * @param {ve.ui.DataTransferItem[]} items Data transfer items
+ * @param {boolean} isPaste Handlers being used for paste
+ * @param {ve.dm.SurfaceFragment} [targetFragment] Fragment to inserto data items at, defaults to current selection
+ * @return {boolean} One more items was handled
+ */
+ve.ce.Surface.prototype.handleDataTransferItems = function ( items, isPaste, targetFragment ) {
+	var i, l, name,
+		handled = false;
+
+	targetFragment = targetFragment || this.getModel().getFragment();
+
+	function insert( docOrData ) {
+		if ( docOrData instanceof ve.dm.Document ) {
+			targetFragment.collapseToEnd().insertDocument( docOrData );
+		} else {
+			targetFragment.collapseToEnd().insertContent( docOrData );
+		}
+	}
+
+	for ( i = 0, l = items.length; i < l; i++ ) {
+		name = ve.ui.dataTransferHandlerFactory.getHandlerNameForItem( items[i], isPaste );
+		if ( name ) {
+			ve.ui.dataTransferHandlerFactory.create( name, this.surface, items[i] )
+				.getInsertableData().done( insert );
+			handled = true;
+			break;
+		}
+	}
+	return handled;
 };
 
 /**
@@ -5601,8 +5702,6 @@ ve.ce.Surface.prototype.onModelSelect = function () {
 	}
 	// Update the selection state in the SurfaceObserver
 	this.surfaceObserver.pollOnceNoEmit();
-	// Check if we moved out of a slug
-	this.updateSlug();
 };
 
 /**
@@ -5722,6 +5821,37 @@ ve.ce.Surface.prototype.onSurfaceObserverBranchNodeChange = function ( oldBranch
 };
 
 /**
+ * Create a slug out of a DOM element
+ *
+ * @param {HTMLElement} element Slug element
+ */
+ve.ce.Surface.prototype.createSlug = function ( element ) {
+	var $slug,
+		surface = this,
+		offset = ve.ce.getOffsetOfSlug( element ),
+		doc = this.getModel().getDocument();
+
+	this.changeModel( ve.dm.Transaction.newFromInsertion(
+		doc, offset, [
+			{ type: 'paragraph', internal: { generated: 'slug' } },
+			{ type: '/paragraph' }
+		]
+	), new ve.dm.LinearSelection( doc, new ve.Range( offset + 1 ) ) );
+
+	// Animate the slug open
+	$slug = this.getDocument().getDocumentNode().getNodeFromOffset( offset + 1 ).$element;
+	$slug.addClass( 've-ce-branchNode-newSlug' );
+	setTimeout( function () {
+		$slug.addClass( 've-ce-branchNode-newSlug-open' );
+		setTimeout( function () {
+			surface.emit( 'position' );
+		}, 200 );
+	} );
+
+	this.onModelSelect();
+};
+
+/**
  * Handle selection change events.
  *
  * @see ve.ce.SurfaceObserver#pollOnce
@@ -5750,118 +5880,6 @@ ve.ce.Surface.prototype.onSurfaceObserverRangeChange = function ( oldRange, newR
 };
 
 /**
- * Handle slug enter events.
- *
- * @see ve.ce.SurfaceObserver#pollOnce
- */
-ve.ce.Surface.prototype.onSurfaceObserverSlugEnter = function () {
-	var fragment, offset, $paragraph,
-		model = this.getModel(),
-		doc = model.getDocument();
-
-	this.updateSlug();
-	// Wait until after updateSlug() to get selection
-	fragment = model.getFragment();
-	if ( !( fragment.getSelection() instanceof ve.dm.LinearSelection ) ) {
-		// This shouldn't happen
-		return;
-	}
-	offset = fragment.getSelection().getRange().start;
-	model.pushStaging( true );
-	this.changeModel( ve.dm.Transaction.newFromInsertion(
-		doc, offset, [
-			{ type: 'paragraph', internal: { generated: 'slug' } },
-			{ type: '/paragraph' }
-		]
-	), new ve.dm.LinearSelection( doc, new ve.Range( offset + 1 ) ) );
-	this.slugFragment = fragment;
-
-	// Fake a slug transition on the new paragraph
-	// Clear wrappers from previous former slugs
-	this.$element.find( '.ve-ce-branchNode-blockSlugWrapper-former' ).remove();
-	// Style paragraph as an unfocused slug, then remove unfocused class to trigger transition
-	// The order is important: if we set -former before -former-unfocused, we'll get two transitions
-	$paragraph = this.getDocument().getBranchNodeFromOffset( offset + 1 ).$element;
-	$paragraph.wrap( this.$( '<div>' ).addClass( 've-ce-branchNode-blockSlugWrapper-former-unfocused' ) );
-	// Restore selection now that we've wrapped the node the selection was in
-	this.onModelSelect();
-	$paragraph.parent()
-		// Enable transitions
-		.addClass( 've-ce-branchNode-blockSlugWrapper-former' )
-		// Remove unfocused again to trigger transition
-		.removeClass( 've-ce-branchNode-blockSlugWrapper-former-unfocused' );
-};
-
-/**
- * Unslug if needed.
- *
- * If the slug is no longer empty, commit the staged changes.
- * If the slug is still empty and the cursor has moved out of it,
- * clear the staged changes.
- * If the slug is still empty and the cursor is still inside it,
- * or if there is no active slug, do nothing.
- */
-ve.ce.Surface.prototype.updateSlug = function () {
-	// Prevent recursion
-	if ( this.updatingSlug ) {
-		return;
-	}
-	this.updatingSlug = true;
-
-	if ( this.slugFragment ) {
-		var range, $slug, anchor,
-			slugFragmentRange = this.slugFragment.getSelection().getRange(),
-			model = this.getModel();
-
-		if ( model.getSelection() instanceof ve.dm.LinearSelection ) {
-			range = model.getSelection().getRange();
-		}
-
-		if ( slugFragmentRange.getLength() === 2 ) {
-			if ( !range || !slugFragmentRange.containsOffset( range.start ) ) {
-				model.popStaging();
-				// After popStaging we may have removed a paragraph before our current
-				// cursor position. Polling with the SurfaceObserver won't notice a change
-				// in the rangy range as our cursor doesn't move within its node so we
-				// need to clear it first.
-				this.surfaceObserver.clear();
-				this.surfaceObserver.pollOnceNoEmit();
-
-				// Fake a transition on the slug that came back
-				$slug = $( this.documentView.getSlugAtOffset( slugFragmentRange.start ) );
-				anchor = $slug[0].previousSibling;
-				$slug
-					// Remove from the DOM temporarily (needed for Firefox)
-					.detach()
-					// Switch from unfocused to focused (no transition)
-					.removeClass( 've-ce-branchNode-blockSlugWrapper-unfocused' )
-					.addClass( 've-ce-branchNode-blockSlugWrapper-focused' )
-					// Reattach to the DOM
-					.insertAfter( anchor )
-					// Force reflow (needed for Chrome)
-					.height();
-				$slug
-					// Switch from focused to unfocused (with transition)
-					.removeClass( 've-ce-branchNode-blockSlugWrapper-focused' )
-					.addClass( 've-ce-branchNode-blockSlugWrapper-unfocused' );
-
-				this.slugFragment = null;
-			}
-		} else {
-			// Unwrap the ve-ce-branchNode-blockSlugWrapper wrapper from the paragraph
-			this.getDocument().getBranchNodeFromOffset( slugFragmentRange.start + 1 ).$element.unwrap();
-			// Modifying the DOM above breaks cursor position, so restore
-			this.showSelection( this.getModel().getSelection() );
-
-			model.applyStaging();
-			this.slugFragment = null;
-		}
-	}
-
-	this.updatingSlug = false;
-};
-
-/**
  * Handle content change events.
  *
  * @see ve.ce.SurfaceObserver#pollOnce
@@ -5885,6 +5903,7 @@ ve.ce.Surface.prototype.onSurfaceObserverContentChange = function ( node, previo
 		nodeOffset = node.getModel().getOffset(),
 		previousData = previous.text.split( '' ),
 		nextData = next.text.split( '' ),
+		modelData = this.model.getDocument().data,
 		lengthDiff = next.text.length - previous.text.length,
 		nextDataString = new ve.dm.DataString( nextData ),
 		surface = this;
@@ -5914,8 +5933,8 @@ ve.ce.Surface.prototype.onSurfaceObserverContentChange = function ( node, previo
 			return;
 		}
 
-		annotationsLeft = surface.getModel().getDocument().data.getAnnotationsFromOffset( left - 1 );
-		annotationsRight = surface.getModel().getDocument().data.getAnnotationsFromOffset( right );
+		annotationsLeft = modelData.getAnnotationsFromOffset( left - 1 );
+		annotationsRight = modelData.getAnnotationsFromOffset( right );
 
 		for ( i = 0, length = annotations.getLength(); i < length; i++ ) {
 			annotation = annotations.get( i );
@@ -6009,14 +6028,20 @@ ve.ce.Surface.prototype.onSurfaceObserverContentChange = function ( node, previo
 		}
 	}
 
-	// Complex change
+	// Complex change:
+	// 1. Count unchanged characters from left and right;
+	// 2. Assume that the minimal changed region indicates the replacement made by the user;
+	// 3. Hence guess how to map annotations.
+	// N.B. this logic can go wrong; e.g. this code will see slice->slide and
+	// assume that the user changed 'c' to 'd', but the user could instead have changed 'ic'
+	// to 'id', which would map annotations differently.
 
 	len = Math.min( previousData.length, nextData.length );
-	// Count same characters from left
+
 	while ( fromLeft < len && previousData[fromLeft] === nextData[fromLeft] ) {
 		++fromLeft;
 	}
-	// Count same characters from right
+
 	while (
 		fromRight < len - fromLeft &&
 		previousData[previousData.length - 1 - fromRight] ===
@@ -6033,10 +6058,15 @@ ve.ce.Surface.prototype.onSurfaceObserverContentChange = function ( node, previo
 	if ( node.unicornAnnotations ) {
 		// This CBN is unicorned. Use the stored annotations.
 		annotations = node.unicornAnnotations;
+	} else if ( fromLeft + fromRight < previousData.length ) {
+		// Content is being removed, so guess that we want to use the annotations from the
+		// start of the removed content.
+		annotations = modelData.getAnnotationsFromOffset( replacementRange.start );
 	} else {
-		// Guess that we want to use the annotations from the first changed character
-		// This could be wrong, e.g. slice->slide could happen by changing 'ic' to 'id'
-		annotations = this.model.getDocument().data.getAnnotationsFromOffset( replacementRange.start );
+		// No content is being removed, so guess that we want to use the annotations from
+		// just before the insertion (which means none at all if the insertion is at the
+		// start of a CBN).
+		annotations = modelData.getAnnotationsFromOffset( replacementRange.start - 1 );
 	}
 	if ( annotations.getLength() ) {
 		filterForWordbreak( annotations, replacementRange );
@@ -6352,7 +6382,7 @@ ve.ce.Surface.prototype.handleLinearArrowKey = function ( e ) {
 				// Observe which way the cursor moved
 				afterDirection = ve.compareDocumentOrder(
 					startFocusNode,
-					startFocusNode,
+					startFocusOffset,
 					surface.nativeSelection.focusNode,
 					surface.nativeSelection.focusOffset
 				);
@@ -6766,7 +6796,7 @@ ve.ce.Surface.prototype.handleLinearDelete = function ( e ) {
 	// TODO: is any of this necessary?
 	this.focus();
 	this.surfaceObserver.clear();
-	return false;
+	return true;
 };
 
 /**
@@ -6871,33 +6901,45 @@ ve.ce.Surface.prototype.showSelection = function ( selection ) {
 		return;
 	}
 
-	var endRange,
+	var endRange, oldRange,
 		range = selection.getRange(),
 		rangeSelection = this.getRangeSelection( range ),
 		nativeRange = this.getElementDocument().createRange();
 
-	this.nativeSelection.removeAllRanges();
+	nativeRange.setStart( rangeSelection.start.node, rangeSelection.start.offset );
 	if ( rangeSelection.end ) {
-		nativeRange.setStart( rangeSelection.start.node, rangeSelection.start.offset );
 		nativeRange.setEnd( rangeSelection.end.node, rangeSelection.end.offset );
-		if ( rangeSelection.isBackwards && this.nativeSelection.extend ) {
-			endRange = nativeRange.cloneRange();
-			endRange.collapse( false );
-			this.nativeSelection.addRange( endRange );
-			try {
-				this.nativeSelection.extend( nativeRange.startContainer, nativeRange.startOffset );
-			} catch ( e ) {
-				// Firefox sometimes fails when nodes are different,
-				// see https://bugzilla.mozilla.org/show_bug.cgi?id=921444
-				this.nativeSelection.addRange( nativeRange );
-			}
-		} else {
+	}
+	if ( rangeSelection.end && rangeSelection.isBackwards && this.nativeSelection.extend ) {
+		endRange = nativeRange.cloneRange();
+		endRange.collapse( false );
+		this.nativeSelection.removeAllRanges();
+		this.nativeSelection.addRange( endRange );
+		try {
+			this.nativeSelection.extend( nativeRange.startContainer, nativeRange.startOffset );
+		} catch ( e ) {
+			// Firefox sometimes fails when nodes are different,
+			// see https://bugzilla.mozilla.org/show_bug.cgi?id=921444
 			this.nativeSelection.addRange( nativeRange );
 		}
-	} else {
-		nativeRange.setStart( rangeSelection.start.node, rangeSelection.start.offset );
+	} else if ( !(
+		this.nativeSelection.rangeCount > 0 &&
+		( oldRange = this.nativeSelection.getRangeAt( 0 ) ) &&
+		oldRange.startContainer === nativeRange.startContainer &&
+		oldRange.startOffset === nativeRange.startOffset &&
+		oldRange.endContainer === nativeRange.endContainer &&
+		oldRange.endOffset === nativeRange.endOffset
+	) ) {
+		// Genuine selection change: apply it.
+		// TODO: this is slightly too zealous, because a cursor position at a node edge
+		// can have more than one (container,offset) representation
+		this.nativeSelection.removeAllRanges();
 		this.nativeSelection.addRange( nativeRange );
+	} else {
+		// Not a selection change: don't needlessly reapply the same selection.
+		return;
 	}
+
 	// Setting a range doesn't give focus in all browsers so make sure this happens
 	// Also set focus after range to prevent scrolling to top
 	if ( !OO.ui.contains( this.getElementDocument().activeElement, rangeSelection.start.node, true ) ) {
@@ -7267,12 +7309,6 @@ OO.mixinClass( ve.ce.SurfaceObserver, OO.EventEmitter );
  * @param {ve.Range|null} newRange New range
  */
 
-/**
- * When #poll observes that the cursor was moved into a block slug
- *
- * @event slugEnter
- */
-
 /* Methods */
 
 /**
@@ -7360,9 +7396,6 @@ ve.ce.SurfaceObserver.prototype.enable = function () {
  *
  * TODO: fixing selection in certain cases, handling selection across multiple nodes in Firefox
  *
- * FIXME: Does not work well (rangeChange is not emitted) when cursor is placed inside a block slug
- * with a mouse.
- *
  * @method
  * @fires contentChange
  * @fires rangeChange
@@ -7396,20 +7429,15 @@ ve.ce.SurfaceObserver.prototype.pollOnceSelection = function () {
  *
  * TODO: fixing selection in certain cases, handling selection across multiple nodes in Firefox
  *
- * FIXME: Does not work well (rangeChange is not emitted) when cursor is placed inside a block slug
- * with a mouse.
- *
  * @method
  * @private
  * @param {boolean} emitChanges Emit change events if selection changed
  * @param {boolean} selectionOnly Check for selection changes only
  * @fires contentChange
  * @fires rangeChange
- * @fires slugEnter
  */
 ve.ce.SurfaceObserver.prototype.pollOnceInternal = function ( emitChanges, selectionOnly ) {
-	var oldState, newState,
-		observer = this;
+	var oldState, newState;
 
 	if ( !this.domDocument || this.disabled ) {
 		return;
@@ -7423,28 +7451,7 @@ ve.ce.SurfaceObserver.prototype.pollOnceInternal = function ( emitChanges, selec
 		selectionOnly
 	);
 
-	if ( newState.leftBlockSlug ) {
-		oldState.$slugWrapper
-			.addClass( 've-ce-branchNode-blockSlugWrapper-unfocused' )
-			.removeClass( 've-ce-branceNode-blockSlugWrapper-focused' );
-	}
-
-	if ( newState.enteredBlockSlug ) {
-		newState.$slugWrapper
-			.addClass( 've-ce-branchNode-blockSlugWrapper-focused' )
-			.removeClass( 've-ce-branchNode-blockSlugWrapper-unfocused' );
-	}
-
 	this.rangeState = newState;
-
-	if ( newState.enteredBlockSlug || newState.leftBlockSlug ) {
-		// Emit 'position' on the surface view after the animation completes
-		this.setTimeout( function () {
-			if ( observer.surface ) {
-				observer.surface.emit( 'position' );
-			}
-		}, 200 );
-	}
 
 	if ( !selectionOnly && newState.node !== null && newState.contentChanged && emitChanges ) {
 		this.emit(
@@ -7469,10 +7476,6 @@ ve.ce.SurfaceObserver.prototype.pollOnceInternal = function ( emitChanges, selec
 			( oldState ? oldState.veRange : null ),
 			newState.veRange
 		);
-	}
-
-	if ( newState.enteredBlockSlug && emitChanges ) {
-		this.emit( 'slugEnter' );
 	}
 };
 
@@ -7526,6 +7529,10 @@ ve.ce.GeneratedContentNode = function VeCeGeneratedContentNode() {
 	this.update();
 };
 
+/* Inheritance */
+
+OO.initClass( ve.ce.GeneratedContentNode );
+
 /* Events */
 
 /**
@@ -7542,9 +7549,7 @@ ve.ce.GeneratedContentNode = function VeCeGeneratedContentNode() {
 
 /* Static members */
 
-ve.ce.GeneratedContentNode.static = {};
-
-// this.$element is just a wrapper for the real content, so don't duplicate attributes on it
+// We handle rendering ourselves, no need to render attributes from originalDomElements
 ve.ce.GeneratedContentNode.static.renderHtmlAttributes = false;
 
 /* Abstract methods */
@@ -7636,9 +7641,8 @@ ve.ce.GeneratedContentNode.prototype.getRenderedDomElements = function ( domElem
 	// Render the computed values of some attributes
 	for ( i = 0, len = ve.dm.Converter.computedAttributes.length; i < len; i++ ) {
 		attr = ve.dm.Converter.computedAttributes[i];
-		$rendering.find( '[' + attr + ']' )
-			.add( $rendering.filter( '[' + attr + ']' ) )
-			.each( resolveAttribute );
+		$rendering.find( '[' + attr + ']' ).each( resolveAttribute );
+		$rendering.filter( '[' + attr + ']' ).each( resolveAttribute );
 	}
 
 	return $rendering.toArray();
@@ -8668,6 +8672,11 @@ ve.ce.nodeFactory.register( ve.ce.PreformattedNode );
 ve.ce.TableCaptionNode = function VeCeTableCaptionNode() {
 	// Parent constructor
 	ve.ce.TableCaptionNode.super.apply( this, arguments );
+
+	// DOM changes
+	this.$element
+		.addClass( 've-ce-tableCaptionNode' )
+		.prop( 'contentEditable', 'true' );
 };
 
 /* Inheritance */
@@ -8679,21 +8688,6 @@ OO.inheritClass( ve.ce.TableCaptionNode, ve.ce.BranchNode );
 ve.ce.TableCaptionNode.static.name = 'tableCaption';
 
 ve.ce.TableCaptionNode.static.tagName = 'caption';
-
-/* Methods */
-
-/**
- * @inheritdoc
- */
-ve.ce.TableCaptionNode.prototype.onSetup = function () {
-	// Parent method
-	ve.ce.TableCaptionNode.super.prototype.onSetup.call( this );
-
-	// DOM changes
-	this.$element
-		.addClass( 've-ce-tableCaptionNode' )
-		.prop( 'contentEditable', 'true' );
-};
 
 /* Registration */
 
@@ -8718,6 +8712,22 @@ ve.ce.TableCellNode = function VeCeTableCellNode() {
 	// Parent constructor
 	ve.ce.TableCellNode.super.apply( this, arguments );
 
+	var rowspan = this.model.getRowspan(),
+		colspan = this.model.getColspan();
+
+	// DOM changes
+	this.$element
+		// The following classes can be used here:
+		// ve-ce-tableCellNode-data
+		// ve-ce-tableCellNode-header
+		.addClass( 've-ce-tableCellNode ve-ce-tableCellNode-' + this.model.getAttribute( 'style' ) );
+	if ( rowspan > 1 ) {
+		this.$element.attr( 'rowspan', rowspan );
+	}
+	if ( colspan > 1 ) {
+		this.$element.attr( 'colspan', colspan );
+	}
+
 	// Events
 	this.model.connect( this, {
 		update: 'onUpdate',
@@ -8734,36 +8744,6 @@ OO.inheritClass( ve.ce.TableCellNode, ve.ce.BranchNode );
 ve.ce.TableCellNode.static.name = 'tableCell';
 
 /* Methods */
-
-/**
- * @inheritdoc
- */
-ve.ce.TableCellNode.prototype.onSetup = function () {
-	var rowspan = this.model.getRowspan(),
-		colspan = this.model.getColspan();
-
-	// Parent method
-	ve.ce.TableCellNode.super.prototype.onSetup.call( this );
-
-	// Exit if already setup or not attached
-	if ( this.isSetup || !this.root ) {
-		return;
-	}
-
-	// DOM changes
-	this.$element
-		// The following classes can be used here:
-		// ve-ce-tableCellNode-data
-		// ve-ce-tableCellNode-header
-		.addClass( 've-ce-tableCellNode ve-ce-tableCellNode-' + this.model.getAttribute( 'style' ) );
-
-	if ( rowspan > 1 ) {
-		this.$element.attr( 'rowspan', rowspan );
-	}
-	if ( colspan > 1 ) {
-		this.$element.attr( 'colspan', colspan );
-	}
-};
 
 /**
  * Get the HTML tag name.
@@ -8819,6 +8799,9 @@ ve.ce.TableCellNode.prototype.onAttributeChange = function ( key, from, to ) {
 			}
 			break;
 		case 'style':
+			this.$element
+				.removeClass( 've-ce-tableCellNode-' + from )
+				.addClass( 've-ce-tableCellNode-' + to );
 			this.updateTagName();
 			break;
 	}
@@ -8847,10 +8830,16 @@ ve.ce.TableNode = function VeCeTableNode() {
 	// Parent constructor
 	ve.ce.TableNode.super.apply( this, arguments );
 
+	// Properties
 	this.surface = null;
 	this.active = false;
 	this.startCell = null;
 	this.editingFragment = null;
+
+	// DOM changes
+	this.$element
+		.addClass( 've-ce-tableNode' )
+		.prop( 'contentEditable', 'false' );
 };
 
 /* Inheritance */
@@ -8871,11 +8860,6 @@ ve.ce.TableNode.prototype.onSetup = function () {
 		return;
 	}
 	this.surface = this.getRoot().getSurface();
-
-	// DOM changes
-	this.$element
-		.addClass( 've-ce-tableNode' )
-		.prop( 'contentEditable', 'false' );
 
 	// Overlay
 	this.$selectionBox = this.$( '<div>' ).addClass( 've-ce-tableNodeOverlay-selection-box' );
@@ -9082,7 +9066,7 @@ ve.ce.TableNode.prototype.setEditing = function ( isEditing, noSelect ) {
 		cell = this.getCellNodesFromSelection( selection )[0];
 		cell.setEditing( true );
 		if ( !noSelect ) {
-		// TODO: Find content offset/slug offset within cell
+			// TODO: Find content offset within cell
 			this.surface.getModel().setLinearSelection( new ve.Range( cell.getModel().getRange().end - 1 ) );
 		}
 	} else if ( this.editingFragment ) {
@@ -9130,7 +9114,7 @@ ve.ce.TableNode.prototype.onSurfaceModelSelect = function ( selection ) {
 		) ||
 		(
 			selection instanceof ve.dm.TableSelection &&
-			selection.tableRange.equals( this.getModel().getOuterRange() )
+			selection.tableRange.equalsSelection( this.getModel().getOuterRange() )
 		);
 
 	if ( active ) {
@@ -9643,6 +9627,9 @@ ve.ce.BlockImageNode = function VeCeBlockImageNode( model, config ) {
 OO.inheritClass( ve.ce.BlockImageNode, ve.ce.BranchNode );
 
 OO.mixinClass( ve.ce.BlockImageNode, ve.ce.ImageNode );
+
+// Mixin Alignable's parent class
+OO.mixinClass( ve.ce.BlockImageNode, ve.ce.ClassAttributeNode );
 
 OO.mixinClass( ve.ce.BlockImageNode, ve.ce.AlignableNode );
 
@@ -10639,6 +10626,7 @@ ve.ui = {
 	// 'commandRegistry' instantiated in ve.ui.CommandRegistry.js
 	// 'triggerRegistry' instantiated in ve.ui.TriggerRegistry.js
 	// 'toolFactory' instantiated in ve.ui.ToolFactory.js
+	// 'contextItemFactory' instantiated in ve.ui.ContextItemFactory.js
 	// 'dataTransferHandlerFactory' instantiated in ve.ui.DataTransferHandlerFactory.js
 	windowFactory: new OO.Factory()
 };
@@ -10780,9 +10768,6 @@ OO.mixinClass( ve.ui.Surface, OO.EventEmitter );
 ve.ui.Surface.prototype.destroy = function () {
 	// Stop periodic history tracking in model
 	this.model.stopHistoryTracking();
-
-	// Disconnect events
-	this.dialogs.disconnect( this );
 
 	// Destroy the ce.Surface, the ui.Context and window managers
 	this.view.destroy();
@@ -11135,6 +11120,7 @@ ve.ui.Surface.prototype.stopFilibuster = function () {
  * @class
  * @abstract
  * @extends OO.ui.Element
+ * @mixins OO.ui.GroupElement
  *
  * @constructor
  * @param {ve.ui.Surface} surface
@@ -11142,14 +11128,17 @@ ve.ui.Surface.prototype.stopFilibuster = function () {
  */
 ve.ui.Context = function VeUiContext( surface, config ) {
 	// Parent constructor
-	OO.ui.Element.call( this, config );
+	ve.ui.Context.super.call( this, config );
+
+	// Mixin constructors
+	OO.ui.GroupElement.call( this, config );
 
 	// Properties
 	this.surface = surface;
 	this.visible = false;
+	this.choosing = false;
 	this.inspector = null;
 	this.inspectors = this.createInspectorWindowManager();
-	this.menu = new ve.ui.ContextSelectWidget( { $: this.$ } );
 	this.lastSelectedNode = null;
 	this.afterContextChangeTimeout = null;
 	this.afterContextChangeHandler = this.afterContextChange.bind( this );
@@ -11158,22 +11147,38 @@ ve.ui.Context = function VeUiContext( surface, config ) {
 	// Events
 	this.surface.getModel().connect( this, { contextChange: 'onContextChange' } );
 	this.inspectors.connect( this, { opening: 'onInspectorOpening' } );
-	this.menu.connect( this, { choose: 'onContextItemChoose' } );
 
 	// Initialization
 	// Hide element using a class, not this.toggle, as child implementations
 	// of toggle may require the instance to be fully constructed before running.
+	this.$group.addClass( 've-ui-context-menu' );
 	this.$element
-		.addClass( 've-ui-context oo-ui-element-hidden' );
-	this.menu.toggle( false );
+		.addClass( 've-ui-context oo-ui-element-hidden' )
+		.append( this.$group );
 	this.inspectors.$element.addClass( 've-ui-context-inspectors' );
 };
 
 /* Inheritance */
 
 OO.inheritClass( ve.ui.Context, OO.ui.Element );
+OO.mixinClass( ve.ui.Context, OO.ui.GroupElement );
+
+/* Static Property */
+
+/**
+ * Instruct items to provide only a basic rendering.
+ *
+ * @static
+ * @inheritable
+ * @property {boolean}
+ */
+ve.ui.Context.static.basicRendering = false;
 
 /* Methods */
+
+ve.ui.Context.prototype.shouldUseBasicRendering = function () {
+	return this.constructor.static.basicRendering;
+};
 
 /**
  * Handle context change event.
@@ -11200,8 +11205,8 @@ ve.ui.Context.prototype.onContextChange = function () {
 			this.afterContextChangeTimeout = setTimeout( this.afterContextChangeHandler );
 		}
 	}
-	// Purge available tools cache
-	this.availableTools = null;
+	// Purge related items cache
+	this.relatedSources = null;
 };
 
 /**
@@ -11214,17 +11219,21 @@ ve.ui.Context.prototype.afterContextChange = function () {
 	this.afterContextChangeTimeout = null;
 
 	if ( this.isVisible() ) {
-		if ( this.menu.isVisible() ) {
+		if ( !this.isEmpty() ) {
 			if ( this.isInspectable() ) {
 				// Change state: menu -> menu
-				this.populateMenu();
+				this.teardownMenuItems();
+				this.setupMenuItems();
 				this.updateDimensionsDebounced();
 			} else {
 				// Change state: menu -> closed
-				this.menu.toggle( false );
+				this.toggleMenu( false );
 				this.toggle( false );
 			}
-		} else if ( this.inspector && ( !selectedNode || ( selectedNode !== this.lastSelectedNode ) ) ) {
+		} else if (
+			this.inspector &&
+			( !selectedNode || ( selectedNode !== this.lastSelectedNode ) )
+		) {
 			// Change state: inspector -> (closed|menu)
 			// Unless there is a selectedNode that hasn't changed (e.g. your inspector is editing a node)
 			this.inspector.close();
@@ -11232,8 +11241,7 @@ ve.ui.Context.prototype.afterContextChange = function () {
 	} else {
 		if ( this.isInspectable() ) {
 			// Change state: closed -> menu
-			this.menu.toggle( true );
-			this.populateMenu();
+			this.toggleMenu( true );
 			this.toggle( true );
 		}
 	}
@@ -11264,9 +11272,9 @@ ve.ui.Context.prototype.onInspectorOpening = function ( win, opening ) {
 	opening
 		.progress( function ( data ) {
 			if ( data.state === 'setup' ) {
-				if ( context.menu.isVisible() ) {
+				if ( !context.isEmpty() ) {
 					// Change state: menu -> inspector
-					context.menu.toggle( false );
+					context.toggleMenu( false );
 				} else if ( !context.isVisible() ) {
 					// Change state: closed -> inspector
 					context.toggle( true );
@@ -11277,7 +11285,7 @@ ve.ui.Context.prototype.onInspectorOpening = function ( win, opening ) {
 		.always( function ( opened ) {
 			opened.always( function ( closed ) {
 				closed.always( function () {
-					var inspectable = !!context.getAvailableTools().length;
+					var inspectable = context.isInspectable();
 
 					context.inspector = null;
 
@@ -11286,8 +11294,7 @@ ve.ui.Context.prototype.onInspectorOpening = function ( win, opening ) {
 
 					if ( inspectable ) {
 						// Change state: inspector -> menu
-						context.menu.toggle( true );
-						context.populateMenu();
+						context.toggleMenu( true );
 						context.updateDimensionsDebounced();
 					} else {
 						// Change state: inspector -> closed
@@ -11301,17 +11308,6 @@ ve.ui.Context.prototype.onInspectorOpening = function ( win, opening ) {
 				} );
 			} );
 		} );
-};
-
-/**
- * Handle context item choose events.
- *
- * @param {ve.ui.ContextOptionWidget} item Chosen item
- */
-ve.ui.Context.prototype.onContextItemChoose = function ( item ) {
-	if ( item ) {
-		item.getCommand().execute( this.surface );
-	}
 };
 
 /**
@@ -11329,7 +11325,7 @@ ve.ui.Context.prototype.isVisible = function () {
  * @return {boolean} Content is inspectable
  */
 ve.ui.Context.prototype.isInspectable = function () {
-	return !!this.getAvailableTools().length;
+	return !!this.getRelatedSources().length;
 };
 
 /**
@@ -11337,35 +11333,63 @@ ve.ui.Context.prototype.isInspectable = function () {
  *
  * @return {boolean} Content is inspectable
  */
-ve.ui.Context.prototype.hasInspector = function () {
-	var i, availableTools = this.getAvailableTools();
-	for ( i = availableTools.length - 1; i >= 0; i-- ) {
-		if ( availableTools[i].tool.prototype instanceof ve.ui.InspectorTool ) {
-			return true;
+ve.ui.Context.prototype.isEmbeddable = function () {
+	var i, len,
+		sources = this.getRelatedSources();
+
+	for ( i = 0, len = sources.length; i < len; i++ ) {
+		if ( !sources[i].embedable ) {
+			return false;
 		}
 	}
-	return false;
+
+	return true;
 };
 
 /**
- * Get available tools.
+ * Get related item sources.
  *
  * Result is cached, and cleared when the model or selection changes.
  *
- * @returns {Object[]} List of objects containing `tool` and `model` properties, representing each
- *   compatible tool and the node or annotation it is compatible with
+ * @returns {Object[]} List of objects containing `type`, `name` and `model` properties,
+ *   representing each compatible type (either `item` or `tool`), symbolic name of the item or tool
+ *   and the model the item or tool is compatible with
  */
-ve.ui.Context.prototype.getAvailableTools = function () {
-	if ( !this.availableTools ) {
+ve.ui.Context.prototype.getRelatedSources = function () {
+	var i, len, toolClass, items, tools, models,
+		selectedModels = this.surface.getModel().getFragment().getSelectedModels();
+
+	if ( !this.relatedSources ) {
+		this.relatedSources = [];
 		if ( this.surface.getModel().getSelection() instanceof ve.dm.LinearSelection ) {
-			this.availableTools = ve.ui.toolFactory.getToolsForFragment(
-				this.surface.getModel().getFragment()
-			);
-		} else {
-			this.availableTools = [];
+			models = [];
+			items = ve.ui.contextItemFactory.getRelatedItems( selectedModels );
+			for ( i = 0, len = items.length; i < len; i++ ) {
+				models.push( items[i].model );
+				this.relatedSources.push( {
+					type: 'item',
+					embedable: ve.ui.contextItemFactory.isEmbeddable( items[i].name ),
+					name: items[i].name,
+					model: items[i].model
+				} );
+			}
+			tools = ve.ui.toolFactory.getRelatedItems( selectedModels );
+			for ( i = 0, len = tools.length; i < len; i++ ) {
+				if ( models.indexOf( tools[i].model ) === -1 ) {
+					toolClass = ve.ui.toolFactory.lookup( tools[i].name );
+					this.relatedSources.push( {
+						type: 'tool',
+						embedable: !toolClass ||
+							!( toolClass.prototype instanceof ve.ui.InspectorTool ),
+						name: tools[i].name,
+						model: tools[i].model
+					} );
+				}
+			}
 		}
 	}
-	return this.availableTools;
+
+	return this.relatedSources;
 };
 
 /**
@@ -11387,15 +11411,6 @@ ve.ui.Context.prototype.getInspectors = function () {
 };
 
 /**
- * Get context menu.
- *
- * @return {ve.ui.ContextSelectWidget}
- */
-ve.ui.Context.prototype.getMenu = function () {
-	return this.menu;
-};
-
-/**
  * Create a inspector window manager.
  *
  * @method
@@ -11408,34 +11423,72 @@ ve.ui.Context.prototype.createInspectorWindowManager = function () {
 };
 
 /**
- * Create a context item widget
+ * Toggle the menu.
  *
- * @param {Object} tool Object containing tool and model properties.
- * @return {ve.ui.ContextOptionWidget} Context item widget
+ * @param {boolean} [show] Show the menu, omit to toggle
+ * @chainable
  */
-ve.ui.Context.prototype.createItem = function ( tool ) {
-	return new ve.ui.ContextOptionWidget(
-		tool.tool, tool.model, { $: this.$, data: tool.tool.static.name }
-	);
+ve.ui.Context.prototype.toggleMenu = function ( show ) {
+	show = show === undefined ? !this.choosing : !!show;
+
+	if ( show !== this.choosing ) {
+		this.choosing = show;
+		this.$element.toggleClass( 've-ui-context-choosing', show );
+		if ( show ) {
+			this.setupMenuItems();
+		} else {
+			this.teardownMenuItems();
+		}
+	}
+
+	return this;
 };
 
 /**
- * Update the contents of the menu.
+ * Setup menu items.
  *
+ * @protected
  * @chainable
  */
-ve.ui.Context.prototype.populateMenu = function () {
-	var i, len,
-		items = [],
-		tools = this.getAvailableTools();
+ve.ui.Context.prototype.setupMenuItems = function () {
+	var i, len, source,
+		sources = this.getRelatedSources(),
+		items = [];
 
-	this.menu.clearItems();
-	if ( tools.length ) {
-		for ( i = 0, len = tools.length; i < len; i++ ) {
-			items.push( this.createItem( tools[i] ) );
+	for ( i = 0, len = sources.length; i < len; i++ ) {
+		source = sources[i];
+		if ( source.type === 'item' ) {
+			items.push( ve.ui.contextItemFactory.create(
+				sources[i].name, this, sources[i].model, { $: this.$ }
+			) );
+		} else if ( source.type === 'tool' ) {
+			items.push( new ve.ui.ToolContextItem(
+				this, sources[i].model, ve.ui.toolFactory.lookup( sources[i].name ), { $: this.$ }
+			) );
 		}
-		this.menu.addItems( items );
 	}
+
+	this.addItems( items );
+	for ( i = 0, len = items.length; i < len; i++ ) {
+		items[i].setup();
+	}
+
+	return this;
+};
+
+/**
+ * Teardown menu items.
+ *
+ * @protected
+ * @chainable
+ */
+ve.ui.Context.prototype.teardownMenuItems = function () {
+	var i, len;
+
+	for ( i = 0, len = this.items.length; i < len; i++ ) {
+		this.items[i].teardown();
+	}
+	this.clearItems();
 
 	return this;
 };
@@ -11472,7 +11525,6 @@ ve.ui.Context.prototype.destroy = function () {
 	// Disconnect events
 	this.surface.getModel().disconnect( this );
 	this.inspectors.disconnect( this );
-	this.menu.disconnect( this );
 
 	// Destroy inspectors WindowManager
 	this.inspectors.destroy();
@@ -11482,6 +11534,583 @@ ve.ui.Context.prototype.destroy = function () {
 
 	this.$element.remove();
 	return this;
+};
+
+/*!
+ * VisualEditor UserInterface ModeledFactory class.
+ *
+ * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
+ */
+
+/**
+ * Mixin for factories whose items associate with specific models.
+ *
+ * Classes registered with the factory should have a static method named `isCompatibleWith` that
+ * accepts a model and returns a boolean.
+ *
+ * @class
+ *
+ * @constructor
+ */
+ve.ui.ModeledFactory = function VeUiModeledFactory() {};
+
+/* Inheritance */
+
+OO.initClass( ve.ui.ModeledFactory );
+
+/* Methods */
+
+/**
+ * Get a list of symbolic names for classes related to a list of models.
+ *
+ * The lowest compatible item in each inheritance chain will be used.
+ *
+ * @param {Object[]} models Models to find relationships with
+ * @returns {Object[]} List of objects containing `name` and `model` properties, representing
+ *   each compatible class's symbolic name and the model it is compatible with
+ */
+ve.ui.ModeledFactory.prototype.getRelatedItems = function ( models ) {
+	var i, iLen, j, jLen, name, classes, model,
+		registry = this.registry,
+		names = {},
+		matches = [];
+
+	/**
+	 * Collect the most specific compatible classes for a model.
+	 *
+	 * @private
+	 * @param {Object} model Model to find compatability with
+	 * @returns {Function[]} List of compatible classes
+	 */
+	function collect( model ) {
+		var i, len, name, candidate, add,
+			candidates = [];
+
+		for ( name in registry ) {
+			candidate = registry[name];
+			if ( candidate.static.isCompatibleWith( model ) ) {
+				add = true;
+				for ( i = 0, len = candidates.length; i < len; i++ ) {
+					if ( candidate.prototype instanceof candidates[i] ) {
+						candidates.splice( i, 1, candidate );
+						add = false;
+						break;
+					} else if ( candidates[i].prototype instanceof candidate ) {
+						add = false;
+						break;
+					}
+				}
+				if ( add ) {
+					candidates.push( candidate );
+				}
+			}
+		}
+
+		return candidates;
+	}
+
+	// Collect compatible classes and the models they are specifically compatible with,
+	// discarding class's with duplicate symbolic names
+	for ( i = 0, iLen = models.length; i < iLen; i++ ) {
+		model = models[i];
+		classes = collect( model );
+		for ( j = 0, jLen = classes.length; j < jLen; j++ ) {
+			name = classes[j].static.name;
+			if ( !names[name] ) {
+				matches.push( { name: name, model: model } );
+			}
+			names[name] = true;
+		}
+	}
+
+	return matches;
+};
+
+/*!
+ * VisualEditor UserInterface ContextItem class.
+ *
+ * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
+ */
+
+/**
+ * Item in a context.
+ *
+ * @class
+ * @extends OO.ui.Widget
+ * @mixins OO.ui.IconElement
+ * @mixins OO.ui.LabelElement
+ * @mixins OO.ui.PendingElement
+ *
+ * @constructor
+ * @param {ve.ui.Context} context Context item is in
+ * @param {ve.dm.Model} model Model item is related to
+ * @param {Object} [config] Configuration options
+ * @cfg {boolean} [basic] Render only basic information
+ */
+ve.ui.ContextItem = function ( context, model, config ) {
+	// Parent constructor
+	ve.ui.ContextItem.super.call( this, config );
+
+	// Mixin constructors
+	OO.ui.IconElement.call( this, config );
+	OO.ui.LabelElement.call( this, config );
+	OO.ui.PendingElement.call( this, config );
+
+	// Properties
+	this.context = context;
+	this.model = model;
+	this.$head = $( '<div>' );
+	this.$title = $( '<div>' );
+	this.$actions = $( '<div>' );
+	this.$body = $( '<div>' );
+	this.$info = $( '<div>' );
+	this.$description = $( '<div>' );
+	this.editButton = new OO.ui.ButtonWidget( {
+		label: ve.msg( 'visualeditor-contextitemwidget-label-secondary' ),
+		flags: [ 'progressive' ],
+		classes: [ 've-ui-contextItem-editButton' ]
+	} );
+
+	// Events
+	this.editButton.connect( this, { click: 'onEditButtonClick' } );
+	this.$element.on( 'mousedown', false );
+
+	// Initialization
+	this.$label.addClass( 've-ui-contextItem-label' );
+	this.$icon.addClass( 've-ui-contextItem-icon' );
+	this.$description.addClass( 've-ui-contextItem-description' );
+	this.$info
+		.addClass( 've-ui-contextItem-info' )
+		.append( this.$description );
+	this.$title
+		.addClass( 've-ui-contextItem-title' )
+		.append( this.$icon, this.$label );
+	this.$actions
+		.addClass( 've-ui-contextItem-actions' )
+		.append( this.editButton.$element );
+	this.$head
+		.addClass( 've-ui-contextItem-head' )
+		.append( this.$title, this.$info, this.$actions );
+	this.$body.addClass( 've-ui-contextItem-body' );
+	this.$element
+		.addClass( 've-ui-contextItem' )
+		.toggleClass( 've-ui-contextItem-basic', this.context.shouldUseBasicRendering() )
+		.append( this.$head, this.$body );
+};
+
+/* Inheritance */
+
+OO.inheritClass( ve.ui.ContextItem, OO.ui.Widget );
+OO.mixinClass( ve.ui.ContextItem, OO.ui.IconElement );
+OO.mixinClass( ve.ui.ContextItem, OO.ui.LabelElement );
+OO.mixinClass( ve.ui.ContextItem, OO.ui.PendingElement );
+
+/* Static Properties */
+
+ve.ui.ContextItem.static.editable = true;
+
+ve.ui.ContextItem.static.embeddable = true;
+
+ve.ui.ContextItem.static.commandName = null;
+
+/**
+ * Annotation or node models this item is related to.
+ *
+ * Used by #isCompatibleWith.
+ *
+ * @static
+ * @property {Function[]}
+ * @inheritable
+ */
+ve.ui.ContextItem.static.modelClasses = [];
+
+/* Methods */
+
+/**
+ * Handle edit button click events.
+ *
+ * @localdoc Executes the command related to #static-commandName on the context's surface
+ *
+ * @protected
+ */
+ve.ui.ContextItem.prototype.onEditButtonClick = function () {
+	var command = this.getCommand();
+
+	if ( command ) {
+		command.execute( this.context.getSurface() );
+	}
+};
+
+/**
+ * Check if this item is compatible with a given model.
+ *
+ * @static
+ * @inheritable
+ * @param {ve.dm.Model} model Model to check
+ * @return {boolean} Item can be used with model
+ */
+ve.ui.ContextItem.static.isCompatibleWith = function ( model ) {
+	return ve.isInstanceOfAny( model, this.modelClasses );
+};
+
+/**
+ * Check if item is editable.
+ *
+ * @return {boolean} Item is editable
+ */
+ve.ui.ContextItem.prototype.isEditable = function () {
+	return this.constructor.static.editable;
+};
+
+/**
+ * Get the command for this item.
+ *
+ * @return {ve.ui.Command} Command
+ */
+ve.ui.ContextItem.prototype.getCommand = function () {
+	return ve.ui.commandRegistry.lookup( this.constructor.static.commandName );
+};
+
+/**
+ * Get the description.
+ *
+ * @localdoc Override for custom description content
+ * @return {string} Item description
+ */
+ve.ui.ContextItem.prototype.getDescription = function () {
+	return '';
+};
+
+/**
+ * Render the body.
+ *
+ * @localdoc Renders the result of #getDescription, override for custom body rendering
+ */
+ve.ui.ContextItem.prototype.renderBody = function () {
+	this.$body.text( this.getDescription() );
+};
+
+/**
+ * Render the description.
+ *
+ * @localdoc Renders the result of #getDescription, override for custom description rendering
+ */
+ve.ui.ContextItem.prototype.renderDescription = function () {
+	this.$description.text( this.getDescription() );
+};
+
+/**
+ * Setup the item.
+ *
+ * @localdoc Calls #renderDescription if the context suggests basic rendering or #renderBody if not,
+ *   override to start any async rendering common to the body and description
+ * @chainable
+ */
+ve.ui.ContextItem.prototype.setup = function () {
+	this.editButton.toggle( this.isEditable() );
+
+	if ( this.context.shouldUseBasicRendering() ) {
+		this.renderDescription();
+	} else {
+		this.renderBody();
+	}
+
+	return this;
+};
+
+/**
+ * Teardown the item.
+ *
+ * @localdoc Empties the description and body, override to abort any async rendering
+ * @chainable
+ */
+ve.ui.ContextItem.prototype.teardown = function () {
+	this.$description.empty();
+	this.$body.empty();
+	return this;
+};
+
+/*!
+ * VisualEditor UserInterface ContextItemFactory class.
+ *
+ * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
+ */
+
+/**
+ * Factory for context items.
+ *
+ * @class
+ * @extends OO.Factory
+ * @mixins ve.ui.ModeledFactory
+ *
+ * @constructor
+ */
+ve.ui.ContextItemFactory = function VeUiContextItemFactory() {
+	// Parent constructor
+	ve.ui.ContextItemFactory.super.call( this );
+
+	// Mixin constructors
+	ve.ui.ModeledFactory.call( this );
+};
+
+/* Inheritance */
+
+OO.inheritClass( ve.ui.ContextItemFactory, OO.Factory );
+OO.mixinClass( ve.ui.ContextItemFactory, ve.ui.ModeledFactory );
+
+/* Methods */
+
+/**
+ * Check if an item is embeddable.
+ *
+ * @param {string} name Symbolic item name
+ * @return {boolean} Item is embeddable
+ */
+ve.ui.ContextItemFactory.prototype.isEmbeddable = function ( name ) {
+	if ( Object.prototype.hasOwnProperty.call( this.registry, name ) ) {
+		return !!this.registry[name].static.embeddable;
+	}
+	throw new Error( 'Unrecognized symbolic name: ' + name );
+};
+
+/* Initialization */
+
+ve.ui.contextItemFactory = new ve.ui.ContextItemFactory();
+
+/*!
+ * VisualEditor CommentContextItem class.
+ *
+ * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
+ */
+
+/**
+ * Context item for a comment.
+ *
+ * @extends ve.ui.ContextItem
+ *
+ * @param {ve.ui.Context} context Context item is in
+ * @param {ve.dm.Model} model Model item is related to
+ * @param {Object} config Configuration options
+ */
+ve.ui.CommentContextItem = function VeCommentContextItem( context, model, config ) {
+	// Parent constructor
+	ve.ui.CommentContextItem.super.call( this, context, model, config );
+
+	// Initialization
+	this.$element.addClass( 've-ui-commentContextItem' );
+};
+
+/* Inheritance */
+
+OO.inheritClass( ve.ui.CommentContextItem, ve.ui.ContextItem );
+
+/* Static Properties */
+
+ve.ui.CommentContextItem.static.name = 'comment';
+
+ve.ui.CommentContextItem.static.icon = 'comment';
+
+ve.ui.CommentContextItem.static.label = OO.ui.deferMsg( 'visualeditor-commentinspector-title' );
+
+ve.ui.CommentContextItem.static.modelClasses = [ ve.dm.CommentNode ];
+
+ve.ui.CommentContextItem.static.embeddable = false;
+
+ve.ui.CommentContextItem.static.commandName = 'comment';
+
+/* Methods */
+
+/**
+ * @inheritdoc
+ */
+ve.ui.CommentContextItem.prototype.getDescription = function () {
+	return this.model.getAttribute( 'text' ).trim();
+};
+
+/* Registration */
+
+ve.ui.contextItemFactory.register( ve.ui.CommentContextItem );
+
+/*!
+ * VisualEditor LanguageContextItem class.
+ *
+ * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
+ */
+
+/**
+ * Context item for a language.
+ *
+ * @extends ve.ui.ContextItem
+ *
+ * @param {ve.ui.Context} context Context item is in
+ * @param {ve.dm.Model} model Model item is related to
+ * @param {Object} config Configuration options
+ */
+ve.ui.LanguageContextItem = function VeLanguageContextItem( context, model, config ) {
+	// Parent constructor
+	ve.ui.LanguageContextItem.super.call( this, context, model, config );
+
+	// Initialization
+	this.$element.addClass( 've-ui-languageContextItem' );
+};
+
+/* Inheritance */
+
+OO.inheritClass( ve.ui.LanguageContextItem, ve.ui.ContextItem );
+
+/* Static Properties */
+
+ve.ui.LanguageContextItem.static.name = 'language';
+
+ve.ui.LanguageContextItem.static.icon = 'language';
+
+ve.ui.LanguageContextItem.static.label = OO.ui.deferMsg( 'visualeditor-languageinspector-title' );
+
+ve.ui.LanguageContextItem.static.modelClasses = [ ve.dm.LanguageAnnotation ];
+
+ve.ui.LanguageContextItem.static.embeddable = false;
+
+ve.ui.LanguageContextItem.static.commandName = 'language';
+
+/* Methods */
+
+/**
+ * @inheritdoc
+ */
+ve.ui.LanguageContextItem.prototype.getDescription = function () {
+	return ve.ce.LanguageAnnotation.static.getDescription( this.model );
+};
+
+/* Registration */
+
+ve.ui.contextItemFactory.register( ve.ui.LanguageContextItem );
+
+/*!
+ * VisualEditor LinkContextItem class.
+ *
+ * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
+ */
+
+/**
+ * Context item for a link.
+ *
+ * @extends ve.ui.ContextItem
+ *
+ * @param {ve.ui.Context} context Context item is in
+ * @param {ve.dm.Model} model Model item is related to
+ * @param {Object} config Configuration options
+ */
+ve.ui.LinkContextItem = function VeLinkContextItem( context, model, config ) {
+	// Parent constructor
+	ve.ui.LinkContextItem.super.call( this, context, model, config );
+
+	// Initialization
+	this.$element.addClass( 've-ui-linkContextItem' );
+};
+
+/* Inheritance */
+
+OO.inheritClass( ve.ui.LinkContextItem, ve.ui.ContextItem );
+
+/* Static Properties */
+
+ve.ui.LinkContextItem.static.name = 'link';
+
+ve.ui.LinkContextItem.static.icon = 'link';
+
+ve.ui.LinkContextItem.static.label = OO.ui.deferMsg( 'visualeditor-linkinspector-title' );
+
+ve.ui.LinkContextItem.static.modelClasses = [ ve.dm.LinkAnnotation ];
+
+ve.ui.LinkContextItem.static.embeddable = false;
+
+ve.ui.LinkContextItem.static.commandName = 'link';
+
+/* Methods */
+
+/**
+ * @inheritdoc
+ */
+ve.ui.LinkContextItem.prototype.getDescription = function () {
+	return this.model.getHref();
+};
+
+/**
+ * @inheritdoc
+ */
+ve.ui.LinkContextItem.prototype.renderBody = function () {
+	var htmlDoc = this.context.getSurface().getModel().getDocument().getHtmlDocument();
+	this.$body.empty().append(
+		$( '<a>' )
+			.text( this.getDescription() )
+			.attr( {
+				href: ve.resolveUrl( this.model.getHref(), htmlDoc ),
+				target: '_blank'
+			} )
+	);
+};
+
+/* Registration */
+
+ve.ui.contextItemFactory.register( ve.ui.LinkContextItem );
+
+/*!
+ * VisualEditor ToolContextItem class.
+ *
+ * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
+ */
+
+/**
+ * Context item for a tool.
+ *
+ * @extends ve.ui.ContextItem
+ *
+ * @param {ve.ui.Context} context Context item is in
+ * @param {ve.dm.Model} model Model the item is related to
+ * @param {Function} tool Tool class the item is based on
+ * @param {Object} config Configuration options
+ */
+ve.ui.ToolContextItem = function VeToolContextItem( context, model, tool, config ) {
+	// Parent constructor
+	ve.ui.ToolContextItem.super.call( this, context, model, config );
+
+	// Properties
+	this.tool = tool;
+
+	// Initialization
+	this.setIcon( tool.static.icon );
+	this.setLabel( tool.static.title );
+	this.$element.addClass( 've-ui-toolContextItem' );
+};
+
+/* Inheritance */
+
+OO.inheritClass( ve.ui.ToolContextItem, ve.ui.ContextItem );
+
+/* Methods */
+
+/**
+ * @inheritdoc
+ */
+ve.ui.ToolContextItem.prototype.getCommand = function () {
+	return ve.ui.commandRegistry.lookup( this.tool.static.commandName );
+};
+
+/**
+ * Get a description of the model.
+ *
+ * @return {string} Description of model
+ */
+ve.ui.ToolContextItem.prototype.getDescription = function () {
+	var description = '';
+
+	if ( this.model instanceof ve.dm.Annotation ) {
+		description = ve.ce.annotationFactory.getDescription( this.model );
+	} else if ( this.model instanceof ve.dm.Node ) {
+		description = ve.ce.nodeFactory.getDescription( this.model );
+	}
+
+	return description;
 };
 
 /*!
@@ -11781,7 +12410,10 @@ OO.inheritClass( ve.ui.Toolbar, OO.ui.Toolbar );
 /* Methods */
 
 /**
- * inheritdoc
+ * Setup toolbar
+ *
+ * @param {Object} groups List of tool group configurations
+ * @param {ve.ui.Surface} [surface] Surface to attach to
  */
 ve.ui.Toolbar.prototype.setup = function ( groups, surface ) {
 	this.detach();
@@ -11794,13 +12426,13 @@ ve.ui.Toolbar.prototype.setup = function ( groups, surface ) {
 	// Events
 	this.getSurface().getModel().connect( this, { contextChange: 'onContextChange' } );
 	this.getSurface().getToolbarDialogs().connect( this, {
-		opening: 'onToolbarWindowOpeningOrClosing',
-		closing: 'onToolbarWindowOpeningOrClosing'
+		opening: 'onToolbarDialogsOpeningOrClosing',
+		closing: 'onToolbarDialogsOpeningOrClosing'
 	} );
 };
 
 /**
- * inheritdoc
+ * @inheritdoc
  */
 ve.ui.Toolbar.prototype.isToolAvailable = function ( name ) {
 	if ( !ve.ui.Toolbar.super.prototype.isToolAvailable.apply( this, arguments ) ) {
@@ -11859,9 +12491,10 @@ ve.ui.Toolbar.prototype.onWindowResize = function () {
  * @param {jQuery.Promise} openingOrClosing
  * @param {Object} data
  */
-ve.ui.Toolbar.prototype.onToolbarWindowOpeningOrClosing = function ( win, openingOrClosing ) {
+ve.ui.Toolbar.prototype.onToolbarDialogsOpeningOrClosing = function ( win, openingOrClosing ) {
 	var toolbar = this;
 	openingOrClosing.then( function () {
+		toolbar.updateToolState();
 		// Wait for window transition
 		setTimeout( function () {
 			if ( toolbar.floating ) {
@@ -11974,9 +12607,6 @@ ve.ui.Toolbar.prototype.initialize = function () {
 	// Properties
 	this.$window = this.$( this.getElementWindow() );
 	this.calculateOffset();
-
-	// Initial state
-	this.updateToolState();
 
 	if ( this.floatable ) {
 		this.$window.on( this.windowEvents );
@@ -12128,84 +12758,22 @@ ve.ui.TargetToolbar.prototype.getCommands = function () {
  *
  * @class
  * @extends OO.ui.ToolFactory
+ * @mixins ve.ui.ModeledFactory
  *
  * @constructor
  */
-ve.ui.ToolFactory = function OoUiToolFactory() {
+ve.ui.ToolFactory = function VeUiToolFactory() {
 	// Parent constructor
-	OO.ui.ToolFactory.call( this );
+	ve.ui.ToolFactory.super.call( this );
+
+	// Mixin constructors
+	ve.ui.ModeledFactory.call( this );
 };
 
 /* Inheritance */
 
 OO.inheritClass( ve.ui.ToolFactory, OO.ui.ToolFactory );
-
-/* Methods */
-
-/**
- * Get a list of tools for a fragment.
- *
- * The lowest compatible item in each inheritance chain will be used.
- *
- * @method
- * @param {ve.dm.SurfaceFragment} fragment Fragment to find compatible tools for
- * @returns {Object[]} List of objects containing `tool` and `model` properties, representing each
- *   compatible tool and the node or annotation it is compatible with
- */
-ve.ui.ToolFactory.prototype.getToolsForFragment = function ( fragment ) {
-	var i, iLen, j, jLen, name, tools, model,
-		models = fragment.getSelectedModels(),
-		names = {},
-		matches = [];
-
-	// Collect tool/model pairs, unique by tool name
-	for ( i = 0, iLen = models.length; i < iLen; i++ ) {
-		model = models[i];
-		tools = this.collectCompatibleTools( model );
-		for ( j = 0, jLen = tools.length; j < jLen; j++ ) {
-			name = tools[j].static.name;
-			if ( !names[name] ) {
-				matches.push( { tool: tools[j], model: model } );
-			}
-			names[name] = true;
-		}
-	}
-
-	return matches;
-};
-
-/**
- * Collect the most specific compatible tools for an annotation or node.
- *
- * @param {ve.dm.Annotation|ve.dm.Node} model Annotation or node
- * @returns {Function[]} List of compatible tools
- */
-ve.ui.ToolFactory.prototype.collectCompatibleTools = function ( model ) {
-	var i, len, name, candidate, add,
-		candidates = [];
-
-	for ( name in this.registry ) {
-		candidate = this.registry[name];
-		if ( candidate.static.isCompatibleWith( model ) ) {
-			add = true;
-			for ( i = 0, len = candidates.length; i < len; i++ ) {
-				if ( candidate.prototype instanceof candidates[i] ) {
-					candidates.splice( i, 1, candidate );
-					add = false;
-					break;
-				} else if ( candidates[i].prototype instanceof candidate ) {
-					add = false;
-					break;
-				}
-			}
-			if ( add ) {
-				candidates.push( candidate );
-			}
-		}
-	}
-
-	return candidates;
-};
+OO.mixinClass( ve.ui.ToolFactory, ve.ui.ModeledFactory );
 
 /* Initialization */
 
@@ -12412,8 +12980,8 @@ ve.ui.commandRegistry.register(
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
-		'specialcharacter', 'window', 'open',
-		{ args: ['specialcharacter'], supportedSelections: ['linear'] }
+		'specialCharacter', 'window', 'toggle',
+		{ args: ['specialCharacter'], supportedSelections: ['linear'] }
 	)
 );
 ve.ui.commandRegistry.register(
@@ -12674,9 +13242,11 @@ ve.ui.Trigger = function VeUiTrigger( e, allowInvalidPrimary ) {
 	}
 };
 
-/* Static Properties */
+/* Inheritance */
 
-ve.ui.Trigger.static = {};
+OO.initClass( ve.ui.Trigger );
+
+/* Static Properties */
 
 /**
  * Symbolic modifier key names.
@@ -13415,9 +13985,11 @@ ve.ui.Action = function VeUiAction( surface ) {
 	this.surface = surface;
 };
 
-/* Static Properties */
+/* Inheritance */
 
-ve.ui.Action.static = {};
+OO.initClass( ve.ui.Action );
+
+/* Static Properties */
 
 /**
  * List of allowed methods for the action.
@@ -13494,24 +14066,14 @@ ve.ui.actionFactory = new ve.ui.ActionFactory();
  *
  * @constructor
  * @param {ve.ui.Surface} surface Surface
- * @param {File} file File to handle
+ * @param {ve.ui.DataTransferItem} item Data transfer item to handle
  */
-ve.ui.DataTransferHandler = function VeUiDataTransferHandler( surface, file ) {
+ve.ui.DataTransferHandler = function VeUiDataTransferHandler( surface, item ) {
 	// Properties
 	this.surface = surface;
-	this.file = file;
+	this.item = item;
 
 	this.insertableDataDeferred = $.Deferred();
-
-	this.reader = new FileReader();
-
-	this.progress = false;
-	this.progressBar = null;
-
-	// Events
-	this.reader.addEventListener( 'progress', this.onFileProgress.bind( this ) );
-	this.reader.addEventListener( 'load', this.onFileLoad.bind( this ) );
-	this.reader.addEventListener( 'loadend', this.onFileLoadEnd.bind( this ) );
 };
 
 /* Inheritance */
@@ -13530,6 +14092,17 @@ OO.initClass( ve.ui.DataTransferHandler );
 ve.ui.DataTransferHandler.static.name = null;
 
 /**
+ * List of transfer kinds supported by this handler
+ *
+ * Null means all kinds are supported.
+ *
+ * @static
+ * @property {string[]|null}
+ * @inheritable
+ */
+ve.ui.DataTransferHandler.static.kinds = null;
+
+/**
  * List of mime types supported by this handler
  *
  * @static
@@ -13537,6 +14110,27 @@ ve.ui.DataTransferHandler.static.name = null;
  * @inheritable
  */
 ve.ui.DataTransferHandler.static.types = [];
+
+/**
+ * Use handler when data transfer source is a paste
+ *
+ * @static
+ * @type {boolean}
+ * @inheritable
+ */
+ve.ui.DataTransferHandler.static.handlesPaste = true;
+
+/**
+ * Custom match function which is given the data transfer item as its only argument
+ * and returns a boolean indicating if the handler matches
+ *
+ * Null means the handler always matches
+ *
+ * @static
+ * @type {Function}
+ * @inheritable
+ */
+ve.ui.DataTransferHandler.static.matchFunction = null;
 
 /* Methods */
 
@@ -13561,32 +14155,77 @@ ve.ui.DataTransferHandler.prototype.getInsertableData = function () {
 };
 
 /**
+ * Abort the data transfer handler
+ */
+ve.ui.DataTransferHandler.prototype.abort = function () {
+	this.insertableDataDeferred.reject();
+};
+
+/*!
+ * VisualEditor UserInterface data transfer handler class.
+ *
+ * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
+ */
+
+/**
+ * Data transfer handler.
+ *
+ * @class
+ * @extends ve.ui.DataTransferHandler
+ * @abstract
+ *
+ * @constructor
+ * @param {ve.ui.Surface} surface
+ * @param {ve.ui.DataTransferItem} item
+ */
+ve.ui.FileTransferHandler = function VeUiFileTransferHandler() {
+	// Parent constructor
+	ve.ui.FileTransferHandler.super.apply( this, arguments );
+
+	// Properties
+	this.file = this.item.getAsFile();
+
+	this.reader = new FileReader();
+
+	this.progress = false;
+	this.progressBar = null;
+
+	// Events
+	this.reader.addEventListener( 'progress', this.onFileProgress.bind( this ) );
+	this.reader.addEventListener( 'load', this.onFileLoad.bind( this ) );
+	this.reader.addEventListener( 'loadend', this.onFileLoadEnd.bind( this ) );
+};
+
+/* Inheritance */
+
+OO.inheritClass( ve.ui.FileTransferHandler, ve.ui.DataTransferHandler );
+
+/* Static properties */
+
+ve.ui.FileTransferHandler.static.kinds = [ 'file' ];
+
+/* Methods */
+
+/**
  * Handle progress events from the file reader
  *
  * @param {Event} e Progress event
  */
-ve.ui.DataTransferHandler.prototype.onFileProgress = function () {};
+ve.ui.FileTransferHandler.prototype.onFileProgress = function () {};
 
 /**
  * Handle load events from the file reader
  *
  * @param {Event} e Load event
  */
-ve.ui.DataTransferHandler.prototype.onFileLoad = function () {};
+ve.ui.FileTransferHandler.prototype.onFileLoad = function () {};
 
 /**
  * Handle load end events from the file reader
  *
  * @param {Event} e Load end event
  */
-ve.ui.DataTransferHandler.prototype.onFileLoadEnd = function () {};
-
-/**
- * Abort the data transfer handler
- */
-ve.ui.DataTransferHandler.prototype.abort = function () {
-	this.insertableDataDeferred.reject();
-};
+ve.ui.FileTransferHandler.prototype.onFileLoadEnd = function () {};
 
 /**
  * Create a progress bar with a specified label
@@ -13594,7 +14233,7 @@ ve.ui.DataTransferHandler.prototype.abort = function () {
  * @param {jQuery.Promise} progressCompletePromise Promise which resolves when the progress action is complete
  * @param {jQuery|string|Function} [label] Progress bar label, defaults to file name
  */
-ve.ui.DataTransferHandler.prototype.createProgress = function ( progressCompletePromise, label ) {
+ve.ui.FileTransferHandler.prototype.createProgress = function ( progressCompletePromise, label ) {
 	var handler = this;
 
 	this.surface.createProgress( progressCompletePromise, label || this.file.name ).done( function ( progressBar, cancelPromise ) {
@@ -13612,7 +14251,7 @@ ve.ui.DataTransferHandler.prototype.createProgress = function ( progressComplete
  *
  * @param {number} progress Progress percent
  */
-ve.ui.DataTransferHandler.prototype.setProgress = function ( progress ) {
+ve.ui.FileTransferHandler.prototype.setProgress = function ( progress ) {
 	this.progress = progress;
 	if ( this.progressBar ) {
 		this.progressBar.setProgress( this.progress );
@@ -13636,7 +14275,10 @@ ve.ui.DataTransferHandlerFactory = function VeUiDataTransferHandlerFactory() {
 	// Parent constructor
 	ve.ui.DataTransferHandlerFactory.super.apply( this, arguments );
 
+	// Handlers which match all kinds and a specific type
 	this.handlerNamesByType = {};
+	// Handlers which match a specific kind and type
+	this.handlerNamesByKindAndType = {};
 };
 
 /* Inheritance */
@@ -13652,25 +14294,165 @@ ve.ui.DataTransferHandlerFactory.prototype.register = function ( constructor ) {
 	// Parent method
 	ve.ui.DataTransferHandlerFactory.super.prototype.register.call( this, constructor );
 
-	var i, l, types = constructor.static.types;
-	for ( i = 0, l = types.length; i < l; i++ ) {
-		this.handlerNamesByType[types[i]] = constructor.static.name;
+	var i, j, ilen, jlen,
+		kinds = constructor.static.kinds,
+		types = constructor.static.types;
+
+	if ( !kinds ) {
+		for ( j = 0, jlen = types.length; j < jlen; j++ ) {
+			this.handlerNamesByType[types[j]] = constructor.static.name;
+		}
+	} else {
+		for ( i = 0, ilen = kinds.length; i < ilen; i++ ) {
+			for ( j = 0, jlen = types.length; j < jlen; j++ ) {
+				this.handlerNamesByKindAndType[kinds[i]] = this.handlerNamesByKindAndType[kinds[i]] || {};
+				this.handlerNamesByKindAndType[kinds[i]][types[j]] = constructor.static.name;
+			}
+		}
 	}
 };
 
 /**
  * Returns the primary command for for node.
  *
- * @param {string} type File type
+ * @param {ve.ui.DataTransferItem} item Data transfer item
+ * @param {boolean} isPaste Handler being used for paste
  * @returns {string|undefined} Handler name, or undefined if not found
  */
-ve.ui.DataTransferHandlerFactory.prototype.getHandlerNameForType = function ( type ) {
-	return this.handlerNamesByType[type];
+ve.ui.DataTransferHandlerFactory.prototype.getHandlerNameForItem = function ( item, isPaste ) {
+	var constructor,
+		name = ( this.handlerNamesByKindAndType[item.kind] && this.handlerNamesByKindAndType[item.kind][item.type] ) ||
+		this.handlerNamesByType[item.type];
+
+	if ( !name ) {
+		return;
+	}
+
+	constructor = this.registry[name];
+
+	if ( isPaste && !constructor.static.handlesPaste ) {
+		return;
+	}
+
+	if ( constructor.static.matchFunction && !constructor.static.matchFunction( item ) ) {
+		return;
+	}
+
+	return name;
 };
 
 /* Initialization */
 
 ve.ui.dataTransferHandlerFactory = new ve.ui.DataTransferHandlerFactory();
+
+/**
+ * Data transfer item wrapper
+ *
+ * @class
+ * @constructor
+ * @param {string} kind Item kind, e.g. 'string' or 'file'
+ * @param {string} type MIME type
+ * @param {Object} [data] Data object to wrap or convert
+ * @param {string} [data.dataUri] Data URI to convert to a blob
+ * @param {Blob} [data.blob] File blob
+ * @param {string} [data.stringData] String data
+ * @param {DataTransferItem} [data.item] Native data transfer item
+ */
+ve.ui.DataTransferItem = function VeUiDataTransferItem( kind, type, data ) {
+	this.kind = kind;
+	this.type = type;
+	this.data = data;
+	this.blob = this.data.blob || null;
+	this.stringData = this.data.stringData || ve.getProp( this.blob, 'name' ) || null;
+};
+
+/* Inheritance */
+
+OO.initClass( ve.ui.DataTransferItem );
+
+/* Static methods */
+
+/**
+ * Create a data transfer item from a file blob.
+ *
+ * @param {Blob} blob File blob
+ * @return {ve.ui.DataTransferItem} New data transfer item
+ */
+ve.ui.DataTransferItem.static.newFromBlob = function ( blob ) {
+	return new ve.ui.DataTransferItem( 'file', blob.type, { blob: blob } );
+};
+
+/**
+ * Create a data transfer item from a data URI.
+ *
+ * @param {string} dataUri Data URI
+ * @return {ve.ui.DataTransferItem} New data transfer item
+ */
+ve.ui.DataTransferItem.static.newFromDataUri = function ( dataUri ) {
+	var parts = dataUri.split( ',' );
+	return new ve.ui.DataTransferItem( 'file', parts[0].match( /^data:([^;]+)/ )[1], { dataUri: parts[1] } );
+};
+
+/**
+ * Create a data transfer item from string data.
+ *
+ * @param {string} stringData String data
+ * @param {string} type MIME type
+ * @return {ve.ui.DataTransferItem} New data transfer item
+ */
+ve.ui.DataTransferItem.static.newFromString = function ( stringData, type ) {
+	return new ve.ui.DataTransferItem( 'string', type || 'text/plain', { stringData: stringData } );
+};
+
+/**
+ * Create a data transfer item from a native data transfer item.
+ *
+ * @param {DataTransferItem} item Native data transfer item
+ * @return {ve.ui.DataTransferItem} New data transfer item
+ */
+ve.ui.DataTransferItem.static.newFromItem = function ( item ) {
+	return new ve.ui.DataTransferItem( item.kind, item.type, { item: item } );
+};
+
+/**
+ * Get file blob
+ *
+ * Generically getAsFile returns a Blob, which could be a File.
+ *
+ * @return {Blob} File blob
+ */
+ve.ui.DataTransferItem.prototype.getAsFile = function () {
+	if ( this.data.item ) {
+		return this.data.item.getAsFile();
+	}
+
+	var binary, array, i;
+
+	if ( !this.blob && this.data.dataUri ) {
+		binary = atob( this.data.dataUri );
+		delete this.data.dataUri;
+		array = [];
+		for ( i = 0; i < binary.length; i++ ) {
+			array.push( binary.charCodeAt( i ) );
+		}
+		this.blob = new Blob(
+			[ new Uint8Array( array ) ],
+			{ type: this.type }
+		);
+	}
+	return this.blob;
+};
+
+/**
+ * Get string data
+ *
+ * Differs from native DataTransferItem#getAsString by being synchronous
+ *
+ * @return {string} String data
+ */
+ve.ui.DataTransferItem.prototype.getAsString = function () {
+	return this.stringData;
+};
 
 /*!
  * VisualEditor UserInterface WindowManager class.
@@ -15392,6 +16174,7 @@ ve.ui.WindowAction.static.methods = [ 'open', 'close', 'toggle' ];
 ve.ui.WindowAction.prototype.open = function ( name, data, action ) {
 	var windowType = this.getWindowType( name ),
 		windowManager = windowType && this.getWindowManager( windowType ),
+		autoClosePromise = $.Deferred().resolve().promise(),
 		surface = this.surface,
 		fragment = surface.getModel().getFragment( undefined, true ),
 		dir = surface.getView().getDocument().getDirectionFromSelection( fragment.getSelection() ) ||
@@ -15402,28 +16185,36 @@ ve.ui.WindowAction.prototype.open = function ( name, data, action ) {
 	}
 
 	data = ve.extendObject( { dir: dir }, data, { fragment: fragment } );
-
-	surface.getView().deactivate();
 	if ( windowType === 'toolbar' ) {
 		data = ve.extendObject( data, { surface: surface } );
+		// TODO: Make auto-close a window manager setting
+		autoClosePromise = windowManager.closeWindow( windowManager.getCurrentWindow() );
 	}
 
-	windowManager.getWindow( name ).then( function ( win ) {
-		var opening = windowManager.openWindow( win, data );
+	autoClosePromise.always( function () {
+		windowManager.getWindow( name ).then( function ( win ) {
+			var opening = windowManager.openWindow( win, data );
 
-		surface.getView().emit( 'position' );
+			surface.getView().emit( 'position' );
 
-		opening.then( function ( closing ) {
-			closing.then( function ( closed ) {
-				surface.getView().activate();
-				closed.then( function () {
-					surface.getView().emit( 'position' );
-				} );
-			} );
-		} ).always( function () {
-			if ( action ) {
-				win.executeAction( action );
+			if ( !win.constructor.static.activeSurface ) {
+				surface.getView().deactivate();
 			}
+
+			opening.then( function ( closing ) {
+				closing.then( function ( closed ) {
+					if ( !win.constructor.static.activeSurface ) {
+						surface.getView().activate();
+					}
+					closed.then( function () {
+						surface.getView().emit( 'position' );
+					} );
+				} );
+			} ).always( function () {
+				if ( action ) {
+					win.executeAction( action );
+				}
+			} );
 		} );
 	} );
 
@@ -15940,6 +16731,10 @@ ve.ui.ToolbarDialog = function VeUiToolbarDialog( config ) {
 	// Parent constructor
 	ve.ui.ToolbarDialog.super.call( this, config );
 
+	// Properties
+	this.disabled = false;
+	this.$shield = this.$( '<div>' ).addClass( 've-ui-toolbarDialog-shield' );
+
 	// Pre-initialization
 	// This class needs to exist before setup to constrain the height
 	// of the dialog when it first loads.
@@ -15954,6 +16749,10 @@ OO.inheritClass( ve.ui.ToolbarDialog, OO.ui.Dialog );
 
 ve.ui.ToolbarDialog.static.size = 'full';
 
+ve.ui.ToolbarDialog.static.activeSurface = true;
+
+ve.ui.ToolbarDialog.static.padded = true;
+
 /* Methods */
 
 /**
@@ -15963,7 +16762,27 @@ ve.ui.ToolbarDialog.prototype.initialize = function () {
 	// Parent method
 	ve.ui.ToolbarDialog.super.prototype.initialize.call( this );
 
+	this.$body.append( this.$shield );
 	this.$content.addClass( 've-ui-toolbarDialog-content' );
+	if ( this.constructor.static.padded ) {
+		this.$element.addClass( 've-ui-toolbarDialog-padded' );
+	}
+};
+
+/**
+ * Set the disabled state of the toolbar dialog
+ *
+ * @param {boolean} disabled Disable the dialog
+ */
+ve.ui.ToolbarDialog.prototype.setDisabled = function ( disabled ) {
+	this.$content.addClass( 've-ui-toolbarDialog-content' );
+	if ( disabled !== this.disabled ) {
+		this.disabled = disabled;
+		this.$body
+			// Make sure sheild is last child
+			.append( this.$shield )
+			.toggleClass( 've-ui-toolbarDialog-disabled', this.disabled );
+	}
 };
 
 /*!
@@ -16808,6 +17627,288 @@ ve.ui.ProgressDialog.prototype.progressComplete = function ( $row, failed ) {
 ve.ui.windowFactory.register( ve.ui.ProgressDialog );
 
 /*!
+ * VisualEditor UserInterface SpecialCharacterDialog class.
+ *
+ * @copyright 2011-2014 VisualEditor Team and others; see http://ve.mit-license.org
+ */
+
+/**
+ * Inspector for inserting special characters.
+ *
+ * @class
+ * @extends ve.ui.ToolbarDialog
+ *
+ * @constructor
+ * @param {Object} [config] Configuration options
+ */
+ve.ui.SpecialCharacterDialog = function VeUiSpecialCharacterDialog( config ) {
+	// Parent constructor
+	ve.ui.ToolbarDialog.call( this, config );
+
+	this.characters = null;
+	this.$buttonDomList = null;
+	this.categories = null;
+
+	this.$element.addClass( 've-ui-specialCharacterDialog' );
+};
+
+/* Inheritance */
+
+OO.inheritClass( ve.ui.SpecialCharacterDialog, ve.ui.ToolbarDialog );
+
+/* Static properties */
+
+ve.ui.SpecialCharacterDialog.static.name = 'specialCharacter';
+
+ve.ui.SpecialCharacterDialog.static.title =
+	OO.ui.deferMsg( 'visualeditor-specialCharacterDialog-title' );
+
+ve.ui.SpecialCharacterDialog.static.size = 'full';
+
+ve.ui.SpecialCharacterDialog.static.padded = false;
+
+/* Methods */
+
+/**
+ * @inheritdoc
+ */
+ve.ui.SpecialCharacterDialog.prototype.initialize = function () {
+	// Parent method
+	ve.ui.SpecialCharacterDialog.super.prototype.initialize.call( this );
+
+	this.$spinner = this.$( '<div>' ).addClass( 've-ui-specialCharacterDialog-spinner' );
+	this.$content.append( this.$spinner );
+};
+
+/**
+ * @inheritdoc
+ */
+ve.ui.SpecialCharacterDialog.prototype.getSetupProcess = function ( data ) {
+	return ve.ui.SpecialCharacterDialog.super.prototype.getSetupProcess.call( this, data )
+		.next( function () {
+			this.surface = data.surface;
+			this.surface.getView().focus();
+			this.surface.getModel().connect( this, { contextChange: 'onContextChange' } );
+
+			var inspector = this;
+			if ( !this.characters ) {
+				this.$spinner.show();
+				this.fetchCharList()
+					.done( function () {
+						inspector.buildButtonList();
+					} )
+					// TODO: show error message on fetchCharList().fail
+					.always( function () {
+						// TODO: generalize push/pop pending, like we do in Dialog
+						inspector.$spinner.hide();
+					} );
+			}
+		}, this );
+};
+
+/**
+ * @inheritdoc
+ */
+ve.ui.SpecialCharacterDialog.prototype.getTeardownProcess = function ( data ) {
+	data = data || {};
+	return ve.ui.SpecialCharacterDialog.super.prototype.getTeardownProcess.call( this, data )
+		.first( function () {
+			this.surface.getModel().disconnect( this );
+			this.surface = null;
+		}, this );
+};
+
+/**
+ * @inheritdoc
+ */
+ve.ui.SpecialCharacterDialog.prototype.getReadyProcess = function ( data ) {
+	data = data || {};
+	return ve.ui.SpecialCharacterDialog.super.prototype.getReadyProcess.call( this, data )
+		.first( function () {
+			this.surface.getView().focus();
+		}, this );
+};
+
+/**
+ * @inheritdoc
+ */
+ve.ui.SpecialCharacterDialog.prototype.getActionProcess = function ( action ) {
+	return new OO.ui.Process( function () {
+		this.close( { action: action } );
+	}, this );
+};
+
+/**
+ * Handle context change events from the surface model
+ */
+ve.ui.SpecialCharacterDialog.prototype.onContextChange = function () {
+	this.setDisabled( !( this.surface.getModel().getSelection() instanceof ve.dm.LinearSelection ) );
+};
+
+/**
+ * Fetch the special character list object
+ *
+ * Returns a promise which resolves when this.characters has been populated
+ *
+ * @returns {jQuery.Promise}
+ */
+ve.ui.SpecialCharacterDialog.prototype.fetchCharList = function () {
+	var charsList,
+		charsObj = {};
+
+	// Get the character list
+	charsList = ve.msg( 'visualeditor-specialcharinspector-characterlist-insert' );
+	try {
+		charsObj = JSON.parse( charsList );
+	} catch ( err ) {
+		// There was no character list found, or the character list message is
+		// invalid json string. Force a fallback to the minimal character list
+		ve.log( 've.ui.SpecialCharacterDialog: Could not parse the Special Character list.');
+		ve.log( err.message );
+	} finally {
+		this.characters = charsObj;
+	}
+
+	// This implementation always resolves instantly
+	return $.Deferred().resolve().promise();
+};
+
+/**
+ * Builds the button DOM list based on the character list
+ */
+ve.ui.SpecialCharacterDialog.prototype.buildButtonList = function () {
+	var category;
+
+	this.bookletLayout = new OO.ui.BookletLayout( { $: this.$, outlined: true, continuous: true } );
+	this.pages = [];
+	for ( category in this.characters ) {
+		this.pages.push(
+			new ve.ui.SpecialCharacterPage( category, {
+				$: this.$,
+				label: category,
+				characters: this.characters[category]
+			} )
+		);
+	}
+	this.bookletLayout.addPages( this.pages );
+	this.bookletLayout.$element.on(
+		'click',
+		'.ve-ui-specialCharacterPage-character',
+		this.onListClick.bind( this )
+	);
+
+	this.$body.append( this.bookletLayout.$element );
+};
+
+/**
+ * Handle the click event on the list
+ */
+ve.ui.SpecialCharacterDialog.prototype.onListClick = function ( e ) {
+	var character = $( e.target ).data( 'character' );
+	if ( character ) {
+		this.surface.getModel().getFragment().insertContent( character, true ).collapseToEnd().select();
+	}
+};
+
+/* Registration */
+
+ve.ui.windowFactory.register( ve.ui.SpecialCharacterDialog );
+
+/*!
+ * VisualEditor UserInterface HTML string transfer handler class.
+ *
+ * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
+ */
+
+/**
+ * HTML string transfer handler.
+ *
+ * @class
+ * @extends ve.ui.DataTransferHandler
+ *
+ * @constructor
+ * @param {ve.ui.Surface} surface
+ * @param {ve.ui.DataTransferItem} item
+ */
+ve.ui.HTMLStringTransferHandler = function VeUiHTMLStringTransferHandler() {
+	// Parent constructor
+	ve.ui.HTMLStringTransferHandler.super.apply( this, arguments );
+};
+
+/* Inheritance */
+
+OO.inheritClass( ve.ui.HTMLStringTransferHandler, ve.ui.DataTransferHandler );
+
+/* Static properties */
+
+ve.ui.HTMLStringTransferHandler.static.name = 'htmlString';
+
+ve.ui.HTMLStringTransferHandler.static.types = [ 'text/html', 'application/xhtml+xml' ];
+
+ve.ui.HTMLStringTransferHandler.static.handlesPaste = false;
+
+/* Methods */
+
+/**
+ * @inheritdoc
+ */
+ve.ui.HTMLStringTransferHandler.prototype.process = function () {
+	this.insertableDataDeferred.resolve(
+		this.surface.getModel().getDocument().newFromHtml( this.item.getAsString(), this.surface.getImportRules() )
+	);
+};
+
+/* Registration */
+
+ve.ui.dataTransferHandlerFactory.register( ve.ui.HTMLStringTransferHandler );
+
+/*!
+ * VisualEditor UserInterface Plain text string transfer handler class.
+ *
+ * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
+ */
+
+/**
+ * Plain text string transfer handler.
+ *
+ * @class
+ * @extends ve.ui.DataTransferHandler
+ *
+ * @constructor
+ * @param {ve.ui.Surface} surface
+ * @param {ve.ui.DataTransferItem} item
+ */
+ve.ui.PlainTextStringTransferHandler = function VeUiPlainTextStringTransferHandler() {
+	// Parent constructor
+	ve.ui.PlainTextStringTransferHandler.super.apply( this, arguments );
+};
+
+/* Inheritance */
+
+OO.inheritClass( ve.ui.PlainTextStringTransferHandler, ve.ui.DataTransferHandler );
+
+/* Static properties */
+
+ve.ui.PlainTextStringTransferHandler.static.name = 'plainTextString';
+
+ve.ui.PlainTextStringTransferHandler.static.types = [ 'text/plain' ];
+
+ve.ui.PlainTextStringTransferHandler.static.handlesPaste = false;
+
+/* Methods */
+
+/**
+ * @inheritdoc
+ */
+ve.ui.PlainTextStringTransferHandler.prototype.process = function () {
+	this.insertableDataDeferred.resolve( this.item.getAsString() );
+};
+
+/* Registration */
+
+ve.ui.dataTransferHandlerFactory.register( ve.ui.PlainTextStringTransferHandler );
+
+/*!
  * VisualEditor UserInterface delimiter-separated values file transfer handler class.
  *
  * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
@@ -16817,11 +17918,11 @@ ve.ui.windowFactory.register( ve.ui.ProgressDialog );
  * Delimiter-separated values file transfer handler.
  *
  * @class
- * @extends ve.ui.DataTransferHandler
+ * @extends ve.ui.FileTransferHandler
  *
  * @constructor
  * @param {ve.ui.Surface} surface
- * @param {File} file
+ * @param {ve.ui.DataTransferItem} item
  */
 ve.ui.DSVFileTransferHandler = function VeUiDSVFileTransferHandler() {
 	// Parent constructor
@@ -16830,7 +17931,7 @@ ve.ui.DSVFileTransferHandler = function VeUiDSVFileTransferHandler() {
 
 /* Inheritance */
 
-OO.inheritClass( ve.ui.DSVFileTransferHandler, ve.ui.DataTransferHandler );
+OO.inheritClass( ve.ui.DSVFileTransferHandler, ve.ui.FileTransferHandler );
 
 /* Static properties */
 
@@ -16919,20 +18020,20 @@ ve.ui.DSVFileTransferHandler.prototype.abort = function () {
 ve.ui.dataTransferHandlerFactory.register( ve.ui.DSVFileTransferHandler );
 
 /*!
- * VisualEditor UserInterface plain text file data transfer handler class.
+ * VisualEditor UserInterface plain text file transfer handler class.
  *
  * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
  */
 
 /**
- * Plain text data transfer filetransfer handler.
+ * Plain text file transfer handler.
  *
  * @class
- * @extends ve.ui.DataTransferHandler
+ * @extends ve.ui.FileTransferHandler
  *
  * @constructor
  * @param {ve.ui.Surface} surface
- * @param {File} file
+ * @param {ve.ui.DataTransferItem} item
  */
 ve.ui.PlainTextFileTransferHandler = function VeUiPlainTextFileTransferHandler() {
 	// Parent constructor
@@ -16941,11 +18042,11 @@ ve.ui.PlainTextFileTransferHandler = function VeUiPlainTextFileTransferHandler()
 
 /* Inheritance */
 
-OO.inheritClass( ve.ui.PlainTextFileTransferHandler, ve.ui.DataTransferHandler );
+OO.inheritClass( ve.ui.PlainTextFileTransferHandler, ve.ui.FileTransferHandler );
 
 /* Static properties */
 
-ve.ui.PlainTextFileTransferHandler.static.name = 'plainText';
+ve.ui.PlainTextFileTransferHandler.static.name = 'plainTextFile';
 
 ve.ui.PlainTextFileTransferHandler.static.types = ['text/plain'];
 
@@ -16974,18 +18075,7 @@ ve.ui.PlainTextFileTransferHandler.prototype.onFileProgress = function ( e ) {
  * @inheritdoc
  */
 ve.ui.PlainTextFileTransferHandler.prototype.onFileLoad = function () {
-	var i, l,
-		data = [],
-		lines = this.reader.result.split( /[\r\n]+/ );
-
-	for ( i = 0, l = lines.length; i < l; i++ ) {
-		if ( lines[i].length ) {
-			data.push( { type: 'paragraph' } );
-			data = data.concat( lines[i].split( '' ) );
-			data.push( { type: '/paragraph' } );
-		}
-	}
-	this.insertableDataDeferred.resolve( data );
+	this.insertableDataDeferred.resolve( this.reader.result );
 	this.setProgress( 100 );
 };
 
@@ -17022,11 +18112,11 @@ ve.ui.dataTransferHandlerFactory.register( ve.ui.PlainTextFileTransferHandler );
  * HTML file transfer handler.
  *
  * @class
- * @extends ve.ui.DataTransferHandler
+ * @extends ve.ui.FileTransferHandler
  *
  * @constructor
  * @param {ve.ui.Surface} surface
- * @param {File} file
+ * @param {ve.ui.DataTransferItem} item
  */
 ve.ui.HTMLFileTransferHandler = function VeUiHTMLFileTransferHandler() {
 	// Parent constructor
@@ -17035,11 +18125,11 @@ ve.ui.HTMLFileTransferHandler = function VeUiHTMLFileTransferHandler() {
 
 /* Inheritance */
 
-OO.inheritClass( ve.ui.HTMLFileTransferHandler, ve.ui.DataTransferHandler );
+OO.inheritClass( ve.ui.HTMLFileTransferHandler, ve.ui.FileTransferHandler );
 
 /* Static properties */
 
-ve.ui.HTMLFileTransferHandler.static.name = 'html';
+ve.ui.HTMLFileTransferHandler.static.name = 'htmlFile';
 
 ve.ui.HTMLFileTransferHandler.static.types = [ 'text/html', 'application/xhtml+xml' ];
 
@@ -17069,7 +18159,7 @@ ve.ui.HTMLFileTransferHandler.prototype.onFileProgress = function ( e ) {
  */
 ve.ui.HTMLFileTransferHandler.prototype.onFileLoad = function () {
 	this.insertableDataDeferred.resolve(
-		this.surface.getModel().getDocument().newFromHtml( this.reader.result )
+		this.surface.getModel().getDocument().newFromHtml( this.reader.result, this.surface.getImportRules() )
 	);
 	this.setProgress( 100 );
 };
@@ -17158,6 +18248,8 @@ ve.ui.ToolbarDialogWindowManager.prototype.getTeardownDelay = function () {
  * @cfg {string} [dir='ltr'] Interface directionality
  */
 ve.ui.AlignWidget = function VeUiAlignWidget( config ) {
+	config = config || {};
+
 	// Parent constructor
 	ve.ui.AlignWidget.super.call( this, config );
 
@@ -17777,7 +18869,7 @@ ve.ui.SurfaceWidget = function VeUiSurfaceWidget( doc, config ) {
 		excludeCommands: config.excludeCommands,
 		importRules: config.importRules
 	} );
-	this.toolbar = new ve.ui.Toolbar( this.surface, { $: this.$ } );
+	this.toolbar = new ve.ui.Toolbar();
 
 	// Initialization
 	this.surface.$element.addClass( 've-ui-surfaceWidget-surface' );
@@ -19329,6 +20421,33 @@ ve.ui.SubscriptAnnotationTool.static.annotation = { name: 'textStyle/subscript' 
 ve.ui.SubscriptAnnotationTool.static.commandName = 'subscript';
 ve.ui.toolFactory.register( ve.ui.SubscriptAnnotationTool );
 
+/**
+ * UserInterface more text styles tool.
+ *
+ * @class
+ * @extends OO.ui.ToolGroupTool
+ * @constructor
+ * @param {OO.ui.ToolGroup} toolGroup
+ * @param {Object} [config] Configuration options
+ */
+ve.ui.MoreTextStyleTool = function VeUiMoreTextStyleTool( toolGroup, config ) {
+	OO.ui.ToolGroupTool.call( this, toolGroup, config );
+};
+OO.inheritClass( ve.ui.MoreTextStyleTool, OO.ui.ToolGroupTool );
+ve.ui.MoreTextStyleTool.static.name = 'moreTextStyle';
+ve.ui.MoreTextStyleTool.static.group = 'textStyleExpansion';
+ve.ui.MoreTextStyleTool.static.title =
+	OO.ui.deferMsg( 'visualeditor-toolbar-style-tooltip' );
+ve.ui.MoreTextStyleTool.static.groupConfig = {
+	header: OO.ui.deferMsg( 'visualeditor-toolbar-text-style' ),
+	icon: 'text-style',
+	indicator: 'down',
+	title: OO.ui.deferMsg( 'visualeditor-toolbar-style-tooltip' ),
+	include: [ { group: 'textStyle' }, 'language', 'clear' ],
+	demote: [ 'strikethrough', 'code', 'underline', 'language', 'clear' ]
+};
+ve.ui.toolFactory.register( ve.ui.MoreTextStyleTool );
+
 /*!
  * VisualEditor UserInterface ClearAnnotationTool class.
  *
@@ -19389,9 +20508,9 @@ ve.ui.toolFactory.register( ve.ui.ClearAnnotationTool );
  * @param {OO.ui.ToolGroup} toolGroup
  * @param {Object} [config] Configuration options
  */
-ve.ui.DialogTool = function VeUiDialogTool( toolGroup, config ) {
+ve.ui.DialogTool = function VeUiDialogTool() {
 	// Parent constructor
-	ve.ui.Tool.call( this, toolGroup, config );
+	ve.ui.DialogTool.super.apply( this, arguments );
 };
 
 /* Inheritance */
@@ -19425,20 +20544,22 @@ ve.ui.DialogTool.static.isCompatibleWith = function ( model ) {
  */
 ve.ui.DialogTool.prototype.onUpdateState = function () {
 	// Parent method
-	ve.ui.Tool.prototype.onUpdateState.apply( this, arguments );
+	ve.ui.DialogTool.super.prototype.onUpdateState.apply( this, arguments );
 	// Never show the tool as active
 	this.setActive( false );
 };
 
 /**
+ * Command help tool.
+ *
  * @class
  * @extends ve.ui.DialogTool
  * @constructor
  * @param {OO.ui.ToolGroup} toolGroup
  * @param {Object} [config] Configuration options
  */
-ve.ui.CommandHelpDialogTool = function VeUiCommandHelpDialogTool( toolGroup, config ) {
-	ve.ui.DialogTool.call( this, toolGroup, config );
+ve.ui.CommandHelpDialogTool = function VeUiCommandHelpDialogTool() {
+	ve.ui.CommandHelpDialogTool.super.apply( this, arguments );
 };
 OO.inheritClass( ve.ui.CommandHelpDialogTool, ve.ui.DialogTool );
 ve.ui.CommandHelpDialogTool.static.name = 'commandHelp';
@@ -19452,30 +20573,62 @@ ve.ui.CommandHelpDialogTool.static.commandName = 'commandHelp';
 ve.ui.toolFactory.register( ve.ui.CommandHelpDialogTool );
 
 /*!
- * VisualEditor UserInterface FindAndReplaceTool classes.
+ * VisualEditor UserInterface ToolbarDialogTool class.
  *
  * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
  */
 
 /**
- * UserInterface FindAndReplace tool.
+ * UserInterface toolbar dialog tool.
  *
  * @abstract
  * @class
- * @extends ve.ui.Tool
+ * @extends ve.ui.DialogTool
  * @constructor
  * @param {OO.ui.ToolGroup} toolGroup
  * @param {Object} [config] Configuration options
  */
-ve.ui.FindAndReplaceTool = function VeUiFindAndReplaceTool( toolGroup, config ) {
+ve.ui.ToolbarDialogTool = function VeUiToolbarDialogTool() {
 	// Parent constructor
-	ve.ui.Tool.call( this, toolGroup, config );
+	ve.ui.ToolbarDialogTool.super.apply( this, arguments );
 };
 
 /* Inheritance */
 
-OO.inheritClass( ve.ui.FindAndReplaceTool, ve.ui.Tool );
+OO.inheritClass( ve.ui.ToolbarDialogTool, ve.ui.DialogTool );
 
+/* Static Properties */
+
+ve.ui.ToolbarDialogTool.static.deactivateOnSelect = false;
+
+ve.ui.ToolbarDialogTool.static.activeWindow = null;
+
+/* Methods */
+
+/**
+ * @inheritdoc
+ */
+ve.ui.ToolbarDialogTool.prototype.onUpdateState = function () {
+	// Parent method
+	ve.ui.ToolbarDialogTool.super.prototype.onUpdateState.apply( this, arguments );
+	// Never show the tool as active
+	var currentWindow = this.toolbar.getSurface().getToolbarDialogs().currentWindow;
+	this.setActive( currentWindow && currentWindow.constructor.static.name === this.constructor.static.activeWindow );
+};
+
+/**
+ * Find and replace tool.
+ *
+ * @class
+ * @extends ve.ui.ToolbarDialogTool
+ * @constructor
+ * @param {OO.ui.ToolGroup} toolGroup
+ * @param {Object} [config] Configuration options
+ */
+ve.ui.FindAndReplaceTool = function VeUiFindAndReplaceTool() {
+	ve.ui.FindAndReplaceTool.super.apply( this, arguments );
+};
+OO.inheritClass( ve.ui.FindAndReplaceTool, ve.ui.ToolbarDialogTool );
 ve.ui.FindAndReplaceTool.static.name = 'findAndReplace';
 ve.ui.FindAndReplaceTool.static.group = 'dialog';
 ve.ui.FindAndReplaceTool.static.icon = 'find';
@@ -19484,7 +20637,32 @@ ve.ui.FindAndReplaceTool.static.title =
 ve.ui.FindAndReplaceTool.static.autoAddToCatchall = false;
 ve.ui.FindAndReplaceTool.static.autoAddToGroup = false;
 ve.ui.FindAndReplaceTool.static.commandName = 'findAndReplace';
+ve.ui.FindAndReplaceTool.static.activeWindow = 'findAndReplace';
 ve.ui.toolFactory.register( ve.ui.FindAndReplaceTool );
+
+/**
+ * Special character tool.
+ *
+ * @class
+ * @extends ve.ui.ToolbarDialogTool
+ * @constructor
+ * @param {OO.ui.ToolGroup} toolGroup
+ * @param {Object} [config] Configuration options
+ */
+ve.ui.SpecialCharacterDialogTool = function VeUiSpecialCharacterDialogTool() {
+	ve.ui.SpecialCharacterDialogTool.super.apply( this, arguments );
+};
+OO.inheritClass( ve.ui.SpecialCharacterDialogTool, ve.ui.ToolbarDialogTool );
+ve.ui.SpecialCharacterDialogTool.static.name = 'specialCharacter';
+ve.ui.SpecialCharacterDialogTool.static.group = 'dialog';
+ve.ui.SpecialCharacterDialogTool.static.icon = 'special-character';
+ve.ui.SpecialCharacterDialogTool.static.title =
+	OO.ui.deferMsg( 'visualeditor-specialcharacter-button-tooltip' );
+ve.ui.SpecialCharacterDialogTool.static.autoAddToCatchall = false;
+ve.ui.SpecialCharacterDialogTool.static.autoAddToGroup = false;
+ve.ui.SpecialCharacterDialogTool.static.commandName = 'specialCharacter';
+ve.ui.SpecialCharacterDialogTool.static.activeWindow = 'specialCharacter';
+ve.ui.toolFactory.register( ve.ui.SpecialCharacterDialogTool );
 
 /*!
  * VisualEditor UserInterface FormatTool classes.
@@ -20054,28 +21232,6 @@ ve.ui.LinkInspectorTool.static.commandName = 'link';
 ve.ui.toolFactory.register( ve.ui.LinkInspectorTool );
 
 /**
- * Insert characters tool.
- *
- * @class
- * @extends ve.ui.InspectorTool
- * @constructor
- * @param {OO.ui.ToolGroup} toolGroup
- * @param {Object} [config] Configuration options
- */
-ve.ui.InsertCharacterInspectorTool = function VeUiInsertCharacterInspectorTool( toolGroup, config ) {
-	ve.ui.InspectorTool.call( this, toolGroup, config );
-};
-OO.inheritClass( ve.ui.InsertCharacterInspectorTool, ve.ui.InspectorTool );
-ve.ui.InsertCharacterInspectorTool.static.name = 'specialcharacter';
-ve.ui.InsertCharacterInspectorTool.static.group = 'insert';
-ve.ui.InsertCharacterInspectorTool.static.icon = 'special-character';
-ve.ui.InsertCharacterInspectorTool.static.title =
-	OO.ui.deferMsg( 'visualeditor-specialcharacter-button-tooltip' );
-ve.ui.InsertCharacterInspectorTool.static.commandName = 'specialcharacter';
-ve.ui.InsertCharacterInspectorTool.static.deactivateOnSelect = true;
-ve.ui.toolFactory.register( ve.ui.InsertCharacterInspectorTool );
-
-/**
  * UserInterface comment tool.
  *
  * @class
@@ -20428,6 +21584,7 @@ ve.ui.FragmentInspector = function VeUiFragmentInspector( config ) {
 
 	// Properties
 	this.fragment = null;
+	this.previousSelection = null;
 };
 
 /* Inheritance */
@@ -20440,7 +21597,14 @@ ve.ui.FragmentInspector.static.actions = ve.ui.FragmentInspector.super.static.ac
 	{
 		action: 'done',
 		label: OO.ui.deferMsg( 'visualeditor-dialog-action-done' ),
-		flags: [ 'progressive', 'primary' ]
+		flags: [ 'progressive', 'primary' ],
+		modes: 'edit'
+	},
+	{
+		action: 'done',
+		label: OO.ui.deferMsg( 'visualeditor-dialog-action-insert' ),
+		flags: [ 'constructive', 'primary' ],
+		modes: 'insert'
 	}
 ] );
 
@@ -20449,10 +21613,11 @@ ve.ui.FragmentInspector.static.actions = ve.ui.FragmentInspector.super.static.ac
 /**
  * Handle form submit events.
  *
- * @method
+ * @param {jQuery.Event} e Submit event
  */
-ve.ui.FragmentInspector.prototype.onFormSubmit = function () {
+ve.ui.FragmentInspector.prototype.onFormSubmit = function ( e ) {
 	this.close( { action: 'done' } );
+	e.preventDefault();
 };
 
 /**
@@ -20463,6 +21628,21 @@ ve.ui.FragmentInspector.prototype.onFormSubmit = function () {
  */
 ve.ui.FragmentInspector.prototype.getFragment = function () {
 	return this.fragment;
+};
+
+/**
+ * Get a symbolic mode name.
+ *
+ * @localdoc If the fragment being inspected selects at least one model the mode will be `edit`,
+ *   otherwise the mode will be `insert`
+ *
+ * @return {string} Symbolic mode name
+ */
+ve.ui.FragmentInspector.prototype.getMode = function () {
+	if ( this.fragment ) {
+		return this.fragment.getSelectedModels().length ? 'edit' : 'insert';
+	}
+	return '';
 };
 
 /**
@@ -20513,6 +21693,10 @@ ve.ui.FragmentInspector.prototype.getSetupProcess = function ( data ) {
 				throw new Error( 'Cannot open inspector: opening data must contain a fragment' );
 			}
 			this.fragment = data.fragment;
+			this.previousSelection = this.fragment.getSelection();
+		}, this )
+		.next( function () {
+			this.actions.setMode( this.getMode() );
 		}, this );
 };
 
@@ -20523,6 +21707,7 @@ ve.ui.FragmentInspector.prototype.getTeardownProcess = function ( data ) {
 	return ve.ui.FragmentDialog.super.prototype.getTeardownProcess.apply( this, data )
 		.next( function () {
 			this.fragment = null;
+			this.previousSelection = null;
 		}, this );
 };
 
@@ -20565,7 +21750,6 @@ ve.ui.AnnotationInspector = function VeUiAnnotationInspector( config ) {
 	ve.ui.FragmentInspector.call( this, config );
 
 	// Properties
-	this.previousSelection = null;
 	this.initialSelection = null;
 	this.initialAnnotation = null;
 	this.initialAnnotationIsCovering = false;
@@ -20588,7 +21772,8 @@ ve.ui.AnnotationInspector.static.actions = [
 	{
 		action: 'remove',
 		label: OO.ui.deferMsg( 'visualeditor-inspector-remove-tooltip' ),
-		flags: 'destructive'
+		flags: 'destructive',
+		modes: 'edit'
 	}
 ].concat( ve.ui.FragmentInspector.static.actions );
 
@@ -20676,6 +21861,18 @@ ve.ui.AnnotationInspector.prototype.getMatchingAnnotations = function ( fragment
 /**
  * @inheritdoc
  */
+ve.ui.AnnotationInspector.prototype.getMode = function () {
+	if ( this.fragment ) {
+		// Trim the fragment before getting selected models to match the behavior of
+		// #getSetupProcess
+		return this.fragment.trimLinearSelection().getSelectedModels().length ? 'edit' : 'insert';
+	}
+	return '';
+};
+
+/**
+ * @inheritdoc
+ */
 ve.ui.AnnotationInspector.prototype.getActionProcess = function ( action ) {
 	if ( action === 'remove' ) {
 		return new OO.ui.Process( function () {
@@ -20706,7 +21903,6 @@ ve.ui.AnnotationInspector.prototype.getSetupProcess = function ( data ) {
 				surfaceModel = fragment.getSurface(),
 				annotation = this.getMatchingAnnotations( fragment, true ).get( 0 );
 
-			this.previousSelection = fragment.getSelection();
 			surfaceModel.pushStaging();
 
 			// Initialize range
@@ -20754,6 +21950,10 @@ ve.ui.AnnotationInspector.prototype.getSetupProcess = function ( data ) {
 				// to forcefully apply it to the rest of the fragment later
 				this.initialAnnotationIsCovering = true;
 			}
+
+			// Set the mode - this was done already in FragmentInspector but now that we may have
+			// changed what the fragment is covering we need to run it again
+			this.actions.setMode( this.getMode() );
 		}, this );
 };
 
@@ -20780,6 +21980,9 @@ ve.ui.AnnotationInspector.prototype.getTeardownProcess = function ( data ) {
 
 			if ( !remove ) {
 				if ( this.initialSelection.isCollapsed() ) {
+					if ( data.action !== 'done' ) {
+						return;
+					}
 					insertText = true;
 				}
 				if ( annotation ) {
@@ -20841,7 +22044,6 @@ ve.ui.AnnotationInspector.prototype.getTeardownProcess = function ( data ) {
 		}, this )
 		.next( function () {
 			// Reset state
-			this.previousSelection = null;
 			this.initialSelection = null;
 			this.initialAnnotation = null;
 			this.initialAnnotationIsCovering = false;
@@ -20978,7 +22180,8 @@ ve.ui.LinkInspector.static.modelClasses = [ ve.dm.LinkAnnotation ];
 ve.ui.LinkInspector.static.actions = ve.ui.LinkInspector.super.static.actions.concat( [
 	{
 		action: 'open',
-		label: OO.ui.deferMsg( 'visualeditor-linkinspector-open' )
+		label: OO.ui.deferMsg( 'visualeditor-linkinspector-open' ),
+		modes: [ 'edit', 'insert' ]
 	}
 ] );
 
@@ -21148,24 +22351,12 @@ ve.ui.CommentInspector.static.size = 'large';
 
 ve.ui.CommentInspector.static.actions = [
 	{
-		action: 'done',
-		label: OO.ui.deferMsg( 'visualeditor-dialog-action-done' ),
-		flags: [ 'progressive', 'primary' ],
-		modes: 'edit'
-	},
-	{
-		action: 'insert',
-		label: OO.ui.deferMsg( 'visualeditor-dialog-action-insert' ),
-		flags: [ 'constructive', 'primary' ],
-		modes: 'insert'
-	},
-	{
 		action: 'remove',
 		label: OO.ui.deferMsg( 'visualeditor-inspector-remove-tooltip' ),
 		flags: 'destructive',
 		modes: 'edit'
 	}
-];
+].concat( ve.ui.FragmentInspector.static.actions );
 
 /**
  * Handle frame ready events.
@@ -21226,10 +22417,8 @@ ve.ui.CommentInspector.prototype.getSetupProcess = function ( data ) {
 			this.commentNode = this.getSelectedNode();
 			if ( this.commentNode ) {
 				this.textWidget.setValueAndWhitespace( this.commentNode.getAttribute( 'text' ) || '' );
-				this.actions.setMode( 'edit' );
 			} else {
 				this.textWidget.setWhitespace( [ ' ', ' ' ] );
-				this.actions.setMode( 'insert' );
 				this.getFragment().insertContent( [
 					{
 						type: 'comment',
@@ -21381,186 +22570,57 @@ ve.ui.LanguageInspector.prototype.getSetupProcess = function ( data ) {
 ve.ui.windowFactory.register( ve.ui.LanguageInspector );
 
 /*!
- * VisualEditor UserInterface SpecialCharacterInspector class.
+ * VisualEditor user interface SpecialCharacterPage class.
  *
- * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
+ * @copyright 2011-2014 VisualEditor Team and others; see AUTHORS.txt
+ * @license The MIT License (MIT); see LICENSE.txt
  */
 
 /**
- * Inspector for inserting special characters.
+ * MediaWiki meta dialog Languages page.
  *
  * @class
- * @extends ve.ui.FragmentInspector
+ * @extends OO.ui.PageLayout
  *
  * @constructor
+ * @param {string} name Unique symbolic name of page
  * @param {Object} [config] Configuration options
  */
-ve.ui.SpecialCharacterInspector = function VeUiSpecialCharacterInspector( config ) {
+ve.ui.SpecialCharacterPage = function VeUiSpecialCharacterPage( name, config ) {
 	// Parent constructor
-	ve.ui.FragmentInspector.call( this, config );
+	OO.ui.PageLayout.call( this, name, config );
 
-	this.characters = null;
-	this.$buttonDomList = null;
-	this.categories = null;
+	this.label = config.label;
+	this.icon = config.icon;
 
-	this.$element.addClass( 've-ui-specialCharacterInspector' );
+	var character,
+		characters = config.characters,
+		$characters = this.$( '<div>' ).addClass( 've-ui-specialCharacterPage-characters' );
+
+	for ( character in characters ) {
+		$characters.append(
+			this.$( '<div>' )
+				.addClass( 've-ui-specialCharacterPage-character' )
+				.data( 'character', characters[character] )
+				.text( character )
+		);
+	}
+
+	this.$element
+		.addClass( 've-ui-specialCharacterPage')
+		.append( this.$( '<h3>' ).text( name ), $characters );
 };
 
 /* Inheritance */
 
-OO.inheritClass( ve.ui.SpecialCharacterInspector, ve.ui.FragmentInspector );
-
-/* Static properties */
-
-ve.ui.SpecialCharacterInspector.static.name = 'specialcharacter';
-
-ve.ui.SpecialCharacterInspector.static.title =
-	OO.ui.deferMsg( 'visualeditor-specialcharacterinspector-title' );
-
-ve.ui.SpecialCharacterInspector.static.size = 'large';
-
-ve.ui.SpecialCharacterInspector.static.actions = [
-	{
-		action: 'cancel',
-		label: OO.ui.deferMsg( 'visualeditor-dialog-action-cancel' ),
-		flags: 'safe'
-	}
-];
+OO.inheritClass( ve.ui.SpecialCharacterPage, OO.ui.PageLayout );
 
 /* Methods */
 
-/**
- * Handle frame ready events.
- *
- * @method
- */
-ve.ui.SpecialCharacterInspector.prototype.initialize = function () {
-	// Parent method
-	ve.ui.SpecialCharacterInspector.super.prototype.initialize.call( this );
-
-	this.$spinner = this.$( '<div>' ).addClass( 've-ui-specialCharacterInspector-spinner' );
-	this.form.$element.append( this.$spinner );
+ve.ui.SpecialCharacterPage.prototype.setupOutlineItem = function ( outlineItem ) {
+	ve.ui.SpecialCharacterPage.super.prototype.setupOutlineItem.call( this, outlineItem );
+	this.outlineItem.setLabel( this.label );
 };
-
-/**
- * Handle the inspector being setup.
- *
- * @method
- * @param {Object} [data] Inspector opening data
- */
-ve.ui.SpecialCharacterInspector.prototype.getSetupProcess = function ( data ) {
-	return ve.ui.SpecialCharacterInspector.super.prototype.getSetupProcess.call( this, data )
-		.next( function () {
-			var inspector = this;
-			// Stage a space to show insertion position
-			this.getFragment().getSurface().pushStaging();
-			this.getFragment().insertContent( ' ' );
-			// Don't request the character list again if we already have it
-			if ( !this.characters ) {
-				this.$spinner.removeClass( 'oo-ui-element-hidden' );
-				this.fetchCharList()
-					.done( function () {
-						inspector.buildButtonList();
-					} )
-					// TODO: show error message on fetchCharList().fail
-					.always( function () {
-						// TODO: generalize push/pop pending, like we do in Dialog
-						inspector.$spinner.addClass( 'oo-ui-element-hidden' );
-					} );
-			}
-		}, this );
-};
-
-/**
- * @inheritdoc
- */
-ve.ui.SpecialCharacterInspector.prototype.getTeardownProcess = function ( data ) {
-	data = data || {};
-	return ve.ui.SpecialCharacterInspector.super.prototype.getTeardownProcess.call( this, data )
-		.first( function () {
-			this.getFragment().getSurface().popStaging();
-			if ( data.character ) {
-				this.getFragment().insertContent( data.character, true ).collapseToEnd().select();
-			}
-		}, this );
-};
-
-/**
- * @inheritdoc
- */
-ve.ui.SpecialCharacterInspector.prototype.getActionProcess = function ( action ) {
-	return new OO.ui.Process( function () {
-		this.close( { action: action } );
-	}, this );
-};
-
-/**
- * Fetch the special character list object
- *
- * Returns a promise which resolves when this.characters has been populated
- *
- * @returns {jQuery.Promise}
- */
-ve.ui.SpecialCharacterInspector.prototype.fetchCharList = function () {
-	var charsList,
-		charsObj = {};
-
-	// Get the character list
-	charsList = ve.msg( 'visualeditor-specialcharinspector-characterlist-insert' );
-	try {
-		charsObj = $.parseJSON( charsList );
-	} catch ( err ) {
-		// There was no character list found, or the character list message is
-		// invalid json string. Force a fallback to the minimal character list
-		ve.log( 've.ui.SpecialCharacterInspector: Could not parse the Special Character list.');
-		ve.log( err.message );
-	} finally {
-		this.characters = charsObj;
-	}
-
-	// This implementation always resolves instantly
-	return $.Deferred().resolve().promise();
-};
-
-/**
- * Builds the button DOM list based on the character list
- */
-ve.ui.SpecialCharacterInspector.prototype.buildButtonList = function () {
-	var category, character, characters, $categoryButtons,
-		$list = this.$( '<div>' ).addClass( 've-ui-specialCharacterInspector-list' );
-
-	for ( category in this.characters ) {
-		characters = this.characters[category];
-		$categoryButtons = $( '<div>' ).addClass( 've-ui-specialCharacterInspector-list-group' );
-		for ( character in characters ) {
-			$categoryButtons.append(
-				$( '<div>' )
-					.addClass( 've-ui-specialCharacterInspector-list-character' )
-					.data( 'character', characters[character] )
-					.text( character )
-			);
-		}
-
-		$list
-			.append( this.$( '<h3>').text( category ) )
-			.append( $categoryButtons );
-	}
-
-	$list.on( 'click', this.onListClick.bind( this ) );
-
-	this.form.$element.append( $list );
-};
-
-/**
- * Handle the click event on the list
- */
-ve.ui.SpecialCharacterInspector.prototype.onListClick = function ( e ) {
-	this.close( { character: $( e.target ).data( 'character' ) } );
-};
-
-/* Registration */
-
-ve.ui.windowFactory.register( ve.ui.SpecialCharacterInspector );
 
 /*!
  * VisualEditor UserInterface DesktopSurface class.
@@ -21651,16 +22711,9 @@ ve.ui.DesktopContext = function VeUiDesktopContext( surface, config ) {
 	this.$element
 		.addClass( 've-ui-desktopContext' )
 		.append( this.popup.$element );
-	this.menu.$element.addClass( 've-ui-desktopContext-menu' );
+	this.$group.addClass( 've-ui-desktopContext-menu' );
 	this.inspectors.$element.addClass( 've-ui-desktopContext-inspectors' );
-	this.popup.$body.append( this.menu.$element, this.inspectors.$element );
-
-	// HACK: hide the popup with visibility: hidden; rather than display: none;, because
-	// the popup contains inspector iframes, and applying display: none; to those causes them to
-	// not load in Firefox
-	this.popup.$element
-		.css( { visibility: 'hidden' } )
-		.removeClass( 'oo-ui-element-hidden' );
+	this.popup.$body.append( this.$group, this.inspectors.$element );
 };
 
 /* Inheritance */
@@ -21687,11 +22740,10 @@ ve.ui.DesktopContext.prototype.afterContextChange = function () {
  */
 ve.ui.DesktopContext.prototype.onSuppress = function () {
 	this.suppressed = true;
-
 	if ( this.isVisible() ) {
-		if ( this.menu.isVisible() ) {
+		if ( !this.isEmpty() ) {
 			// Change state: menu -> closed
-			this.menu.toggle( false );
+			this.toggleMenu( false );
 			this.toggle( false );
 		} else if ( this.inspector ) {
 			// Change state: inspector -> closed
@@ -21704,14 +22756,11 @@ ve.ui.DesktopContext.prototype.onSuppress = function () {
  * Handle context unsuppression event.
  */
 ve.ui.DesktopContext.prototype.onUnsuppress = function () {
-	var inspectable = !!this.getAvailableTools().length;
-
 	this.suppressed = false;
 
-	if ( inspectable ) {
+	if ( this.isInspectable() ) {
 		// Change state: closed -> menu
-		this.menu.toggle( true );
-		this.populateMenu();
+		this.toggleMenu( true );
 		this.toggle( true );
 	}
 };
@@ -21772,19 +22821,13 @@ ve.ui.DesktopContext.prototype.toggle = function ( show ) {
 		return $.Deferred().resolve().promise();
 	}
 
-	this.visible = show;
 	this.transitioning = $.Deferred();
 	promise = this.transitioning.promise();
 
 	this.popup.toggle( show );
-	// HACK: make the context and popup visibility: hidden; instead of display: none; because
-	// they contain inspector iframes, and applying display: none; to those causes them to
-	// not load in Firefox
-	this.$element.add( this.popup.$element )
-		.removeClass( 'oo-ui-element-hidden' )
-		.css( {
-			visibility: show ? 'visible' : 'hidden'
-		} );
+
+	// Parent method
+	ve.ui.DesktopContext.super.prototype.toggle.call( this, show );
 
 	this.transitioning.resolve();
 	this.transitioning = null;
@@ -21807,11 +22850,17 @@ ve.ui.DesktopContext.prototype.toggle = function ( show ) {
  * @inheritdoc
  */
 ve.ui.DesktopContext.prototype.updateDimensions = function () {
-	var startAndEndRects, position, embeddable, middle,
+	if ( !this.isVisible() ) {
+		return;
+	}
+
+	var startAndEndRects, position, embeddable, middle, boundingRect,
 		rtl = this.surface.getModel().getDocument().getDir() === 'rtl',
 		surface = this.surface.getView(),
-		focusedNode = surface.getFocusedNode(),
-		boundingRect = surface.getSelectionBoundingRect();
+		selection = this.inspector && this.inspector.previousSelection,
+		focusedNode = surface.getFocusedNode();
+
+	boundingRect = surface.getSelectionBoundingRect( selection );
 
 	if ( !boundingRect ) {
 		// If !boundingRect, the surface apparently isn't selected.
@@ -21822,9 +22871,9 @@ ve.ui.DesktopContext.prototype.updateDimensions = function () {
 		this.popup.toggleAnchor( true );
 		this.popup.align = 'center';
 	} else if ( focusedNode && !focusedNode.isContent() ) {
-		embeddable = !this.hasInspector() &&
-			boundingRect.height > this.menu.$element.outerHeight() + 5 &&
-			boundingRect.width > this.menu.$element.outerWidth() + 10;
+		embeddable = this.isEmbeddable() &&
+			boundingRect.height > this.$group.outerHeight() + 5 &&
+			boundingRect.width > this.$group.outerWidth() + 10;
 		this.popup.toggleAnchor( !embeddable );
 		if ( embeddable ) {
 			// Embedded context position depends on directionality
@@ -21844,7 +22893,7 @@ ve.ui.DesktopContext.prototype.updateDimensions = function () {
 		}
 	} else {
 		// The selection is text or an inline focused node
-		startAndEndRects = surface.getSelectionStartAndEndRects();
+		startAndEndRects = surface.getSelectionStartAndEndRects( selection );
 		if ( startAndEndRects ) {
 			middle = ( boundingRect.left + boundingRect.right ) / 2;
 			if (
@@ -21884,7 +22933,7 @@ ve.ui.DesktopContext.prototype.updateDimensions = function () {
  * Resize the popup to match the size of its contents (menu or inspector).
  */
 ve.ui.DesktopContext.prototype.setPopupSize = function () {
-	var $container = this.inspector ? this.inspector.$frame : this.menu.$element;
+	var $container = this.inspector ? this.inspector.$frame : this.$group;
 
 	// PopupWidget normally is clippable, suppress that to be able to resize and scroll it into view.
 	// Needs to be repeated before every call, as it resets itself when the popup is shown or hidden.
