@@ -33,13 +33,13 @@ var Tool = Ember.Component.extend(Ember.Evented, {
   },
 
   executeCommand: function() {
-    // Note: this is a bit awkward, but... the proxy hides the nasty ve tool adapter
-    // To work on the current surface instance, the proxy calls this.getSurface
+    // Note: this is a bit twisted. To work on the current surface instance,
+    // the proxy calls this.getSurface
     this.get('proxy').execute();
   },
 
   getSurface: function() {
-    return this.get('toolbar.visualEditor').getSurface();
+    return this.get('toolbar.visualEditor').getSurfaceView();
   },
 
 });

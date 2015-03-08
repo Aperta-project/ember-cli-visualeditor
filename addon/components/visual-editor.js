@@ -12,7 +12,9 @@ var VisualEditorComponent = Ember.Component.extend({
   classNameBindings: ['isEnabled:enabled:disabled'],
 
   onInit: function() {
-    this.set('model', new VisualEditor());
+    var model = new VisualEditor();
+    model.connect(this, { 'state-changed': this.onStateChanged });
+    this.set('model', model);
   }.on('init'),
 
   beforeInsertElement: function() {
@@ -25,7 +27,8 @@ var VisualEditorComponent = Ember.Component.extend({
   }.on('didInsertElement'),
 
   beforeDestroyElement: function() {
-    this.model.disposeView();
+    this.model.disconnect(this);
+    this.model.dispose();
   }.on('willDestroyElement'),
 
   enable: function() {
@@ -59,6 +62,14 @@ var VisualEditorComponent = Ember.Component.extend({
     return this.model.getDocument();
   },
 
+  getSurface: function() {
+    return this.model.getSurface();
+  },
+
+  getSurfaceView: function() {
+    return this.model.getSurfaceView();
+  },
+
   fromHtml: function(html) {
     this.model.fromHtml(html);
   },
@@ -77,6 +88,10 @@ var VisualEditorComponent = Ember.Component.extend({
 
   write: function(text) {
     this.model.write(text);
+  },
+
+  onStateChanged: function(veState) {
+    this.trigger('state-changed', veState);
   },
 
 });

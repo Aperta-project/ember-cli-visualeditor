@@ -67,7 +67,6 @@ module.exports = function ( grunt ) {
       "visualEditor-base": {
         dest: 'vendor/visualEditor-base.js',
         src:  []
-              .concat(getVeFileList('jquery'))
               .concat(getVeFileList('jquery.i18n'))
               .concat(getVeFileList('jquery.uls.data'))
               .concat(getVeFileList('oojs'))

@@ -228,18 +228,18 @@ VisualEditor.prototype._createConverter = function() {
 };
 
 VisualEditor.prototype._onSelectionChange = function() {
-  this.updateState();
+  this._updateState();
 };
 
 VisualEditor.prototype._onContextChange = function() {
-  this.updateState();
+  this._updateState();
 };
 
 VisualEditor.prototype._updateState = function() {
   if (this.state) {
     this.state.update(this.surface);
   }
-  this.trigger('state-changed', this.state);
+  this.emit('state-changed', this.state);
 };
 
 export default VisualEditor;
