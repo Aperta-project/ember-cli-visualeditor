@@ -16,8 +16,8 @@ function initPlatform(assetsRoot) {
     $.i18n().locale = "en";
   }
   // TODO: make this configurable
-  ve.init.platform.addMessagePath(assetsRoot + 'ember-cli-visualeditor/i18n/oojs-ui/');
-  ve.init.platform.addMessagePath(assetsRoot + 'ember-cli-visualeditor/i18n/ve/');
+  ve.init.platform.addMessagePath(assetsRoot + 'i18n/oojs-ui/');
+  ve.init.platform.addMessagePath(assetsRoot + 'i18n/ve/');
   return ve.init.platform.initialize();
 }
 

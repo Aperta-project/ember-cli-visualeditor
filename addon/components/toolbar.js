@@ -1,3 +1,5 @@
+/* global $ */
+
 import Ember from 'ember';
 
 var Toolbar = Ember.Component.extend({
@@ -12,8 +14,7 @@ var Toolbar = Ember.Component.extend({
   initVisualEditor: function() {
     var visualEditor = this.get('visualEditor');
     if(visualEditor) {
-      var visualEditorModel = visualEditor.get('model');
-      visualEditorModel.on('state-changed', this, this.onSurfaceStateChanged);
+      visualEditor.on('state-changed', this, this.onVeStateChanged);
     } else {
       console.error('Could not connect to VisualEditor.');
     }
@@ -22,8 +23,7 @@ var Toolbar = Ember.Component.extend({
   onDestroy: function() {
     var visualEditor = this.get('visualEditor');
     if(visualEditor) {
-      var visualEditorModel = visualEditor.get('model');
-      visualEditorModel.off('state-changed', this, this.onSurfaceStateChanged);
+      visualEditor.off('state-changed', this, this.onVeStateChanged);
     }
   }.on('willDestroyElement'),
 
@@ -60,15 +60,15 @@ var Toolbar = Ember.Component.extend({
     return tools;
   },
 
-  onSurfaceStateChanged: function(surfaceState) {
-    if (surfaceState.get('selection').isNull()) {
+  onVeStateChanged: function(veState) {
+    if (veState.selection.isNull()) {
       $(this.element).addClass('disabled');
     } else {
       $(this.element).removeClass('disabled');
     }
     var tools = this.getTools();
     tools.forEach(function(tool) {
-      tool.updateState(surfaceState);
+      tool.updateState(veState);
     });
   },
 

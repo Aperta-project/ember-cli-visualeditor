@@ -28,8 +28,8 @@ var Tool = Ember.Component.extend(Ember.Evented, {
     this.set('proxy', new VeToolProxy(this, veTool));
   },
 
-  updateState: function(surfaceState) {
-    this.get('proxy').updateState(surfaceState);
+  updateState: function(veState) {
+    this.get('proxy').updateState(veState);
   },
 
   executeCommand: function() {
@@ -39,7 +39,7 @@ var Tool = Ember.Component.extend(Ember.Evented, {
   },
 
   getSurface: function() {
-    return this.get('toolbar.visualEditor.surface');
+    return this.get('toolbar.visualEditor').getSurface();
   },
 
 });
