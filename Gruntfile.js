@@ -59,7 +59,7 @@ module.exports = function ( grunt ) {
       "oojs-ui": {
         files: [
           { expand: true, cwd: 'node_modules/visualeditor/lib/oojs-ui/', src: 'themes/apex/**', dest: 'vendor/styles/' },
-          { src: 'node_modules/visualeditor/lib/oojs-ui/oojs-ui-apex.svg.css', dest: 'tmp/oojs-ui.css' }
+          { src: 'node_modules/visualeditor/lib/oojs-ui/oojs-ui-apex.vector.css', dest: 'tmp/oojs-ui.css' }
         ]
       }
     },
@@ -93,7 +93,7 @@ module.exports = function ( grunt ) {
         dest: 'vendor/styles/visualEditor.css',
         src: [
           'tmp/oojs-ui.css',
-          'tmp/visualEditor.css',
+          'node_modules/visualeditor/dist/visualEditor.css',
         ]
       }
     }
