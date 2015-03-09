@@ -78,8 +78,11 @@ VisualEditor.prototype.fromHtml = function(html) {
   // Note: from the interface we would expect that dm.Converter does not use singletons -- but unfortunately it still does
   var converter = this._createConverter();
   this.document = converter.getModelFromDom(htmlDoc, window.document);
-  this.document.buildNodeTree();
+  // Notify extensions before building the node tree
+  // so that extensions can hook in things that might be required in the node implmenetations
   this._notifyExtensions('afterDocumentCreated', this.document);
+  // Note: this triggers the creation of node instances
+  this.document.buildNodeTree();
 
   // if the surface has been attached already, re-initialize the view automatically
   if (this.isAttached) {

@@ -1,3 +1,4 @@
+/* global OO, ve */
 
 var VeRegistry = function (modelRegistry, nodeFactory, annotationFactory, metaItemFactory,
     nodeViewFactory, windowFactory, actionFactory, commandRegistry, toolFactory) {
@@ -22,19 +23,25 @@ var VeRegistry = function (modelRegistry, nodeFactory, annotationFactory, metaIt
   });
 };
 
-VeRegistry.prototype.register = function(clazz) {
-  if (clazz instanceof ve.dm.Model) {
-    this.registerModel(clazz);
-  } else if (clazz instanceof ve.ce.Node) {
-    this.registerNodeView(clazz);
-  } else if (clazz instanceof OO.ui.Window) {
-    this.registerWindow(clazz)
-  } else if (clazz instanceof ve.ui.Action) {
-    this.registerAction(clazz)
-  } else if (clazz instanceof ve.ui.Command) {
-    this.registerCommand(clazz)
-  } else if (clazz instanceof ve.ui.Tool) {
-    this.registerTool(clazz)
+function isSubclassOf(B, A) {
+  return B.prototype instanceof A || B === A;
+}
+
+VeRegistry.prototype.register = function(clazzOrInstance) {
+  if (isSubclassOf(clazzOrInstance, ve.dm.Model)) {
+    this.registerModel(clazzOrInstance);
+  } else if (isSubclassOf(clazzOrInstance, ve.ce.Node)) {
+    this.registerNodeView(clazzOrInstance);
+  } else if (isSubclassOf(clazzOrInstance, OO.ui.Window)) {
+    this.registerWindow(clazzOrInstance);
+  } else if (isSubclassOf(clazzOrInstance, ve.ui.Action)) {
+    this.registerAction(clazzOrInstance);
+  } else if (clazzOrInstance instanceof ve.ui.Command) {
+    this.registerCommand(clazzOrInstance);
+  } else if (isSubclassOf(clazzOrInstance, ve.ui.Tool)) {
+    this.registerTool(clazzOrInstance);
+  } else {
+    throw new Error("Don't know how to register a class of type" + clazz);
   }
 };
 
@@ -64,6 +71,7 @@ VeRegistry.prototype.registerTool = function(toolClass) {
 
 VeRegistry.prototype.registerExtension = function(extension) {
   this.extensions[extension.name] = extension;
+  extension.register(this);
 };
 
 export default VeRegistry;
