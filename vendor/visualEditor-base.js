@@ -20720,6 +20720,17 @@ ve.Range.prototype.containsRange = function ( range ) {
 	return range.start >= this.start && range.end <= this.end;
 };
 
+
+/**
+ * Check if another range is intersects with this range.
+ *
+ * @param {ve.Range} other Range to check
+ * @returns {boolean} If other range intersects with the range
+ */
+ve.Range.prototype.intersects = function ( other ) {
+	return !(other.end < this.start || other.start > this.end);
+};
+
 /**
  * Get the length of the range.
  *
