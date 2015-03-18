@@ -11,10 +11,20 @@ var VisualEditorComponent = Ember.Component.extend({
 
   classNameBindings: ['isEnabled:enabled:disabled'],
 
+  model: null,
+
+  initializer: function(model, data) {},
+
   onInit: function() {
-    var model = new VisualEditor();
+    var model = this.get('model');
+    if (!model) {
+      model = new VisualEditor();
+      this.set('model', model);
+    }
+    var initializer = this.get('initializer');
+    initializer.call(this.origContext, model, this.get('data'));
+
     model.connect(this, { 'state-changed': this.onStateChanged });
-    this.set('model', model);
   }.on('init'),
 
   beforeInsertElement: function() {

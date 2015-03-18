@@ -7,18 +7,7 @@ var Toolbar = Ember.Component.extend({
   // disable per default
   classNames: ["ve-toolbar", "disabled"],
 
-  visualEditor: null,
-
-  tools: null,
-
-  initVisualEditor: function() {
-    var visualEditor = this.get('visualEditor');
-    if(visualEditor) {
-      visualEditor.on('state-changed', this, this.onVeStateChanged);
-    } else {
-      console.error('Could not connect to VisualEditor.');
-    }
-  }.observes('visualEditor'),
+  editorState: null,
 
   onDestroy: function() {
     var visualEditor = this.get('visualEditor');
@@ -49,27 +38,27 @@ var Toolbar = Ember.Component.extend({
     return tools;
   },
 
-  // Lazy getter for the array of tools contained in this toolbar.
-  // The first time all tools are extracted, and cached afterwards (no invalidation)
-  getTools: function() {
-    var tools = this.get('tools');
-    if (!tools) {
-      tools = this.extractTools(this);
-      this.set('tools', tools);
-    }
-    return tools;
-  },
+  tools: function() {
+    return this.extractTools(this);
+  }.property('childViews.@each'),
 
-  onVeStateChanged: function(veState) {
-    if (veState.selection.isNull()) {
+  updateState: function(newState) {
+    this.set('editorState', newState);
+    if (newState.selection.isNull()) {
       $(this.element).addClass('disabled');
     } else {
       $(this.element).removeClass('disabled');
     }
-    var tools = this.getTools();
-    tools.forEach(function(tool) {
-      tool.updateState(veState);
-    });
+    var tools = this.get('tools');
+    window.setTimeout(function() {
+      tools.forEach(function(tool) {
+        tool.updateState(newState);
+      });
+    }, 0);
+  },
+
+  getEditor: function() {
+    return this.get('editorState').getEditor();
   },
 
 });

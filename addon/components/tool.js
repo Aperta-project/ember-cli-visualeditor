@@ -39,7 +39,7 @@ var Tool = Ember.Component.extend(Ember.Evented, {
   },
 
   getSurface: function() {
-    return this.get('toolbar.visualEditor').getSurfaceView();
+    return this.get('toolbar').getEditor().getSurfaceView();
   },
 
 });
