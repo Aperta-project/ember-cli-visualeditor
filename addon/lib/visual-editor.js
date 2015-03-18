@@ -277,6 +277,13 @@ VisualEditor.prototype._disposeView = function() {
 };
 
 VisualEditor.prototype.getConverter = function() {
+  // HACK: make sure this converter produces compatible data
+  // Note: annotated text created by a converter is coupled to a certain
+  // store instance where the annotation types get registered during conversion
+  if (this.document) {
+    this.converter.store = this.document.store;
+    this.converter.internalList = this.document.internalList;
+  }
   return this.converter;
 };
 
