@@ -33,21 +33,6 @@ export default ToolGroup.extend({
     });
   },
 
-  updateState: function(surfaceState) {
-    this._super(surfaceState);
-
-    var options = this.get('childViews');
-    var isEnabled = true;
-    for (var i = 0; i < options.length; i++) {
-      var option = options[i];
-      if (!option.get('isEnabled')) {
-        isEnabled = false;
-        break;
-      }
-    }
-    this.set('isDisabled', !isEnabled);
-  },
-
   onDisabled: function() {
     if (this.get('isDisabled')) {
       this.element.disabled = true;

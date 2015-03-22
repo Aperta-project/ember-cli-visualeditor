@@ -3,3 +3,58 @@
   position: fixed;
   top: -10000px;
 }
+
+.ve-toolbar {
+  float: none;
+  cursor: default;
+}
+
+.ve-toolbar .separator {
+	width: 1px;
+	border-left: 1px solid #ccc;
+	margin-left: 10px;
+	margin-right: 10px;
+}
+
+.ve-tool-group {
+  display: inline-block;
+}
+
+.ve-tool-group.disabled {
+  opacity: 0.3;
+}
+
+.ve-select {
+  padding: 5px;
+  margin-left: 5px;
+  margin-right: 5px;
+  font-size: small;
+}
+
+.ve-option.disabled {
+  display: none;
+}
+
+.ve-tool {
+  display: inline-block;
+  padding: 5px 10px;
+  color: #666;
+}
+
+.ve-tool.disabled {
+  opacity: 0.3;
+}
+
+.ve-tool.enabled {
+  cursor: pointer;
+}
+
+.ve-tool.enabled:hover {
+  background-color: #666;
+  color: white;
+}
+
+.ve-tool.active {
+  background-color: #666;
+  color: white;
+}
