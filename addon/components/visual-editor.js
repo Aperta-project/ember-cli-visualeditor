@@ -13,6 +13,8 @@ var VisualEditorComponent = Ember.Component.extend({
 
   model: null,
 
+  // initialized via template
+  initializerContext: null,
   initializer: function(model, data) {},
 
   onInit: function() {
@@ -21,8 +23,9 @@ var VisualEditorComponent = Ember.Component.extend({
       model = new VisualEditor();
       this.set('model', model);
     }
+    var initializerContext = this.get('initializerContext');
     var initializer = this.get('initializer');
-    initializer.call(this.origContext, model, this.get('data'));
+    initializer.call(initializerContext, model, this.get('data'));
 
     model.connect(this, { 'state-changed': this.onStateChanged });
   }.on('init'),
