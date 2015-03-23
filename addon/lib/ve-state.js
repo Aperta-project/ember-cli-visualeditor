@@ -17,7 +17,6 @@ VeState.prototype.update = function(surface) {
   if (!this.isDirty && this.selection && this.selection.equals(newSelection)) {
     return false;
   }
-
   this.fragment = surface.getFragment();
   this.selection = surface.getSelection();
   this.fragmentAnnotations = this.fragment.getAnnotations();
@@ -32,6 +31,10 @@ VeState.prototype.isAnnotationSelected = function(name) {
   } else {
     return false;
   }
+}
+
+VeState.prototype.hasSelection = function() {
+  return this.selection && !this.selection.isNull();
 };
 
 export default VeState;
