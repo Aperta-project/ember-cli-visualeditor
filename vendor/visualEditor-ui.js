@@ -1016,9 +1016,7 @@ ve.ce.View = function VeCeView( model, config ) {
 		// computed attributes
 		true,
 		// deep
-		!ve.dm.nodeFactory.lookup( this.model.getType() ) ||
-			!ve.dm.nodeFactory.canNodeHaveChildren( this.model.getType() ) ||
-			ve.dm.nodeFactory.doesNodeHandleOwnChildren( this.model.getType() )
+		( !(this.model instanceof ve.dm.Node) || ( !this.model.canHaveChildren() || this.model.handlesOwnChildren() ) )
 	);
 };
 
@@ -5151,7 +5149,8 @@ ve.ce.Surface.prototype.beforePaste = function ( e ) {
 		context, leftText, rightText, textNode, textStart, textEnd,
 		selection = this.getModel().getSelection(),
 		clipboardData = e.originalEvent.clipboardData,
-		doc = this.getModel().getDocument();
+		doc = this.getModel().getDocument(),
+		nodeFactory = doc.getNodeFactory();
 
 	if ( selection instanceof ve.dm.LinearSelection ||
 		( selection instanceof ve.dm.TableSelection && selection.isSingleCell() )
@@ -5225,7 +5224,8 @@ ve.ce.Surface.prototype.beforePaste = function ( e ) {
 		delete contextElement.internal;
 		ve.dm.converter.getDomSubtreeFromModel(
 			new ve.dm.Document(
-				new ve.dm.ElementLinearData( doc.getStore(), context ),
+				new ve.dm.ElementLinearData( doc.getStore(), context, nodeFactory ),
+				nodeFactory,
 				doc.getHtmlDocument(), undefined, doc.getInternalList(),
 				doc.getLang(), doc.getDir()
 			),
@@ -5362,7 +5362,8 @@ ve.ce.Surface.prototype.afterPaste = function () {
 			// and to prevent actions in the data model affecting view.clipboard
 			pasteData = new ve.dm.ElementLinearData(
 				slice.getStore(),
-				ve.copy( slice.getOriginalData() )
+				ve.copy( slice.getOriginalData() ),
+				this.document.getNodeFactory()
 			);
 
 			if ( importRules.all || this.pasteSpecial ) {
@@ -5383,7 +5384,8 @@ ve.ce.Surface.prototype.afterPaste = function () {
 			// Take a copy to prevent actions in the data model affecting view.clipboard
 			pasteData = new ve.dm.ElementLinearData(
 				slice.getStore(),
-				ve.copy( slice.getBalancedData() )
+				ve.copy( slice.getBalancedData() ),
+				this.document.getNodeFactory()
 			);
 
 			if ( importRules.all || this.pasteSpecial ) {
@@ -5463,7 +5465,8 @@ ve.ce.Surface.prototype.afterPaste = function () {
 			internalListRange = doc.getInternalList().getListNode().getOuterRange();
 			context = new ve.dm.ElementLinearData(
 				doc.getStore(),
-				ve.copy( beforePasteData.context )
+				ve.copy( beforePasteData.context ),
+				doc.getNodeFactory()
 			);
 			if ( this.pasteSpecial ) {
 				// The context may have been sanitized, so sanitize here as well for comparison
@@ -6560,7 +6563,9 @@ ve.ce.Surface.prototype.handleLinearEnter = function ( e ) {
 	}
 
 	if (node && node.handleEnter) {
-		return node.handleEnter(this);
+		node.handleEnter(this, range.from);
+		this.surfaceObserver.clear();
+		return;
 	}
 
 	// Handle insertion
@@ -10676,12 +10681,12 @@ OO.inheritClass( ve.ui.Overlay, OO.ui.Element );
  * @mixins OO.EventEmitter
  *
  * @constructor
- * @param {HTMLDocument|Array|ve.dm.LinearData|ve.dm.Document|ve.dm.Surface} dataOrDocOrSurface Document data to edit
+ * @param {HTMLDocument|Array|ve.dm.LinearData|ve.dm.Document} dataOrDoc Document data to edit
  * @param {Object} [config] Configuration options
  * @cfg {string[]} [excludeCommands] List of commands to exclude
  * @cfg {Object} [importRules] Import rules
  */
-ve.ui.Surface = function VeUiSurface( dataOrDocOrSurface, config ) {
+ve.ui.Surface = function VeUiSurface( surfaceModel, config ) {
 	config = config || {};
 
 	var documentModel;
@@ -10702,20 +10707,10 @@ ve.ui.Surface = function VeUiSurface( dataOrDocOrSurface, config ) {
 	this.triggerListener = new ve.TriggerListener( OO.simpleArrayDifference(
 		Object.keys( ve.ui.commandRegistry.registry ), config.excludeCommands || []
 	) );
-	if ( dataOrDocOrSurface instanceof ve.dm.Document ) {
-		// ve.dm.Document
-		documentModel = dataOrDocOrSurface;
-	} else if ( dataOrDocOrSurface instanceof ve.dm.LinearData || Array.isArray( dataOrDocOrSurface ) ) {
-		// LinearData or raw linear data
-		documentModel = new ve.dm.Document( dataOrDocOrSurface );
-	} else if ( dataOrDocOrSurface instanceof ve.dm.Surface ) {
-		this.model = dataOrDocOrSurface;
-		this.documentModel = this.model.getDocument();
-	} else {
-		// HTMLDocument
-		documentModel = ve.dm.converter.getModelFromDom( dataOrDocOrSurface );
-	}
-	this.model = this.model || new ve.dm.Surface( documentModel );
+
+	this.model = surfaceModel;
+	documentModel = surfaceModel.getDocument();
+
 	this.view = new ve.ce.Surface( this.model, this, { $: this.$ } );
 	this.dialogs = this.createDialogWindowManager();
 	this.importRules = config.importRules || {};

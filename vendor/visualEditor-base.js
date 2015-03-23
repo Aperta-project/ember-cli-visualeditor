@@ -20503,7 +20503,7 @@ ve.init.Target.prototype.createSurface = function ( dmDoc, config ) {
 		),
 		importRules: this.constructor.static.importRules
 	}, config );
-	return new ve.ui.DesktopSurface( dmDoc, config );
+	return new ve.ui.DesktopSurface( new ve.dm.Surface(dmDoc), config );
 };
 
 /**
@@ -22658,7 +22658,7 @@ ve.init.sa.Target.prototype.createSurface = function ( dmDoc, config ) {
 		),
 		importRules: this.constructor.static.importRules
 	}, config );
-	return new this.surfaceClass( dmDoc, config );
+	return new this.surfaceClass( new ve.dm.Surface(dmDoc), config );
 };
 
 /**

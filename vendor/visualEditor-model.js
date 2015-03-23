@@ -3336,14 +3336,19 @@ ve.dm.Node.prototype.getSuggestedParentNodeTypes = function () {
  * @inheritdoc ve.Node
  */
 ve.dm.Node.prototype.canHaveChildren = function () {
-	return ve.dm.nodeFactory.canNodeHaveChildren( this.type );
+	// If childNodeTypes is null any child is allowed, if it's an array of at least one element
+	// than at least one kind of node is allowed
+	var types = this.constructor.static.childNodeTypes;
+	return types === null || ( Array.isArray( types ) && types.length > 0 );
 };
 
 /**
  * @inheritdoc ve.Node
  */
 ve.dm.Node.prototype.canHaveChildrenNotContent = function () {
-	return ve.dm.nodeFactory.canNodeHaveChildrenNotContent( this.type );
+	return this.canHaveChildren() &&
+		!this.constructor.static.canContainContent &&
+		!this.constructor.static.isContent;
 };
 
 /**
@@ -5602,7 +5607,8 @@ ve.dm.TransactionProcessor.prototype.applyAnnotations = function ( to ) {
 
 	var isElement, annotations, i, iLen, j, jlen, range, selection,
 		dataQueue = [],
-		metadataQueue = [];
+		metadataQueue = [],
+		nodeFactory = this.document.getNodeFactory();
 	if ( this.set.isEmpty() && this.clear.isEmpty() ) {
 		return;
 	}
@@ -5610,7 +5616,7 @@ ve.dm.TransactionProcessor.prototype.applyAnnotations = function ( to ) {
 	for ( i = this.cursor; i < to; i++ ) {
 		isElement = this.document.data.isElementData( i );
 		if ( isElement ) {
-			if ( !ve.dm.nodeFactory.isNodeContent( this.document.data.getType( i ) ) ) {
+			if ( !nodeFactory.isNodeContent( this.document.data.getType( i ) ) ) {
 				throw new Error( 'Invalid transaction, cannot annotate a non-content element' );
 			}
 			if ( this.document.data.isCloseElementData( i ) ) {
@@ -5808,8 +5814,8 @@ ve.dm.TransactionProcessor.processors.replace = function ( op ) {
 		insert = op.insert,
 		removeMetadata = op.removeMetadata,
 		insertMetadata = op.insertMetadata,
-		removeLinearData = new ve.dm.ElementLinearData( this.document.getStore(), remove ),
-		insertLinearData = new ve.dm.ElementLinearData( this.document.getStore(), insert ),
+		removeLinearData = new ve.dm.ElementLinearData( this.document.getStore(), remove, this.document.getNodeFactory() ),
+		insertLinearData = new ve.dm.ElementLinearData( this.document.getStore(), insert, this.document.getNodeFactory() ),
 		removeIsContent = removeLinearData.isContentData(),
 		insertIsContent = insertLinearData.isContentData(),
 		removeHasStructure = removeLinearData.containsElementData(),
@@ -6125,14 +6131,15 @@ ve.dm.Transaction.newFromDocumentInsertion = function ( doc, offset, newDoc, new
 		newListNodeOuterRange = newListNode.getOuterRange();
 
 	if ( newDocRange ) {
-		data = new ve.dm.ElementLinearData( doc.getStore(), newDoc.getData( newDocRange, true ) );
+		data = new ve.dm.ElementLinearData( doc.getStore(), newDoc.getData( newDocRange, true ), doc.getNodeFactory() );
 		metadata = new ve.dm.MetaLinearData( doc.getStore(), newDoc.getMetadata( newDocRange, true ) );
 	} else {
 		// Get the data and the metadata, but skip over the internal list
 		data = new ve.dm.ElementLinearData( doc.getStore(),
 			newDoc.getData( new ve.Range( 0, newListNodeOuterRange.start ), true ).concat(
 				newDoc.getData( new ve.Range( newListNodeOuterRange.end, newDoc.data.getLength() ), true )
-			)
+			),
+			doc.getNodeFactory()
 		);
 		metadata = new ve.dm.MetaLinearData( doc.getStore(),
 			newDoc.getMetadata( new ve.Range( 0, newListNodeOuterRange.start ), true ).concat(
@@ -6166,7 +6173,8 @@ ve.dm.Transaction.newFromDocumentInsertion = function ( doc, offset, newDoc, new
 		}
 		linearData = new ve.dm.ElementLinearData(
 			doc.getStore(),
-			newDoc.getData( new ve.Range( newListNodeRange.start, newEndOffset ), true )
+			newDoc.getData( new ve.Range( newListNodeRange.start, newEndOffset ), true ),
+			doc.getNodeFactory()
 		);
 		// Remap indexes in data coming from newDoc
 		linearData.remapStoreIndexes( storeMerge );
@@ -6182,7 +6190,8 @@ ve.dm.Transaction.newFromDocumentInsertion = function ( doc, offset, newDoc, new
 	for ( i = 0, len = listMerge.newItemRanges.length; i < len; i++ ) {
 		linearData = new ve.dm.ElementLinearData(
 			doc.getStore(),
-			newDoc.getData( listMerge.newItemRanges[i], true )
+			newDoc.getData( listMerge.newItemRanges[i], true ),
+			doc.getNodeFactory()
 		);
 		// Remap indexes in data coming from newDoc
 		linearData.remapStoreIndexes( storeMerge );
@@ -6316,17 +6325,18 @@ ve.dm.Transaction.newFromAnnotation = function ( doc, range, method, annotation 
 		span = i,
 		on = false,
 		insideContentNode = false,
-		handlesOwnChildrenDepth = 0;
+		handlesOwnChildrenDepth = 0,
+		nodeFactory = doc.getNodeFactory();
 
 	// Iterate over all data in range, annotating where appropriate
 	while ( i < range.end ) {
 		if ( data.isElementData( i ) ) {
 			type = data.getType( i );
-			if ( ve.dm.nodeFactory.doesNodeHandleOwnChildren( type ) ) {
+			if ( nodeFactory.doesNodeHandleOwnChildren( type ) ) {
 				handlesOwnChildrenDepth += data.isOpenElementData( i ) ? 1 : -1;
 			}
-			if ( ve.dm.nodeFactory.isNodeContent( type ) ) {
-				if ( method === 'set' && !ve.dm.nodeFactory.canNodeTakeAnnotationType( type, annotation ) ) {
+			if ( nodeFactory.isNodeContent( type ) ) {
+				if ( method === 'set' && !nodeFactory.canNodeTakeAnnotationType( type, annotation ) ) {
 					// Blacklisted annotations can't be set
 					annotatable = false;
 				} else {
@@ -7113,11 +7123,12 @@ ve.dm.Transaction.prototype.pushRetainMetadata = function ( length ) {
  * @param {boolean} [removeMetadata=false] Remove metadata instead of collapsing it
  */
 ve.dm.Transaction.prototype.addSafeRemoveOps = function ( doc, removeStart, removeEnd, removeMetadata ) {
-	var i, retainStart, internalStackDepth = 0;
+	var i, retainStart, internalStackDepth = 0,
+		nodeFactory = doc.getNodeFactory();
 	// Iterate over removal range and use a stack counter to determine if
 	// we are inside an internal node
 	for ( i = removeStart; i < removeEnd; i++ ) {
-		if ( doc.data.isElementData( i ) && ve.dm.nodeFactory.isNodeInternal( doc.data.getType( i ) ) ) {
+		if ( doc.data.isElementData( i ) && nodeFactory.isNodeInternal( doc.data.getType( i ) ) ) {
 			if ( !doc.data.isCloseElementData( i ) ) {
 				if ( internalStackDepth === 0 ) {
 					this.pushReplace( doc, removeStart, i - removeStart, [], removeMetadata ? [] : undefined );
@@ -10528,7 +10539,7 @@ ve.dm.SurfaceFragment.prototype.isolateAndUnwrap = function ( isolateForType ) {
 	var nodes, startSplitNode, endSplitNode,
 		startOffset, endOffset, oldExclude,
 		outerDepth = 0,
-		factory = ve.dm.nodeFactory,
+		factory = this.document.getNodeFactory(),
 		allowedParents = factory.getSuggestedParentNodeTypes( isolateForType ),
 		startSplitRequired = false,
 		endSplitRequired = false,
@@ -10674,15 +10685,24 @@ ve.dm.DataString.prototype.read = function ( position ) {
  * @param {string} [lang] Language code
  * @param {string} [dir='ltr'] Directionality (ltr/rtl)
  */
-ve.dm.Document = function VeDmDocument( data, htmlDocument, parentDocument, internalList, innerWhitespace, lang, dir ) {
+ve.dm.Document = function VeDmDocument( data, nodeFactory, htmlDocument, parentDocument, internalList, innerWhitespace, lang, dir ) {
 	// Parent constructor
 	ve.Document.call( this, new ve.dm.DocumentNode() );
+
+	// use ve.dm.nodeFactory for legacy
+	nodeFactory = nodeFactory || ve.dm.nodeFactory;
+
+	if ( !(nodeFactory instanceof ve.dm.NodeFactory) ) {
+		throw new Error('API changed: 2nd argument must be of type ve.dm.NodeFactory');
+	}
 
 	// Initialization
 	var fullData, result,
 		split = true,
 		doc = parentDocument || this,
 		root = this.documentNode;
+
+	this.nodeFactory = nodeFactory;
 
 	this.lang = lang || 'en';
 	this.dir = dir || 'ltr';
@@ -10714,7 +10734,7 @@ ve.dm.Document = function VeDmDocument( data, htmlDocument, parentDocument, inte
 	this.htmlDocument = htmlDocument || ve.createDocumentFromHtml( '' );
 
 	if ( split ) {
-		result = this.constructor.static.splitData( fullData );
+		result = this.constructor.static.splitData( fullData, nodeFactory );
 		this.data = result.elementData;
 		this.metadata = result.metaData;
 	} else {
@@ -10756,10 +10776,10 @@ OO.inheritClass( ve.dm.Document, ve.Document );
  * @param {ve.dm.FlatLinearData} fullData Full data from converter
  * @returns {Object} Object containing element linear data and meta linear data (if processed)
  */
-ve.dm.Document.static.splitData = function ( fullData ) {
+ve.dm.Document.static.splitData = function ( fullData, nodeFactory ) {
 	var i, len, offset, meta, elementData, metaData;
 
-	elementData = new ve.dm.ElementLinearData( fullData.getStore() );
+	elementData = new ve.dm.ElementLinearData( fullData.getStore(), [], nodeFactory );
 	// Sparse array containing the metadata for each offset
 	// Each element is either undefined, or an array of metadata elements
 	// Because the indexes in the metadata array represent offsets in the data array, the
@@ -10857,7 +10877,8 @@ ve.dm.Document.prototype.buildNodeTree = function () {
 	var i, len, node, children,
 		currentStack, parentStack, nodeStack, currentNode, doc,
 		textLength = 0,
-		inTextNode = false;
+		inTextNode = false,
+		nodeFactory = this.nodeFactory;
 
 	// Build a tree of nodes and nodes that will be added to them after a full scan is complete,
 	// then from the bottom up add nodes to their potential parents. This avoids massive length
@@ -10899,13 +10920,13 @@ ve.dm.Document.prototype.buildNodeTree = function () {
 			if ( this.data.isOpenElementData( i ) ) {
 				// Branch or leaf node opening
 				// Create a childless node
-				node = ve.dm.nodeFactory.create(
+				node = nodeFactory.create(
 					this.data.getType( i ), this.data.getData( i )
 				);
 				node.setDocument( doc );
 				// Put the childless node on the current inner stack
 				currentStack.push( node );
-				if ( ve.dm.nodeFactory.canNodeHaveChildren( node.getType() ) ) {
+				if ( nodeFactory.canNodeHaveChildren( node.getType() ) ) {
 					// Create a new inner stack for this node
 					parentStack = currentStack;
 					currentStack = [];
@@ -10914,7 +10935,7 @@ ve.dm.Document.prototype.buildNodeTree = function () {
 				currentNode = node;
 			} else {
 				// Branch or leaf node closing
-				if ( ve.dm.nodeFactory.canNodeHaveChildren( currentNode.getType() ) ) {
+				if ( nodeFactory.canNodeHaveChildren( currentNode.getType() ) ) {
 					// Pop this node's inner stack from the outer stack. It'll have all of the
 					// node's child nodes fully constructed
 					children = nodeStack.pop();
@@ -11064,7 +11085,7 @@ ve.dm.Document.prototype.cloneSliceFromRange = function ( range ) {
 
 	if ( selection.length === 0 ) {
 		// Nothing selected
-		data = new ve.dm.ElementLinearData( this.getStore(), [] );
+		data = new ve.dm.ElementLinearData( this.getStore(), [], this.getNodeFactory() );
 		originalRange = balancedRange = new ve.Range( 0 );
 	} else if ( startNode === endNode ) {
 		// Nothing to balance
@@ -11142,7 +11163,8 @@ ve.dm.Document.prototype.cloneSliceFromRange = function ( range ) {
 				.concat( balanceOpenings.reverse() )
 				.concat( this.data.slice( range.start, range.end ) )
 				.concat( balanceClosings )
-				.concat( contextClosings )
+				.concat( contextClosings ),
+			this.getNodeFactory()
 		);
 		originalRange = new ve.Range(
 			contextOpenings.length + balanceOpenings.length,
@@ -11186,6 +11208,7 @@ ve.dm.Document.prototype.cloneFromRange = function ( range ) {
 	}
 	newDoc = new this.constructor(
 		new ve.dm.FlatLinearData( store, data ),
+		this.nodeFactory,
 		this.getHtmlDocument(), undefined, this.getInternalList(), undefined,
 		this.getLang(), this.getDir()
 	);
@@ -11278,7 +11301,8 @@ ve.dm.Document.prototype.getSiblingWordBoundary = function ( offset, direction )
  */
 ve.dm.Document.prototype.getRelativeOffset = function ( offset, direction, unit ) {
 	var relativeContentOffset, relativeStructuralOffset, newOffset, adjacentDataOffset, isFocusable,
-		data = this.data;
+		data = this.data,
+		nodeFactory = this.nodeFactory;
 	if ( unit === 'word' ) { // word
 		// Method getSiblingWordBoundary does not "move/jump" over element data. If passed offset is
 		// an element data offset then the same offset is returned - and in such case this method
@@ -11293,7 +11317,7 @@ ve.dm.Document.prototype.getRelativeOffset = function ( offset, direction, unit 
 		adjacentDataOffset = offset + ( direction > 0 ? 0 : -1 );
 		if (
 			data.isElementData( adjacentDataOffset ) &&
-			ve.dm.nodeFactory.isNodeFocusable( data.getType( adjacentDataOffset ) )
+			nodeFactory.isNodeFocusable( data.getType( adjacentDataOffset ) )
 		) {
 			// We are adjacent to a focusableNode, move inside it
 			return offset + direction;
@@ -11306,7 +11330,7 @@ ve.dm.Document.prototype.getRelativeOffset = function ( offset, direction, unit 
 		} else {
 			isFocusable = ( relativeStructuralOffset - offset < 0 ? -1 : 1 ) === direction &&
 				data.isElementData( relativeStructuralOffset + direction ) &&
-				ve.dm.nodeFactory.isNodeFocusable( data.getType( relativeStructuralOffset + direction ) );
+				nodeFactory.isNodeFocusable( data.getType( relativeStructuralOffset + direction ) );
 		}
 		// Check if we've moved into a slug or a focusableNode
 		if ( isFocusable || this.hasSlugAtOffset( relativeStructuralOffset ) ) {
@@ -11392,7 +11416,8 @@ ve.dm.Document.prototype.getRelativeRange = function ( range, direction, unit, e
 ve.dm.Document.prototype.getNearestFocusableNode = function ( offset, direction, limit ) {
 	// It is never an offset of the node, but just an offset for which getNodeFromOffset should
 	// return that node. Usually it would be node offset + 1 or offset of node closing tag.
-	var coveredOffset;
+	var coveredOffset,
+		nodeFactory = this.nodeFactory;
 	this.data.getRelativeOffset(
 		offset,
 		direction === 1 ? 0 : -1,
@@ -11403,14 +11428,14 @@ ve.dm.Document.prototype.getNearestFocusableNode = function ( offset, direction,
 			}
 			if (
 				this.isOpenElementData( index ) &&
-				ve.dm.nodeFactory.isNodeFocusable( this.getType( index ) )
+				nodeFactory.isNodeFocusable( this.getType( index ) )
 			) {
 				coveredOffset = index + 1;
 				return true;
 			}
 			if (
 				this.isCloseElementData( index ) &&
-				ve.dm.nodeFactory.isNodeFocusable( this.getType( index ) )
+				nodeFactory.isNodeFocusable( this.getType( index ) )
 			) {
 				coveredOffset = index;
 				return true;
@@ -11506,7 +11531,7 @@ ve.dm.Document.prototype.rebuildNodes = function ( parent, index, numNodes, offs
 	var // Get a slice of the document where it's been changed
 		data = this.data.sliceObject( offset, offset + newLength ),
 		// Build document fragment from data
-		fragment = new this.constructor( data, this.htmlDocument, this ),
+		fragment = new this.constructor( data, this.nodeFactory, this.htmlDocument, this ),
 		// Get generated child nodes from the document fragment
 		nodes = fragment.getDocumentNode().getChildren();
 	// Replace nodes in the model tree
@@ -11530,6 +11555,8 @@ ve.dm.Document.prototype.fixupInsertion = function ( data, offset ) {
 	var
 		// Array where we build the return value
 		newData = [],
+
+		nodeFactory = this.nodeFactory,
 
 		// Temporary variables for handling combining marks
 		insert, annotations,
@@ -11655,8 +11682,8 @@ ve.dm.Document.prototype.fixupInsertion = function ( data, offset ) {
 						(
 							// Only throw an error if the content can't be adopted from one content
 							// branch to another
-							!ve.dm.nodeFactory.canNodeContainContent( element.type.slice( 1 ) ) ||
-							!ve.dm.nodeFactory.canNodeContainContent( expectedType )
+							!nodeFactory.canNodeContainContent( element.type.slice( 1 ) ) ||
+							!nodeFactory.canNodeContainContent( expectedType )
 						)
 					) {
 						throw new Error( 'Cannot adopt content from ' + element.type +
@@ -11689,17 +11716,17 @@ ve.dm.Document.prototype.fixupInsertion = function ( data, offset ) {
 
 			// If this node is content, check that the containing node can contain content. If not,
 			// wrap in a paragraph
-			if ( ve.dm.nodeFactory.isNodeContent( childType ) &&
-				!ve.dm.nodeFactory.canNodeContainContent( parentType )
+			if ( nodeFactory.isNodeContent( childType ) &&
+				!nodeFactory.canNodeContainContent( parentType )
 			) {
 				childType = 'paragraph';
-				openings.unshift( ve.dm.nodeFactory.getDataElement( childType ) );
+				openings.unshift( nodeFactory.getDataElement( childType ) );
 			}
 
 			// Check that this node is allowed to have the containing node as its parent. If not,
 			// wrap it until it's fixed
 			do {
-				allowedParents = ve.dm.nodeFactory.getParentNodeTypes( childType );
+				allowedParents = nodeFactory.getParentNodeTypes( childType );
 				parentsOK = allowedParents === null ||
 					ve.indexOf( parentType, allowedParents ) !== -1;
 				if ( !parentsOK ) {
@@ -11710,21 +11737,21 @@ ve.dm.Document.prototype.fixupInsertion = function ( data, offset ) {
 					}
 					// Open an allowed node around this node
 					childType = allowedParents[0];
-					openings.unshift( ve.dm.nodeFactory.getDataElement( childType ) );
+					openings.unshift( nodeFactory.getDataElement( childType ) );
 				}
 			} while ( !parentsOK );
 
 			// Check that the containing node can have this node as its child. If not, close nodes
 			// until it's fixed
 			do {
-				allowedChildren = ve.dm.nodeFactory.getChildNodeTypes( parentType );
+				allowedChildren = nodeFactory.getChildNodeTypes( parentType );
 				childrenOK = allowedChildren === null ||
 					ve.indexOf( childType, allowedChildren ) !== -1;
 				// Also check if we're trying to insert structure into a node that has to contain
 				// content
 				childrenOK = childrenOK && !(
-					!ve.dm.nodeFactory.isNodeContent( childType ) &&
-					ve.dm.nodeFactory.canNodeContainContent( parentType )
+					!nodeFactory.isNodeContent( childType ) &&
+					nodeFactory.canNodeContainContent( parentType )
 				);
 				if ( !childrenOK ) {
 					// We can't insert this into this parent
@@ -11967,6 +11994,14 @@ ve.dm.Document.prototype.getLang = function () {
  */
 ve.dm.Document.prototype.getDir = function () {
 	return this.dir;
+};
+
+/**
+ * Get the nodeFactory for this document
+ * @returns {ve.dm.NodeFactory} Factory for ve.dm.Node instances
+ */
+ve.dm.Document.prototype.getNodeFactory = function () {
+	return this.nodeFactory;
 };
 
 /*!
@@ -13179,7 +13214,7 @@ ve.dm.Converter.prototype.getModelFromDom = function ( doc, targetDoc, lang, dir
 	this.internalList = null;
 	this.contextStack = null;
 
-	return new ve.dm.Document( linearData, doc, undefined, internalList, innerWhitespace, lang, dir );
+	return new ve.dm.Document( linearData, this.nodeFactory, doc, undefined, internalList, innerWhitespace, lang, dir );
 };
 
 /**
@@ -13849,7 +13884,8 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 		conv = this,
 		doc = container.ownerDocument,
 		domElement = container,
-		annotationStack = new ve.dm.AnnotationSet( this.store );
+		annotationStack = new ve.dm.AnnotationSet( this.store ),
+		nodeFactory = this.nodeFactory;
 
 	// TODO this whole function should be rewritten with a domElementStack and ascend() and
 	// descend() functions, to build the whole DOM bottom-up rather than top-down. That would make
@@ -13907,8 +13943,8 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 	function getDataElementOrSlice() {
 		var dataSlice;
 		if (
-			ve.dm.nodeFactory.lookup( data[i].type ) &&
-			ve.dm.nodeFactory.doesNodeHandleOwnChildren( data[i].type )
+			nodeFactory.lookup( data[i].type ) &&
+			nodeFactory.doesNodeHandleOwnChildren( data[i].type )
 		) {
 			dataSlice = data.slice( i, findEndOfNode( i ) );
 		} else {
@@ -13924,8 +13960,8 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 		for ( i = 0; i < dataLen; i++ ) {
 			if (
 				data[i].type && data[i].type.charAt( 0 ) !== '/' &&
-				ve.dm.nodeFactory.lookup( data[i].type ) &&
-				ve.dm.nodeFactory.isNodeInternal( data[i].type )
+				nodeFactory.lookup( data[i].type ) &&
+				nodeFactory.isNodeInternal( data[i].type )
 			) {
 				// Copy data if we haven't already done so
 				if ( !dataCopy ) {
@@ -13952,7 +13988,7 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 			text = '';
 			isStart = i > 0 &&
 				ve.dm.LinearData.static.isOpenElementData( data[i - 1] ) &&
-				!ve.dm.nodeFactory.doesNodeHaveSignificantWhitespace(
+				!nodeFactory.doesNodeHaveSignificantWhitespace(
 					ve.dm.LinearData.static.getType( data[i - 1] )
 				);
 			// Continue forward as far as the plain text goes
@@ -14181,7 +14217,7 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 				delete domElement.lastOuterPost;
 				// Ascend to parent node, except if this is an internal node
 				// TODO: It's not covered with unit tests.
-				if ( !ve.dm.nodeFactory.lookup( type ) || !ve.dm.nodeFactory.isNodeInternal( type ) ) {
+				if ( !nodeFactory.lookup( type ) || !nodeFactory.isNodeInternal( type ) ) {
 					domElement = parentDomElement;
 				}
 			} else {
@@ -14404,9 +14440,11 @@ ve.dm.FlatLinearData.prototype.isCloseElementData = function ( offset ) {
  * @param {ve.dm.IndexValueStore} store Index-value store
  * @param {Array} [data] Linear data
  */
-ve.dm.ElementLinearData = function VeDmElementLinearData() {
+ve.dm.ElementLinearData = function VeDmElementLinearData( store, data, nodeFactory ) {
 	// Parent constructor
 	ve.dm.ElementLinearData.super.apply( this, arguments );
+
+	this.nodeFactory = nodeFactory || ve.dm.nodeFactory;
 };
 
 /* Inheritance */
@@ -14482,7 +14520,7 @@ ve.dm.ElementLinearData.prototype.isContentOffset = function ( offset ) {
 	}
 	var left = this.getData( offset - 1 ),
 		right = this.getData( offset ),
-		factory = ve.dm.nodeFactory;
+		factory = this.nodeFactory;
 	return (
 		// Data exists at offsets
 		( left !== undefined && right !== undefined ) &&
@@ -14569,7 +14607,7 @@ ve.dm.ElementLinearData.prototype.isStructuralOffset = function ( offset, unrest
 	// Offsets must be within range and both sides must be elements
 	var left = this.getData( offset - 1 ),
 		right = this.getData( offset ),
-		factory = ve.dm.nodeFactory;
+		factory = this.nodeFactory;
 	return (
 		(
 			left !== undefined &&
@@ -14649,7 +14687,7 @@ ve.dm.ElementLinearData.prototype.isContentData = function () {
 		item = this.getData( i );
 		if ( item.type !== undefined &&
 			item.type.charAt( 0 ) !== '/' &&
-			!ve.dm.nodeFactory.isNodeContent( item.type )
+			!this.nodeFactory.isNodeContent( item.type )
 		) {
 			return false;
 		}
@@ -14676,7 +14714,7 @@ ve.dm.ElementLinearData.prototype.getAnnotationIndexesFromOffset = function ( of
 	if (
 		!ignoreClose &&
 		this.isCloseElementData( offset ) &&
-		!ve.dm.nodeFactory.canNodeHaveChildren( this.getType( offset ) ) // leaf node
+		!this.nodeFactory.canNodeHaveChildren( this.getType( offset ) ) // leaf node
 	) {
 		offset = this.getRelativeContentOffset( offset, -1 );
 	}
@@ -14838,7 +14876,7 @@ ve.dm.ElementLinearData.prototype.getAnnotationsFromRange = function ( range, al
 	// Iterator over the range, looking for annotations, starting at the 2nd character
 	for ( i = range.start; i < range.end; i++ ) {
 		// Skip non-content data
-		if ( this.isElementData( i ) && !ve.dm.nodeFactory.isNodeContent( this.getType( i ) ) ) {
+		if ( this.isElementData( i ) && !this.nodeFactory.isNodeContent( this.getType( i ) ) ) {
 			continue;
 		}
 		if ( !left ) {
@@ -14987,7 +15025,7 @@ ve.dm.ElementLinearData.prototype.getRelativeOffset = function ( offset, distanc
 		dataOffset = i + ( direction > 0 ? -1 : 0 );
 		if (
 			this.isElementData( dataOffset ) &&
-			ve.dm.nodeFactory.doesNodeHandleOwnChildren( this.getType( dataOffset ) )
+			this.nodeFactory.doesNodeHandleOwnChildren( this.getType( dataOffset ) )
 		) {
 			isOpen = this.isOpenElementData( dataOffset );
 			// We have entered a node if we step right over an open, or left over a close.
@@ -15206,7 +15244,7 @@ ve.dm.ElementLinearData.prototype.remapStoreIndexes = function ( mapping ) {
 		}
 		this.setAnnotationIndexesAtOffset( i, indexes );
 		if ( this.isOpenElementData( i ) ) {
-			nodeClass = ve.dm.nodeFactory.lookup( this.getType( i ) );
+			nodeClass = this.nodeFactory.lookup( this.getType( i ) );
 			nodeClass.static.remapStoreIndexes( this.data[i], mapping );
 		}
 	}
@@ -15226,7 +15264,7 @@ ve.dm.ElementLinearData.prototype.remapInternalListIndexes = function ( mapping,
 	var i, ilen, nodeClass;
 	for ( i = 0, ilen = this.data.length; i < ilen; i++ ) {
 		if ( this.isOpenElementData( i ) ) {
-			nodeClass = ve.dm.nodeFactory.lookup( this.getType( i ) );
+			nodeClass = this.nodeFactory.lookup( this.getType( i ) );
 			nodeClass.static.remapInternalListIndexes( this.data[i], mapping, internalList );
 		}
 	}
@@ -15244,7 +15282,7 @@ ve.dm.ElementLinearData.prototype.remapInternalListKeys = function ( internalLis
 	var i, ilen, nodeClass;
 	for ( i = 0, ilen = this.data.length; i < ilen; i++ ) {
 		if ( this.isOpenElementData( i ) ) {
-			nodeClass = ve.dm.nodeFactory.lookup( this.getType( i ) );
+			nodeClass = this.nodeFactory.lookup( this.getType( i ) );
 			nodeClass.static.remapInternalListKeys( this.data[i], internalList );
 		}
 	}
@@ -15292,7 +15330,7 @@ ve.dm.ElementLinearData.prototype.sanitize = function ( rules, plainText, keepEm
 				this.getData( i ).type = ( this.isCloseElementData( i ) ? '/' : '' ) + type;
 			}
 			// Convert content-containing non-paragraph nodes to paragraphs in plainText mode
-			if ( plainText && type !== 'paragraph' && ve.dm.nodeFactory.canNodeContainContent( type ) ) {
+			if ( plainText && type !== 'paragraph' && this.nodeFactory.canNodeContainContent( type ) ) {
 				type = 'paragraph';
 				this.setData( i, {
 					type: ( this.isCloseElementData( i ) ? '/' : '' ) + type
@@ -15319,7 +15357,7 @@ ve.dm.ElementLinearData.prototype.sanitize = function ( rules, plainText, keepEm
 			if (
 				!keepEmptyContentBranches &&
 				i > 0 && this.isCloseElementData( i ) && this.isOpenElementData( i - 1 ) &&
-				ve.dm.nodeFactory.canNodeContainContent( type )
+				this.nodeFactory.canNodeContainContent( type )
 			) {
 				this.splice( i - 1, 2 );
 				i -= 2;
@@ -15371,7 +15409,7 @@ ve.dm.ElementLinearData.prototype.countNonInternalElements = function () {
 		count = 0;
 	for ( i = 0, l = this.getLength(); i < l; i++ ) {
 		type = this.getType( i );
-		if ( type && ve.dm.nodeFactory.isNodeInternal( type ) ) {
+		if ( type && this.nodeFactory.isNodeInternal( type ) ) {
 			if ( this.isOpenElementData( i ) ) {
 				internalDepth++;
 			} else {
