@@ -54,7 +54,7 @@
   color: white;
 }
 
-.ve-tool.active {
+.ve-tool.active.enabled {
   background-color: #666;
   color: white;
 }
