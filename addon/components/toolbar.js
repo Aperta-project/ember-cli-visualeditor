@@ -1,6 +1,7 @@
 /* global $ */
 
 import Ember from 'ember';
+import Tool from './tool';
 
 var Toolbar = Ember.Component.extend({
 
@@ -21,6 +22,10 @@ var Toolbar = Ember.Component.extend({
     var tools = [];
     var toolbar = this;
     var _extractTools = function(view) {
+      // HACK: ducktyping check if the view is an Ember.Component
+      if (!view.get) {
+        return;
+      }
       if (view.get('needsToolbar')) {
         view.set('toolbar', toolbar);
       }
