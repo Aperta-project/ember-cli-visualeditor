@@ -3590,9 +3590,9 @@ ve.dm.Node.prototype.canBeMergedWith = function ( node ) {
 	return true;
 };
 
-ve.dm.Node.prototype.isResilient = function() {
+ve.dm.Node.prototype.isResilient = function () {
 	var el = this.getOriginalDomElements()[0];
-	return (el && ( el.dataset.mode === "resilient" ) );
+	return (el && ( el.dataset.mode === 'resilient' ) );
 };
 
 /*!
@@ -10085,7 +10085,7 @@ ve.dm.SurfaceFragment.prototype.delete = function ( directionAfterDelete ) {
 	}
 
 	var rangeAfterRemove,
-		tx, startNode, endNode, endNodeData, nodeToDelete, isResilient,
+		tx, startNode, endNode, endNodeData, nodeToDelete, isResilient, root,
 		rangeToRemove = this.getSelection( true ).getRange();
 
 	if ( rangeToRemove.isCollapsed() ) {
@@ -10093,7 +10093,7 @@ ve.dm.SurfaceFragment.prototype.delete = function ( directionAfterDelete ) {
 	}
 
 	// traverse up to the node which completely spans rangeToRemove
-	var root = this.getDocument().getDocumentNode().getNodeFromOffset( rangeToRemove.start );
+	root = this.getDocument().getDocumentNode().getNodeFromOffset( rangeToRemove.start );
 
 	// trivial case: rangeToRemove is completely within the leaf node (99% use case for 1-char deletions)
 	if (root.getRange().containsRange(rangeToRemove)) {
@@ -10104,7 +10104,7 @@ ve.dm.SurfaceFragment.prototype.delete = function ( directionAfterDelete ) {
 		while (!root.getOuterRange().containsRange(rangeToRemove)) {
 			root = root.getParent();
 		}
-		rangeAfterRemove = this._deleteResilient(root, rangeToRemove, rangeToRemove);
+		rangeAfterRemove = this.deleteResilient(root, rangeToRemove, rangeToRemove);
 	}
 
 	if ( !rangeAfterRemove.isCollapsed() ) {
@@ -10169,7 +10169,10 @@ ve.dm.SurfaceFragment.prototype.delete = function ( directionAfterDelete ) {
 	}
 
 	// insert an empty paragraph if the document is empty after all
-	if (this.document.getDocumentNode().getLength() === 0) {
+	// HACK: even after deleting the whole range DocumentNode will have a length of two
+	// The original check is not working anymore:
+	//   	if (this.document.getDocumentNode().getLength() === 0) {
+	if (this.document.getDocumentNode().getLength() <= 2) {
 		tx = ve.dm.Transaction.newFromInsertion( this.document, 0, [
 			{ type: 'paragraph' },
 			{ type: '/paragraph' }
@@ -10191,7 +10194,7 @@ ve.dm.SurfaceFragment.prototype.delete = function ( directionAfterDelete ) {
 	return this;
 };
 
-ve.dm.SurfaceFragment.prototype._deleteResilient = function ( node, rangeToRemove, rangeAfterRemove ) {
+ve.dm.SurfaceFragment.prototype.deleteResilient = function ( node, rangeToRemove, rangeAfterRemove ) {
 	var isResilient = [],
 		children = [],
 		child, i, leftOffset, rightOffset, tx;
@@ -10238,19 +10241,18 @@ ve.dm.SurfaceFragment.prototype._deleteResilient = function ( node, rangeToRemov
 				rangeToRemove.end
 			);
 			// delete inner range recursively
-			rangeAfterRemove = this._deleteResilient(child, new ve.Range(leftOffset, rightOffset), rangeAfterRemove);
-		}
+			rangeAfterRemove = this.deleteResilient(child, new ve.Range(leftOffset, rightOffset), rangeAfterRemove);
 		// Normal non-resilient nodes...
-		else {
+		} else {
 			// trivial case: delete the whole node if it is fully selected
 			if ( rangeToRemove.containsRange( child.getOuterRange() ) ) {
 				tx = ve.dm.Transaction.newFromRemoval( this.document, child.getOuterRange() );
 				this.change( tx );
 				rangeAfterRemove = tx.translateRange( rangeAfterRemove );
-			}
+
 			// Otherwise, delete recursively
 			// Note: this is important so that resilient nodes on an inner level are considered a well
-			else {
+			} else {
 				// We need to be careful that we do not delete open/close tags in presence of a resilient sibling,
 				// as the according close/open tag of the resilient node doesn't get deleted.
 				// Example:
@@ -10266,7 +10268,7 @@ ve.dm.SurfaceFragment.prototype._deleteResilient = function ( node, rangeToRemov
 				//   To retain a valid structure, the following ranges need to be deleted instead: [3, 4[, [6, 7[
 				//     -> [<p>,a,b</p>,<p>,e,f,</p>]
 				//
-				if (isResilient[i-1]) {
+				if (isResilient[ i - 1 ]) {
 					leftOffset = Math.max(
 						Math.min( this.document.data.getNearestContentOffset(child.getOuterRange().start, 1), child.getOuterRange().end ),
 						rangeToRemove.start
@@ -10274,7 +10276,7 @@ ve.dm.SurfaceFragment.prototype._deleteResilient = function ( node, rangeToRemov
 				} else {
 					leftOffset = Math.max(child.getOuterRange().start, rangeToRemove.start);
 				}
-				if (isResilient[i+1]) {
+				if (isResilient[ i + 1 ]) {
 					rightOffset = Math.min(
 						Math.max( this.document.data.getNearestContentOffset(child.getOuterRange().end, -1), child.getOuterRange().start),
 						rangeToRemove.end
@@ -10282,7 +10284,7 @@ ve.dm.SurfaceFragment.prototype._deleteResilient = function ( node, rangeToRemov
 				} else {
 					rightOffset = Math.min(child.getOuterRange().end, rangeToRemove.end);
 				}
-				rangeAfterRemove = this._deleteResilient(child, new ve.Range(leftOffset, rightOffset), rangeAfterRemove);
+				rangeAfterRemove = this.deleteResilient(child, new ve.Range(leftOffset, rightOffset), rangeAfterRemove);
 			}
 		}
 	}
@@ -11206,7 +11208,7 @@ ve.dm.Document.prototype.cloneFromRange = function ( range ) {
 		// The range does not include the entire internal list, so add it
 		data = data.concat( this.getFullData( listRange ) );
 	}
-	newDoc = new this.constructor(
+	newDoc = this.createDocument(
 		new ve.dm.FlatLinearData( store, data ),
 		this.nodeFactory,
 		this.getHtmlDocument(), undefined, this.getInternalList(), undefined,
@@ -11531,7 +11533,7 @@ ve.dm.Document.prototype.rebuildNodes = function ( parent, index, numNodes, offs
 	var // Get a slice of the document where it's been changed
 		data = this.data.sliceObject( offset, offset + newLength ),
 		// Build document fragment from data
-		fragment = new this.constructor( data, this.nodeFactory, this.htmlDocument, this ),
+		fragment = this.createDocument( data, this.nodeFactory, this.htmlDocument, this ),
 		// Get generated child nodes from the document fragment
 		nodes = fragment.getDocumentNode().getChildren();
 	// Replace nodes in the model tree
@@ -11893,7 +11895,8 @@ ve.dm.Document.prototype.fixupInsertion = function ( data, offset ) {
  */
 ve.dm.Document.prototype.newFromHtml = function ( html, importRules ) {
 	var htmlDoc = ve.createDocumentFromHtml( html ),
-		doc = ve.dm.converter.getModelFromDom( htmlDoc, this.getHtmlDocument() ),
+		// TODO: what about 'lang' and 'dir'?
+		doc = ve.dm.converter.getModelFromDom( htmlDoc, this.getHtmlDocument(), null, null, this ),
 		data = doc.data;
 
 	// FIXME: This is a paste-specific thing and possibly should not be in the generic newFromHtml()
@@ -12002,6 +12005,14 @@ ve.dm.Document.prototype.getDir = function () {
  */
 ve.dm.Document.prototype.getNodeFactory = function () {
 	return this.nodeFactory;
+};
+
+/**
+ * Named constructor which allows to better control the creation of documents,
+ * such as subclassing or post-processing.
+ */
+ve.dm.Document.prototype.createDocument = function ( data, nodeFactory, htmlDocument, parentDocument, internalList, innerWhitespace, lang, dir ) {
+	return new ve.dm.Document( data, nodeFactory, htmlDocument, parentDocument, internalList, innerWhitespace, lang, dir );
 };
 
 /*!
@@ -13183,7 +13194,7 @@ ve.dm.Converter.prototype.getDomElementFromDataAnnotation = function ( dataAnnot
  * @param {string} [dir] Document directionality (ltr/rtl)
  * @returns {ve.dm.Document} Document model
  */
-ve.dm.Converter.prototype.getModelFromDom = function ( doc, targetDoc, lang, dir ) {
+ve.dm.Converter.prototype.getModelFromDom = function ( doc, targetDoc, lang, dir, documentFactory ) {
 	var linearData, refData, innerWhitespace,
 		store = new ve.dm.IndexValueStore(),
 		internalList = new ve.dm.InternalList();
@@ -13214,7 +13225,11 @@ ve.dm.Converter.prototype.getModelFromDom = function ( doc, targetDoc, lang, dir
 	this.internalList = null;
 	this.contextStack = null;
 
-	return new ve.dm.Document( linearData, this.nodeFactory, doc, undefined, internalList, innerWhitespace, lang, dir );
+	if (documentFactory) {
+		return documentFactory.createDocument(linearData, this.nodeFactory, doc, undefined, internalList, innerWhitespace, lang, dir);
+	} else {
+		return new ve.dm.Document( linearData, this.nodeFactory, doc, undefined, internalList, innerWhitespace, lang, dir );
+	}
 };
 
 /**
@@ -17314,8 +17329,8 @@ ve.dm.modelRegistry.register( ve.dm.InlineImageNode );
  * @param {ve.dm.Node[]} [children]
  */
 ve.dm.SectionNode = function VeDmSectionNode() {
-  // Parent constructor
-  ve.dm.SectionNode.super.apply( this, arguments );
+	// Parent constructor
+	ve.dm.SectionNode.super.apply( this, arguments );
 };
 
 /* Inheritance */
@@ -17328,23 +17343,23 @@ ve.dm.SectionNode.static.name = 'section';
 
 ve.dm.SectionNode.static.matchTagNames = [ 'section' ];
 
-ve.dm.SectionNode.static.toDataElement = function ( domElements ) {
-  return { type: this.name, attributes: { } };
+ve.dm.SectionNode.static.toDataElement = function ( ) {
+	return { type: this.name, attributes: { } };
 };
 
 ve.dm.SectionNode.static.toDomElements = function ( dataElement, doc ) {
-  var element = doc.createElement( 'section' );
-  return [ element ];
+	var element = doc.createElement( 'section' );
+	return [ element ];
 };
 
 /* Methods */
 
 ve.dm.SectionNode.prototype.canHaveSlugAfter = function () {
-  return false;
+	return false;
 };
 
 ve.dm.SectionNode.prototype.canHaveSlugBefore = function () {
-  return false;
+	return false;
 };
 
 /* Registration */

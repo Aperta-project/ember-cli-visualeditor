@@ -5223,7 +5223,7 @@ ve.ce.Surface.prototype.beforePaste = function ( e ) {
 		// before conversion as it can affect textStart/End offsets.
 		delete contextElement.internal;
 		ve.dm.converter.getDomSubtreeFromModel(
-			new ve.dm.Document(
+			doc.createDocument(
 				new ve.dm.ElementLinearData( doc.getStore(), context, nodeFactory ),
 				nodeFactory,
 				doc.getHtmlDocument(), undefined, doc.getInternalList(),
@@ -5363,7 +5363,7 @@ ve.ce.Surface.prototype.afterPaste = function () {
 			pasteData = new ve.dm.ElementLinearData(
 				slice.getStore(),
 				ve.copy( slice.getOriginalData() ),
-				this.document.getNodeFactory()
+				this.getModel().getDocument().getNodeFactory()
 			);
 
 			if ( importRules.all || this.pasteSpecial ) {
@@ -5385,7 +5385,7 @@ ve.ce.Surface.prototype.afterPaste = function () {
 			pasteData = new ve.dm.ElementLinearData(
 				slice.getStore(),
 				ve.copy( slice.getBalancedData() ),
-				this.document.getNodeFactory()
+				this.getModel().getDocument().getNodeFactory()
 			);
 
 			if ( importRules.all || this.pasteSpecial ) {
@@ -5442,7 +5442,8 @@ ve.ce.Surface.prototype.afterPaste = function () {
 			}
 		}
 		// External paste
-		doc = ve.dm.converter.getModelFromDom( htmlDoc, this.getModel().getDocument().getHtmlDocument() );
+		// TODO: what about 'lang' and 'dir'?
+		doc = ve.dm.converter.getModelFromDom( htmlDoc, this.getModel().getDocument().getHtmlDocument(), null, null, this.getModel().getDocument());
 		data = doc.data;
 		// Clear metadata
 		doc.metadata = new ve.dm.MetaLinearData( doc.getStore(), new Array( 1 + data.getLength() ) );
@@ -9741,10 +9742,10 @@ ve.ce.InlineImageNode.static.tagName = 'img';
 ve.ce.nodeFactory.register( ve.ce.InlineImageNode );
 
 ve.ce.SectionNode = function VeCeSectionNode() {
-  // Parent constructor
-  ve.ce.SectionNode.super.apply( this, arguments );
+	// Parent constructor
+	ve.ce.SectionNode.super.apply( this, arguments );
 
-  this.$element.addClass('ve-ce-sectionnode');
+	this.$element.addClass('ve-ce-sectionnode');
 };
 
 /* Inheritance */
