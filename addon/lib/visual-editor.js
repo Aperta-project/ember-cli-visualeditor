@@ -51,6 +51,10 @@ VisualEditor.prototype.registerExtensions = function(extensions) {
   });
 };
 
+VisualEditor.prototype.registerExtension = function(extension) {
+  this.registerExtensions([extension]);
+};
+
 VisualEditor.prototype.dispose = function() {
   if (this.surfaceUI) {
     this._disposeView();
@@ -77,6 +81,7 @@ VisualEditor.prototype.newDocumentFromHtml = function(html) {
   try {
     body.innerHTML = html;
   } catch (error) {
+    console.error(error);
     var $pre = $('<pre class="corrupted-document">').text(html);
     body.innerHTML = "";
     body.appendChild($pre[0]);
@@ -111,6 +116,7 @@ VisualEditor.prototype.fromHtml = function(html) {
     fragment.insertDocument(newDoc);
   } catch (error) {
     console.error('Document corrupt!');
+    console.error(error);
     fragment = new ve.dm.SurfaceFragment(surface, new ve.dm.LinearSelection(doc, new ve.Range(0)));
     var $el = $('<div>').append($('<pre class="corrupted-document">').text(html));
     fragment.insertHtml($el.html());
@@ -347,7 +353,7 @@ VisualEditor.prototype.createDocument = function() {
 
 VisualEditor.prototype._createDocumentConstructor = function() {
   var nodeFactory = this;
-  var DocumentWithExtensions = function() {
+  var DocumentWithExtensions = function DocumentWithExtensions() {
     ve.dm.Document.apply(this, arguments);
   };
   DocumentWithExtensions.prototype = Object.create(ve.dm.Document.prototype);

@@ -71,7 +71,9 @@ VeRegistry.prototype.registerTool = function(toolClass) {
 
 VeRegistry.prototype.registerExtension = function(extension) {
   this.extensions[extension.name] = extension;
-  extension.register(this);
+  if (extension.register) {
+    extension.register(this);
+  }
 };
 
 export default VeRegistry;
