@@ -26,6 +26,8 @@ function VisualEditor() {
 
   this.converter = new ve.dm.Converter(this.registry.modelRegistry,
     this.registry.nodeFactory, this.registry.annotationFactory, this.registry.metaItemFactory);
+
+  this._documentConstructor = this._createDocumentConstructor();
 }
 
 OO.mixinClass( VisualEditor, OO.EventEmitter );
@@ -75,16 +77,14 @@ VisualEditor.prototype.newDocumentFromHtml = function(html) {
   try {
     body.innerHTML = html;
   } catch (error) {
-    // TODO: discuss what to do if the html is corrupted
-    body.innerHTML = "<pre>Invalid Document</pre>";
+    var $pre = $('<pre class="corrupted-document">').text(html);
+    body.innerHTML = "";
+    body.appendChild($pre[0]);
   }
   // Create a dm.Document instance from the input html in the #sample element
   // Note: from the interface we would expect that dm.Converter does not use singletons -- but unfortunately it still does
   var converter = this.getConverter();
-  var doc = converter.getModelFromDom(htmlDoc, window.document);
-  // Notify extensions before building the node tree
-  // so that extensions can hook in things that might be required in the node implmenetations
-  this._notifyExtensions('afterDocumentCreated', doc);
+  var doc = converter.getModelFromDom(htmlDoc, window.document, null, null, this);
   // Note: this triggers the creation of node instances
   doc.buildNodeTree();
   return doc;
@@ -100,13 +100,21 @@ VisualEditor.prototype.fromHtml = function(html) {
   var doc = surface.getDocument();
   var all = new ve.dm.LinearSelection(doc, doc.getDocumentNode().getRange());
   var fragment = new ve.dm.SurfaceFragment(surface, all);
+  fragment.removeContent();
   // create a new document and insert it into the fragment
   // Note: we can't use ve.dm.Document.newFromHtml() as we need to
   //   notify the extensions before doc.buildNodeTree() is called
   var newDoc = this.newDocumentFromHtml(html);
   // add a flag to indicate that we are loading now
   doc.isLoading = true;
-  fragment.insertDocument(newDoc);
+  try {
+    fragment.insertDocument(newDoc);
+  } catch (error) {
+    console.error('Document corrupt!');
+    fragment = new ve.dm.SurfaceFragment(surface, new ve.dm.LinearSelection(doc, new ve.Range(0)));
+    var $el = $('<div>').append($('<pre class="corrupted-document">').text(html));
+    fragment.insertHtml($el.html());
+  }
   doc.isLoading = false;
   // let extensions do things after loading
   this._notifyExtensions('afterDocumentLoaded', doc);
@@ -116,13 +124,22 @@ VisualEditor.prototype.fromHtml = function(html) {
   surface.undoStack = [];
   surface.undoIndex = 0;
   surface.newTransactions = [];
+  surface.setNullSelection();
 };
 
 VisualEditor.prototype.toHtml = function() {
   if (this.document) {
     var converter = this.getConverter();
     var doc = converter.getDomFromModel(this.document);
-    var html = $(doc).find('body').html();
+    var $body = $(doc).find('body');
+    // see if we wrapped the document during conversion
+    var $corrupted = $body.find('pre.corrupted-document');
+    var html;
+    if ($corrupted.length) {
+      html = $corrupted.text();
+    } else {
+      html = $body.html();
+    }
     return html;
   }
 };
@@ -160,21 +177,22 @@ VisualEditor.prototype.write = function(string) {
 
 VisualEditor.prototype.getDocument = function() {
   if (!this.document) {
-    // TODO: there should be a factory in VE to create a proper empty document
-    // still this does not work perfectly -- the initial slug is not handled well, and select-all
-    // does behave strangely
-    var doc = new ve.dm.Document([
+    // Note: we need to be careful with that data.
+    // VE is not very robust, e.g., if we leave out internalList
+    var doc = new this._documentConstructor([
       { type: 'paragraph', internal: { generated: 'empty' } },
       { type: '/paragraph' },
       { type: 'internalList' },
       { type: '/internalList' }
     ]);
+    // Note: we are not using the factory method 'this.createDocument()'
+    // as we want to be the first who register for transactions
     doc.connect(this, {
       transact: this._onDocumentTransaction
     });
-    // call extensions so that they can initialize the document instance
-    this._notifyExtensions('afterDocumentCreated', doc);
     this.document = doc;
+    //... now let others register with the newly created document
+    this._notifyExtensions('afterDocumentCreated', doc);
   }
   return this.document;
 };
@@ -235,6 +253,15 @@ VisualEditor.prototype.focus = function() {
   surfaceUI.getView().focus();
 };
 
+VisualEditor.prototype.freeze = function() {
+  var surfaceUI = this.getSurfaceView();
+  surfaceUI.getView().deactivate();
+};
+
+VisualEditor.prototype.unfreeze = function() {
+  var surfaceUI = this.getSurfaceView();
+  surfaceUI.getView().activate();
+};
 
 VisualEditor.prototype._notifyExtensions = function(method) {
   var args = Array.prototype.slice.call(arguments, 1);
@@ -304,6 +331,30 @@ VisualEditor.prototype._updateState = function() {
 VisualEditor.prototype._onDocumentTransaction = function() {
   this.state.isDirty = true;
   this.emit('document-change');
+};
+
+VisualEditor.prototype.createDocument = function() {
+  // HACK: this is a bit awkward. It happens that a new Document is already
+  // spawned during construction of the document itself.
+  // So we are using a 'dynamic inner' class to have access to this
+  // as document factory.
+  var DocumentClass = this._documentConstructor;
+  var doc = Object.create(DocumentClass.prototype);
+  DocumentClass.apply(doc, arguments);
+  this._notifyExtensions('afterDocumentCreated', doc);
+  return doc;
+};
+
+VisualEditor.prototype._createDocumentConstructor = function() {
+  var nodeFactory = this;
+  var DocumentWithExtensions = function() {
+    ve.dm.Document.apply(this, arguments);
+  };
+  DocumentWithExtensions.prototype = Object.create(ve.dm.Document.prototype);
+  DocumentWithExtensions.prototype.createDocument = function() {
+    return nodeFactory.createDocument.apply(nodeFactory, arguments);
+  };
+  return DocumentWithExtensions;
 };
 
 export default VisualEditor;
