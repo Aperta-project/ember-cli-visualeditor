@@ -58,3 +58,7 @@
   background-color: #666;
   color: white;
 }
+
+.ve-tool.active.enabled:hover {
+  background-color: #999;
+}
