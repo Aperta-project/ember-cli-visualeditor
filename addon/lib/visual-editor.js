@@ -284,6 +284,17 @@ VisualEditor.prototype.getConverter = function() {
   return this.converter;
 };
 
+// Wrap any section where you trigger low-level changes to the document (document transactions)
+// with two breakpoints(). This way all atomic low-level transaction get stacked into
+// one undoable complex operation.
+VisualEditor.prototype.breakpoint = function() {
+  this.getSurface().breakpoint();
+};
+
+VisualEditor.prototype.removeSelection = function() {
+  this.getSurface().setNullSelection()
+};
+
 VisualEditor.prototype._notifyExtensions = function(method) {
   var args = Array.prototype.slice.call(arguments, 1);
   this.registry.extensions.forEach(function(extension) {
