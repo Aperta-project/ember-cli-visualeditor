@@ -231,6 +231,10 @@ VisualEditor.prototype.getSurfaceView = function() {
   return this.surfaceUI;
 };
 
+VisualEditor.prototype.getState = function() {
+  return this.state;
+};
+
 VisualEditor.prototype.appendTo = function($parent) {
   $parent.append(this.$element);
   this.isAttached = true;
@@ -267,6 +271,17 @@ VisualEditor.prototype.freeze = function() {
 VisualEditor.prototype.unfreeze = function() {
   var surfaceUI = this.getSurfaceView();
   surfaceUI.getView().activate();
+};
+
+VisualEditor.prototype.getConverter = function() {
+  // HACK: make sure this converter produces compatible data
+  // Note: annotated text created by a converter is coupled to a certain
+  // store instance where the annotation types get registered during conversion
+  if (this.document) {
+    this.converter.store = this.document.store;
+    this.converter.internalList = this.document.internalList;
+  }
+  return this.converter;
 };
 
 VisualEditor.prototype._notifyExtensions = function(method) {
@@ -307,17 +322,6 @@ VisualEditor.prototype._disposeView = function() {
   _uiSurfaceDestroy.call(this.surfaceUI);
   this.surfaceUI = null;
   this.$element.empty();
-};
-
-VisualEditor.prototype.getConverter = function() {
-  // HACK: make sure this converter produces compatible data
-  // Note: annotated text created by a converter is coupled to a certain
-  // store instance where the annotation types get registered during conversion
-  if (this.document) {
-    this.converter.store = this.document.store;
-    this.converter.internalList = this.document.internalList;
-  }
-  return this.converter;
 };
 
 VisualEditor.prototype._onSelectionChange = function() {
