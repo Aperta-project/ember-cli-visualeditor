@@ -4059,6 +4059,7 @@ ve.ce.Surface.prototype.initialize = function () {
  */
 ve.ce.Surface.prototype.enable = function () {
 	this.documentView.getDocumentNode().enable();
+	this.emit('enable');
 };
 
 /**
@@ -4068,6 +4069,7 @@ ve.ce.Surface.prototype.enable = function () {
  */
 ve.ce.Surface.prototype.disable = function () {
 	this.documentView.getDocumentNode().disable();
+	this.emit('disable');
 };
 
 /**
