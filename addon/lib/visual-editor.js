@@ -258,6 +258,26 @@ VisualEditor.prototype.disable = function() {
   surfaceUI.disable();
 };
 
+VisualEditor.prototype.isEnabled = function() {
+  var surfaceUI = this.getSurfaceView();
+  return surfaceUI.isEnabled();
+};
+
+VisualEditor.prototype.enableModel = function() {
+  var surface = this.getSurface();
+  surface.enable();
+};
+
+VisualEditor.prototype.disableModel = function() {
+  var surface = this.getSurface();
+  surface.disable();
+};
+
+VisualEditor.prototype.isModelEnabled = function() {
+  var surface = this.getSurface();
+  return surface.enabled;
+};
+
 VisualEditor.prototype.focus = function() {
   var surfaceUI = this.getSurfaceView();
   surfaceUI.getView().focus();
