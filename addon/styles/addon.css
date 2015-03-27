@@ -62,3 +62,7 @@
 .ve-tool.active.enabled:hover {
   background-color: #999;
 }
+
+.ve-ui-context .oo-ui-window-head .oo-ui-processDialog-location {
+  height: 100%;
+}
