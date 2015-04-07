@@ -222,7 +222,8 @@ VisualEditor.prototype.getSurfaceView = function() {
   if (!this.surfaceUI) {
     var surface = this.getSurface();
     this.surfaceUI = new ve.ui.DesktopSurface(surface, {
-      $element: this.$element
+      $element: this.$element,
+      importRules: ve.init.Target.static.importRules
     });
     this.$element.append($('<input type="file" id="ve-file-upload">'));
     this._notifyExtensions('afterSurfaceUICreated', this.surface);
