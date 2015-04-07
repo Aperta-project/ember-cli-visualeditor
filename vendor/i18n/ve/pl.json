@@ -14,7 +14,8 @@
 			"Woytecr",
 			"Wpedzich",
 			"Matik7",
-			"Rezonansowy"
+			"Rezonansowy",
+			"Openbk"
 		]
 	},
 	"visualeditor": "VisualEditor",
@@ -22,6 +23,7 @@
 	"visualeditor-align-widget-center": "Wyśrodkowane",
 	"visualeditor-align-widget-left": "Do lewej",
 	"visualeditor-align-widget-right": "Do prawej",
+	"visualeditor-alignablecontextitem-title": "Wyrównanie",
 	"visualeditor-annotationbutton-bold-tooltip": "Pogrubienie",
 	"visualeditor-annotationbutton-code-tooltip": "Kod programu",
 	"visualeditor-annotationbutton-italic-tooltip": "Kursywa",
@@ -112,7 +114,7 @@
 	"visualeditor-table-delete-col": "Usuń kolumnę",
 	"visualeditor-table-delete-row": "Usuń wiersz",
 	"visualeditor-table-delete-table": "Usuń tabelę",
-	"visualeditor-table-format-data": "Zawartości komórki",
+	"visualeditor-table-format-data": "Komórka zwykła",
 	"visualeditor-table-format-header": "Komórka nagłówka",
 	"visualeditor-table-insert-col-after": "Wstaw po",
 	"visualeditor-table-insert-col-before": "Wstaw przed",
@@ -120,6 +122,7 @@
 	"visualeditor-table-insert-row-before": "Wstaw powyżej",
 	"visualeditor-table-insert-table": "Tabela",
 	"visualeditor-table-merge-cells": "Scal komórki",
+	"visualeditor-tablecell-tooltip": "Kliknij dwukrotnie, aby edytować komórkę tabeli",
 	"visualeditor-toolbar-format-tooltip": "Formatowanie akapitu",
 	"visualeditor-toolbar-history": "Historia",
 	"visualeditor-toolbar-insert": "Wstaw",

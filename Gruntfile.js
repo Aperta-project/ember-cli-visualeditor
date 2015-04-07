@@ -69,6 +69,7 @@ module.exports = function ( grunt ) {
         src:  []
               .concat(getVeFileList('jquery.i18n'))
               .concat(getVeFileList('jquery.uls.data'))
+              .concat(getVeFileList('jquery.client'))
               .concat(getVeFileList('oojs'))
               .concat(getVeFileList('oojs-ui'))
               .concat(getVeFileList('oojs-ui-apex'))
