@@ -232,6 +232,10 @@ VisualEditor.prototype.getSurfaceView = function() {
   return this.surfaceUI;
 };
 
+VisualEditor.prototype.getDocumentNode = function() {
+  return this.getSurfaceView().getView().getDocument().getDocumentNode();
+};
+
 VisualEditor.prototype.getState = function() {
   return this.state;
 };
