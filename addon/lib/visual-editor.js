@@ -76,7 +76,7 @@ VisualEditor.prototype.disposeView = function() {
 };
 
 VisualEditor.prototype.newDocumentFromHtml = function(html) {
-  var htmlDoc = window.document.implementation.createHTMLDocument();
+  var htmlDoc = window.document.implementation.createHTMLDocument(window.document);
   var body = htmlDoc.body || htmlDoc.getElementsByTagName('body')[0];
   try {
     body.innerHTML = html;
