@@ -10,11 +10,8 @@ var _scripts = [
 ];
 
 function initPlatform(assetsRoot) {
-  // HACK: this produces a failing request with fallback to 'en'
-  // so we use 'en' right away
-  if ($.i18n().locale.toLowerCase() === "en-us") {
-    $.i18n().locale = "en";
-  }
+  // HACK: For now we only serve assets for the British locale
+  $.i18n().locale = "en";
   // TODO: make this configurable
   ve.init.platform.addMessagePath(assetsRoot + 'i18n/oojs-ui/');
   ve.init.platform.addMessagePath(assetsRoot + 'i18n/ve/');
