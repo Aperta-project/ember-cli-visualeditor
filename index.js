@@ -6,28 +6,6 @@ var merge = require('merge');
 module.exports = {
   name: 'ember-cli-visualeditor',
 
-  treeForPublic: function() {
-    return this.mergeTrees([
-      this.pickFiles('node_modules/' + this.name + '/vendor/i18n/', {
-        srcDir: '/',
-        destDir: 'assets/' + this.name + '/i18n/'
-      }),
-      this.pickFiles('node_modules/' + this.name + '/vendor/styles/', {
-        srcDir: '/',
-        destDir: 'assets/' + this.name + '/styles/'
-      }),
-      this.pickFiles('node_modules/' + this.name + '/vendor/', {
-        srcDir: '/',
-        destDir: 'assets/' + this.name + '/',
-        files: [
-          'visualEditor-base.js',
-          'visualEditor-model.js',
-          'visualEditor-ui.js'
-        ]
-      })
-    ]);
-  },
-
   getOptions: function(app) {
     // Precedence:
     // 1. app/config/environment.js

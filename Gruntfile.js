@@ -29,7 +29,7 @@ module.exports = function ( grunt ) {
 
   grunt.initConfig({
     clean: {
-      vendor: [ 'vendor/*' ]
+      public: [ 'public/*' ]
     },
     subgrunt: {
       visualeditor: {
@@ -43,29 +43,29 @@ module.exports = function ( grunt ) {
         expand: true,
         cwd: 'node_modules/visualeditor/i18n/',
         src: '*',
-        dest: 'vendor/i18n/ve/'
+        dest: 'public/i18n/ve/'
       },
       "oojs-i18n": {
         expand: true,
         cwd: 'node_modules/visualeditor/lib/oojs-ui/i18n/',
         src: '*',
-        dest: 'vendor/i18n/oojs-ui/'
+        dest: 'public/i18n/oojs-ui/'
       },
       "oojs": {
         files: [
-          { src: 'node_modules/visualeditor/lib/oojs/oojs.jquery.js', dest: 'vendor/lib/oojs.js' }
+          { src: 'node_modules/visualeditor/lib/oojs/oojs.jquery.js', dest: 'public/lib/oojs.js' }
         ]
       },
       "oojs-ui": {
         files: [
-          { expand: true, cwd: 'node_modules/visualeditor/lib/oojs-ui/', src: 'themes/apex/**', dest: 'vendor/styles/' },
+          { expand: true, cwd: 'node_modules/visualeditor/lib/oojs-ui/', src: 'themes/apex/**', dest: 'public/styles/' },
           { src: 'node_modules/visualeditor/lib/oojs-ui/oojs-ui-apex.vector.css', dest: 'tmp/oojs-ui.css' }
         ]
       }
     },
     concat: {
       "visualEditor-base": {
-        dest: 'vendor/visualEditor-base.js',
+        dest: 'public/visualEditor-base.js',
         src:  []
               .concat(getVeFileList('jquery.i18n'))
               .concat(getVeFileList('jquery.uls.data'))
@@ -80,18 +80,18 @@ module.exports = function ( grunt ) {
               .concat(getVeFileList('visualEditor.standalone.build'))
       },
       "visualEditor-model": {
-        dest: 'vendor/visualEditor-model.js',
+        dest: 'public/visualEditor-model.js',
         src: getVeFileList('visualEditor.core.build', /^src\/dm/)
       },
       "visualEditor-ui": {
-        dest: 'vendor/visualEditor-ui.js',
+        dest: 'public/visualEditor-ui.js',
         src: []
               .concat(getVeFileList('visualEditor.core.build', /^src\/ce/))
               .concat(getVeFileList('visualEditor.core.build', /^src\/ui/))
               .concat(getVeFileList('visualEditor.desktop.build'))
       },
       "one-css-file": {
-        dest: 'vendor/styles/visualEditor.css',
+        dest: 'public/styles/visualEditor.css',
         src: [
           'tmp/oojs-ui.css',
           'node_modules/visualeditor/dist/visualEditor.css',

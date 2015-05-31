@@ -1,7 +1,6 @@
-/* globals ve: true, $: true */
+/* globals ve, $*/
 
 import LazyLoader from 'ember-cli-lazyloader/lib/lazy-loader';
-import veMock from '../lib/ve-mock';
 
 var _scripts = [
   'visualEditor-base.js',
@@ -18,15 +17,10 @@ function initPlatform(assetsRoot) {
   return ve.init.platform.initialize();
 }
 
-var initializeVisualEditor = function(env) {
+var loadVeAssets = function(env) {
   // TODO: is there a way to get the addon name programmatically
   // so that we do not have 'ember-cli-visualeditor' as literal here
   var options = env["ember-cli-visualeditor"] || {};
-
-  if (options.useMock) {
-    window.ve = veMock;
-    return;
-  }
 
   var assetsRoot = options.assetsRoot || "";
   // append a trailing "/" to the assets route
@@ -52,4 +46,4 @@ var initializeVisualEditor = function(env) {
   return promise;
 };
 
-export default initializeVisualEditor;
+export default loadVeAssets;
