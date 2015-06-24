@@ -3,18 +3,19 @@
 import LazyLoader from 'ember-cli-lazyloader/lib/lazy-loader';
 
 var _scripts = [
-  'visualEditor-base.js',
-  'visualEditor-model.js',
-  'visualEditor-ui.js'
+  'visualEditor-base.min.js',
+  'visualEditor-model.min.js',
+  'visualEditor-ui.min.js'
 ];
 
 function initPlatform(assetsRoot) {
   // HACK: For now we only serve assets for the British locale
   $.i18n().locale = "en";
-  // TODO: make this configurable
-  ve.init.platform.addMessagePath(assetsRoot + 'i18n/oojs-ui/');
-  ve.init.platform.addMessagePath(assetsRoot + 'i18n/ve/');
-  return ve.init.platform.initialize();
+  var messagePaths = [
+    assetsRoot + 'i18n/oojs-ui/',
+    assetsRoot + 'i18n/ve/'
+  ];
+  return new ve.init.sa.Platform(messagePaths).initialize();
 }
 
 var loadVeAssets = function(env) {
