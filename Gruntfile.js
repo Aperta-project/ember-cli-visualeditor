@@ -94,12 +94,26 @@ module.exports = function ( grunt ) {
         dest: 'public/styles/visualEditor.css',
         src: [
           'tmp/oojs-ui.css',
-          'node_modules/visualeditor/dist/visualEditor.css',
+          'node_modules/visualeditor/dist/visualEditor-apex.css',
         ]
+      }
+    },
+    uglify: {
+      "visualEditor-base": {
+        src: 'public/visualEditor-base.js',
+        dest: 'public/visualEditor-base.min.js',
+      },
+      "visualEditor-model": {
+        src: 'public/visualEditor-model.js',
+        dest: 'public/visualEditor-model.min.js',
+      },
+      "visualEditor-ui": {
+        src: 'public/visualEditor-ui.js',
+        dest: 'public/visualEditor-ui.min.js',
       }
     }
   });
 
-  grunt.registerTask( 'build', [ 'clean', 'subgrunt', 'copy', 'concat' ] );
+  grunt.registerTask( 'build', [ 'clean', 'subgrunt', 'copy', 'concat', 'uglify' ] );
   grunt.registerTask( 'default', [ 'build' ] );
 };
