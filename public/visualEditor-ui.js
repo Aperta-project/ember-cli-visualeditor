@@ -63,6 +63,9 @@ ve.ce.getDomText = function ( element ) {
 				// contain a single nbsp/FEFF character in the DOM, so make sure
 				// that character isn't counted
 				return '';
+			} else if ( $element.hasClass( 've-ce-cursorHolder' ) ) {
+				// Cursor holders do not exist in the model
+				return '';
 			} else if ( $element.hasClass( 've-ce-leafNode' ) ) {
 				// For leaf nodes, don't return the content, but return
 				// the right number of placeholder characters so the offsets match up.
@@ -111,14 +114,17 @@ ve.ce.getDomHash = function ( element ) {
 	if ( nodeType === Node.TEXT_NODE || nodeType === Node.CDATA_SECTION_NODE ) {
 		return '#';
 	} else if ( nodeType === Node.ELEMENT_NODE || nodeType === Node.DOCUMENT_NODE ) {
-		hash += '<' + nodeName + '>';
-		if ( !$( element ).hasClass( 've-ce-branchNode-blockSlug' ) ) {
+		if ( !(
+			$( element ).hasClass( 've-ce-branchNode-blockSlug' ) ||
+			$( element ).hasClass( 've-ce-cursorHolder' )
+		) ) {
+			hash += '<' + nodeName + '>';
 			// Traverse its children
 			for ( element = element.firstChild; element; element = element.nextSibling ) {
 				hash += ve.ce.getDomHash( element );
 			}
+			hash += '</' + nodeName + '>';
 		}
-		hash += '</' + nodeName + '>';
 		// Merge adjacent text node representations
 		hash = hash.replace( /##+/g, '#' );
 	}
@@ -238,7 +244,7 @@ ve.ce.getOffset = function ( domNode, domOffset ) {
 	} else {
 		maxOffset = domNode.data.length;
 	}
-	if ( domOffset < 0 || domOffset > maxOffset) {
+	if ( domOffset < 0 || domOffset > maxOffset ) {
 		throw new Error( 'domOffset is out of bounds' );
 	}
 
@@ -283,7 +289,10 @@ ve.ce.getOffset = function ( domNode, domOffset ) {
 		}
 	} else {
 		// Text inside of a block slug doesn't count
-		if ( !$( domNode.parentNode ).hasClass( 've-ce-branchNode-blockSlug' ) ) {
+		if ( !(
+			$( domNode.parentNode ).hasClass( 've-ce-branchNode-blockSlug' ) ||
+			$( domNode.parentNode ).hasClass( 've-ce-cursorHolder' )
+		) ) {
 			lengthSum += domOffset;
 		}
 		startNode = domNode;
@@ -304,7 +313,11 @@ ve.ce.getOffset = function ( domNode, domOffset ) {
 		}
 
 		// Text inside of a block slug doesn't count
-		if ( node.nodeType === Node.TEXT_NODE && !$( node.parentNode ).hasClass( 've-ce-branchNode-blockSlug' ) ) {
+		if (
+			node.nodeType === Node.TEXT_NODE &&
+			!$( node.parentNode ).hasClass( 've-ce-branchNode-blockSlug' ) &&
+			!$( node.parentNode ).hasClass( 've-ce-cursorHolder' )
+		) {
 			lengthSum += node.data.length;
 		}
 		// else: non-text nodes that don't have a .data( 'view' ) don't exist in the DM
@@ -360,6 +373,48 @@ ve.ce.getOffsetOfSlug = function ( element ) {
 	} else {
 		throw new Error( 'Incorrect slug location' );
 	}
+};
+
+/**
+ * Test whether the DOM position lies straight after annotation boundaries
+ *
+ * "Straight after" means that in document order, there are annotation open/close tags
+ * immediately before the position, and there are none immediately after.
+ *
+ * This is important for cursors: the DM position is ambiguous with respect to annotation
+ * boundaries, and the browser does not fully distinguish this position from the preceding
+ * position immediately before the annotation boundaries (e.g. 'a|&lt;b&gt;c' and 'a&lt;b&gt;|c'),
+ * but the two positions behave differently for insertions (in this case, whether the text
+ * appears bolded or not).
+ *
+ * In Chromium, cursor focus normalizes to the earliest (in document order) of equivalent
+ * positions, at least in reasonably-styled non-BIDI text. But in Firefox, the user can
+ * cursor/click into either the earliest or the latest equivalent position: the cursor lands in
+ * the closest (in document order) to the click location (for mouse actions) or cursor start
+ * location (for cursoring).
+ *
+ * @param {Node} node Position node
+ * @param {number} offset Position offset
+ * @return {boolean} Whether this is the end-most of multiple cursor-equivalent positions
+ */
+ve.ce.isAfterAnnotationBoundaries = function ( node, offset ) {
+	var previousNode, nextNode;
+	if ( node.nodeType === Node.TEXT_NODE ) {
+		if ( offset > 0 ) {
+			return false;
+		}
+		offset = Array.prototype.indexOf.call( node.parentNode.childNodes, node );
+		node = node.parentNode;
+	}
+	if ( offset === 0 ) {
+		return ve.dm.modelRegistry.isAnnotation( node );
+	}
+	previousNode = node.childNodes[ offset - 1 ];
+	if ( !previousNode || !ve.dm.modelRegistry.isAnnotation( previousNode ) ) {
+		return false;
+	}
+	nextNode = node.childNodes[ offset ];
+	return !nextNode || !ve.dm.modelRegistry.isAnnotation( nextNode );
 };
 
 /**
@@ -717,9 +772,7 @@ ve.ce.nodeFactory = new ve.ce.NodeFactory();
  */
 ve.ce.Document = function VeCeDocument( model, surface ) {
 	// Parent constructor
-	ve.Document.call( this, new ve.ce.DocumentNode(
-		model.getDocumentNode(), surface, { $: surface.$ }
-	) );
+	ve.Document.call( this, new ve.ce.DocumentNode( model.getDocumentNode(), surface ) );
 
 	this.getDocumentNode().$element.prop( {
 		lang: model.getLang(),
@@ -749,16 +802,22 @@ ve.ce.Document.prototype.getSlugAtOffset = function ( offset ) {
 };
 
 /**
- * Get a DOM node and DOM element offset for a document offset.
+ * Calculate the DOM location corresponding to a DM offset
  *
- * @method
  * @param {number} offset Linear model offset
- * @returns {Object} Object containing a node and offset property where node is an HTML element and
- * offset is the byte position within the element
+ * @returns {Object} DOM location
+ * @returns.node {Node} location node
+ * @returns.offset {number} location offset within the node
  * @throws {Error} Offset could not be translated to a DOM element and offset
  */
 ve.ce.Document.prototype.getNodeAndOffset = function ( offset ) {
 	var nao, currentNode, nextNode, previousNode;
+
+	// Get the un-unicorn-adjusted result. If it is:
+	// - just before pre unicorn, then return the cursor location just after it
+	// - just after the post unicorn, then return the cursor location just before it
+	// - anywhere else, then return the result unmodified
+
 	function getNext( node ) {
 		while ( node.nextSibling === null ) {
 			node = node.parentNode;
@@ -840,20 +899,39 @@ ve.ce.Document.prototype.getNodeAndOffset = function ( offset ) {
 };
 
 /**
+ * Calculate the DOM location corresponding to a DM offset (without unicorn adjustments)
+ *
  * @private
+ * @param {number} offset Linear model offset
+ * @returns {Object} location
+ * @returns.node {Node} location node
+ * @returns.offset {number} location offset within the node
  */
 ve.ce.Document.prototype.getNodeAndOffsetUnadjustedForUnicorn = function ( offset ) {
 	var node, startOffset, current, stack, item, $item, length, model,
 		countedNodes = [],
 		slug = this.getSlugAtOffset( offset );
-	// Check for a slug that is empty (apart from a chimera)
-	if ( slug && ( !slug.firstChild || $( slug.firstChild ).hasClass( 've-ce-chimera' ) ) ) {
+
+	// If we're a block slug, or an empty inline slug, return its location
+	// Start at the current branch node; get its start offset
+	// Walk the tree, summing offsets until the sum reaches the desired offset value
+	// - If a whole branch is entirely before the offset, then don't descend into it
+	// - If the desired offset is in a text node, return that node and the correct remainder offset
+	// - If the desired offset is between an empty unicorn pair, return inter-unicorn location
+	// - Assume no other outcome is possible (because we would be inside a slug)
+
+	// Check for a slug that is empty (apart from a chimera) or a block slug
+	if ( slug && (
+		!slug.firstChild ||
+		$( slug ).hasClass( 've-ce-branchNode-blockSlug' ) ||
+		$( slug.firstChild ).hasClass( 've-ce-chimera' )
+	) ) {
 		return { node: slug, offset: 0 };
 	}
 	node = this.getBranchNodeFromOffset( offset );
 	startOffset = node.getOffset() + ( ( node.isWrapped() ) ? 1 : 0 );
-	current = [node.$element.contents(), 0];
-	stack = [current];
+	current = [ node.$element.contents(), 0 ];
+	stack = [ current ];
 	while ( stack.length > 0 ) {
 		if ( current[1] >= current[0].length ) {
 			stack.pop();
@@ -898,7 +976,7 @@ ve.ce.Document.prototype.getNodeAndOffsetUnadjustedForUnicorn = function ( offse
 					length = model.getOuterLength();
 					countedNodes.push( model );
 					if ( offset >= startOffset && offset < startOffset + length ) {
-						stack.push( [$item.contents(), 0] );
+						stack.push( [ $item.contents(), 0 ] );
 						current[1]++;
 						current = stack[stack.length - 1];
 						continue;
@@ -906,9 +984,19 @@ ve.ce.Document.prototype.getNodeAndOffsetUnadjustedForUnicorn = function ( offse
 						startOffset += length;
 					}
 				}
+			} else if ( $item.hasClass( 've-ce-branchNode-blockSlug' ) ) {
+				// This is unusual: generated wrappers usually mean that the return
+				// value of getBranchNodeFromOffset will not have block slugs or
+				// block slug ancestors before the offset position. However, there
+				// are some counterexamples; e.g., if the DM offset is just before
+				// the internalList then the start node will be the document node.
+				//
+				// Skip contents without incrementing offset.
+				current[1]++;
+				continue;
 			} else {
-				// Maybe ve-ce-branchNode-slug
-				stack.push( [$item.contents(), 0] );
+				// Any other type of node (e.g. b, inline slug, img): descend
+				stack.push( [ $item.contents(), 0 ] );
 				current[1]++;
 				current = stack[stack.length - 1];
 				continue;
@@ -1502,7 +1590,7 @@ ve.ce.BranchNode = function VeCeBranchNode( model, config ) {
 	this.model.connect( this, { splice: 'onSplice' } );
 
 	// Initialization
-	this.onSplice.apply( this, [0, 0].concat( model.getChildren() ) );
+	this.onSplice.apply( this, [ 0, 0 ].concat( model.getChildren() ) );
 };
 
 /* Inheritance */
@@ -1648,7 +1736,7 @@ ve.ce.BranchNode.prototype.onSplice = function ( index ) {
 	// Convert models to views and attach them to this node
 	if ( args.length >= 3 ) {
 		for ( i = 2, length = args.length; i < length; i++ ) {
-			args[i] = ve.ce.nodeFactory.create( args[i].getType(), args[i], { $: this.$ } );
+			args[i] = ve.ce.nodeFactory.create( args[i].getType(), args[i] );
 			args[i].model.connect( this, { update: 'onModelUpdate' } );
 		}
 	}
@@ -1914,7 +2002,7 @@ ve.ce.ContentBranchNode.prototype.onClick = function ( e ) {
 };
 
 /**
- * Handle splice events.
+ * Handle childUpdate events.
  *
  * Rendering is only done once per transaction. If a paragraph has multiple nodes in it then it's
  * possible to receive multiple `childUpdate` events for a single transaction such as annotating
@@ -1922,7 +2010,6 @@ ve.ce.ContentBranchNode.prototype.onClick = function ( e ) {
  * history.
  *
  * This is used to automatically render contents.
- * @see ve.ce.BranchNode#onSplice
  *
  * @method
  */
@@ -1935,12 +2022,7 @@ ve.ce.ContentBranchNode.prototype.onChildUpdate = function ( transaction ) {
 };
 
 /**
- * Handle splice events.
- *
- * This is used to automatically render contents.
- * @see ve.ce.BranchNode#onSplice
- *
- * @method
+ * @inheritdoc
  */
 ve.ce.ContentBranchNode.prototype.onSplice = function ( index, howmany ) {
 	// Parent method
@@ -2005,9 +2087,7 @@ ve.ce.ContentBranchNode.prototype.getRenderedContents = function () {
 			buffer = '';
 		}
 		// Create a new DOM node and descend into it
-		ann = ve.ce.annotationFactory.create(
-			annotation.getType(), annotation, node, { $: node.$ }
-		).$element[0];
+		ann = ve.ce.annotationFactory.create( annotation.getType(), annotation, node ).$element[0];
 		current.appendChild( ann );
 		current = ann;
 	}
@@ -2228,7 +2308,7 @@ ve.ce.ContentBranchNode.prototype.renderContents = function () {
 	this.setupInlineSlugs();
 
 	// Highlight the node in debug mode
-	if ( ve.debug ) {
+	if ( ve.debug && !ve.test ) {
 		this.$element.css( 'backgroundColor', '#eee' );
 		setTimeout( function () {
 			node.$element.css( 'backgroundColor', '' );
@@ -2360,6 +2440,12 @@ ve.ce.ClassAttributeNode = function VeCeClassAttributeNode( $classedElement, con
 	this.$classedElement = $classedElement || this.$element;
 	this.currentAttributeClasses = '';
 
+	this.$classedElement
+		// Clear all but unrecognized classes. Attributes classes will be applied
+		// correctly on setup.
+		.removeClass( this.getModel().getAttribute( 'originalClasses' ) )
+		.addClass( this.getModel().getAttribute( 'unrecognizedClasses' ) );
+
 	// Events
 	this.connect( this, { setup: 'updateAttributeClasses' } );
 	this.model.connect( this, { attributeChange: 'updateAttributeClasses' } );
@@ -2457,7 +2543,7 @@ ve.ce.FocusableNode = function VeCeFocusableNode( $focusable, config ) {
 	this.focused = false;
 	this.highlighted = false;
 	this.isFocusableSetup = false;
-	this.$highlights = this.$( '<div>' ).addClass( 've-ce-focusableNode-highlights' );
+	this.$highlights = $( '<div>' ).addClass( 've-ce-focusableNode-highlights' );
 	this.$focusable = $focusable || this.$element;
 	this.focusableSurface = null;
 	this.rects = null;
@@ -2505,16 +2591,17 @@ OO.initClass( ve.ce.FocusableNode );
  * @returns {jQuery} A highlight element
  */
 ve.ce.FocusableNode.prototype.createHighlight = function () {
-	return this.$( '<div>' )
+	return $( '<div>' )
 		.addClass( 've-ce-focusableNode-highlight' )
 		.prop( {
 			title: this.constructor.static.getDescription( this.model ),
 			draggable: false
 		} )
-		.append( this.$( '<img>' )
+		.append( $( '<img>' )
 			.addClass( 've-ce-focusableNode-highlight-relocatable-marker' )
 			.attr( 'src', 'data:image/gif;base64,R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==' )
 			.on( {
+				mousedown: this.onFocusableMouseDown.bind( this ),
 				dragstart: this.onFocusableDragStart.bind( this ),
 				dragend: this.onFocusableDragEnd.bind( this )
 			} )
@@ -2592,6 +2679,7 @@ ve.ce.FocusableNode.prototype.onFocusableTeardown = function () {
  */
 ve.ce.FocusableNode.prototype.onFocusableMouseDown = function ( e ) {
 	var range,
+		node = this,
 		surfaceModel = this.focusableSurface.getModel(),
 		selection = surfaceModel.getSelection(),
 		nodeRange = this.model.getOuterRange();
@@ -2599,6 +2687,20 @@ ve.ce.FocusableNode.prototype.onFocusableMouseDown = function ( e ) {
 	if ( !this.isInContentEditable() ) {
 		return;
 	}
+	if ( e.which === 3 ) {
+		// Hide images, and select spans so context menu shows 'copy', but not 'copy image'
+		this.$highlights.addClass( 've-ce-focusableNode-highlights-contextOpen' );
+		// Make ce=true so we get cut/paste options in context menu
+		this.$highlights.prop( 'contentEditable', 'true' );
+		ve.selectElement( this.$highlights[0] );
+		setTimeout( function () {
+			// Undo everything as soon as the context menu is show
+			node.$highlights.removeClass( 've-ce-focusableNode-highlights-contextOpen' );
+			node.$highlights.prop( 'contentEditable', 'true' );
+			node.focusableSurface.preparePasteTargetForCopy();
+		} );
+	}
+
 	// Wait for native selection to change before correcting
 	setTimeout( function () {
 		range = selection instanceof ve.dm.LinearSelection && selection.getRange();
@@ -2690,7 +2792,7 @@ ve.ce.FocusableNode.prototype.onFocusableMouseEnter = function () {
  * @param {jQuery.Event} e Mouse move event
  */
 ve.ce.FocusableNode.prototype.onSurfaceMouseMove = function ( e ) {
-	var $target = this.$( e.target );
+	var $target = $( e.target );
 	if (
 		!$target.hasClass( 've-ce-focusableNode-highlight' ) &&
 		$target.closest( '.ve-ce-focusableNode' ).length === 0
@@ -2970,7 +3072,9 @@ ve.ce.FocusableNode.prototype.positionHighlights = function () {
 	var i, l;
 
 	this.calculateHighlights();
-	this.$highlights.empty();
+	this.$highlights.empty()
+		// Append something selectable for right-click copy
+		.append( $( '<span>' ).addClass( 've-ce-focusableNode-highlight-selectable' ).html( '&nbsp;' ) );
 
 	for ( i = 0, l = this.rects.length; i < l; i++ ) {
 		this.$highlights.append(
@@ -3049,7 +3153,8 @@ ve.ce.ResizableNode = function VeCeResizableNode( $resizable, config ) {
 	// Properties
 	this.$resizable = $resizable || this.$element;
 	this.resizing = false;
-	this.$resizeHandles = this.$( '<div>' );
+	this.enabled = !!this.$resizable.length;
+	this.$resizeHandles = $( '<div>' );
 	this.snapToGrid = config.snapToGrid !== undefined ? config.snapToGrid : 10;
 	this.outline = !!config.outline;
 	this.showSizeLabel = config.showSizeLabel !== false;
@@ -3057,11 +3162,14 @@ ve.ce.ResizableNode = function VeCeResizableNode( $resizable, config ) {
 	// Only gets enabled when the original dimensions are provided
 	this.canShowScaleLabel = false;
 	if ( this.showSizeLabel || this.showScaleLabel ) {
-		this.$sizeText = this.$( '<span>' ).addClass( 've-ce-resizableNode-sizeText' );
-		this.$sizeLabel = this.$( '<div>' ).addClass( 've-ce-resizableNode-sizeLabel' ).append( this.$sizeText );
+		this.$sizeText = $( '<span>' ).addClass( 've-ce-resizableNode-sizeText' );
+		this.$sizeLabel = $( '<div>' ).addClass( 've-ce-resizableNode-sizeLabel' ).append( this.$sizeText );
 	}
 	this.resizableOffset = null;
 	this.resizableSurface = null;
+	if ( !this.enabled ) {
+		return;
+	}
 
 	// Events
 	this.connect( this, {
@@ -3081,16 +3189,16 @@ ve.ce.ResizableNode = function VeCeResizableNode( $resizable, config ) {
 	// Initialization
 	this.$resizeHandles
 		.addClass( 've-ce-resizableNode-handles' )
-		.append( this.$( '<div>' )
+		.append( $( '<div>' )
 			.addClass( 've-ce-resizableNode-nwHandle' )
 			.data( 'handle', 'nw' ) )
-		.append( this.$( '<div>' )
+		.append( $( '<div>' )
 			.addClass( 've-ce-resizableNode-neHandle' )
 			.data( 'handle', 'ne' ) )
-		.append( this.$( '<div>' )
+		.append( $( '<div>' )
 			.addClass( 've-ce-resizableNode-seHandle' )
 			.data( 'handle', 'se' ) )
-		.append( this.$( '<div>' )
+		.append( $( '<div>' )
 			.addClass( 've-ce-resizableNode-swHandle' )
 			.data( 'handle', 'sw' ) );
 };
@@ -3132,6 +3240,10 @@ ve.ce.ResizableNode.prototype.getResizableOffset = function () {
 
 /** */
 ve.ce.ResizableNode.prototype.setOriginalDimensions = function ( dimensions ) {
+	if ( !this.enabled ) {
+		return;
+	}
+
 	var scalable = this.model.getScalable();
 
 	scalable.setOriginalDimensions( dimensions );
@@ -3146,7 +3258,12 @@ ve.ce.ResizableNode.prototype.setOriginalDimensions = function ( dimensions ) {
  * Hide the size label
  */
 ve.ce.ResizableNode.prototype.hideSizeLabel = function () {
+	if ( !this.enabled ) {
+		return;
+	}
+
 	var node = this;
+
 	// Defer the removal of this class otherwise other DOM changes may cause
 	// the opacity transition to not play out smoothly
 	setTimeout( function () {
@@ -3162,6 +3279,9 @@ ve.ce.ResizableNode.prototype.hideSizeLabel = function () {
  * Update the contents and position of the size label
  */
 ve.ce.ResizableNode.prototype.updateSizeLabel = function () {
+	if ( !this.enabled ) {
+		return;
+	}
 	if ( !this.showSizeLabel && !this.canShowScaleLabel ) {
 		return;
 	}
@@ -3192,13 +3312,13 @@ ve.ce.ResizableNode.prototype.updateSizeLabel = function () {
 		} );
 	this.$sizeText.empty();
 	if ( this.showSizeLabel ) {
-		this.$sizeText.append( this.$( '<span>' )
+		this.$sizeText.append( $( '<span>' )
 			.addClass( 've-ce-resizableNode-sizeText-size' )
 			.text( Math.round( dimensions.width ) + ' × ' + Math.round( dimensions.height ) )
 		);
 	}
 	if ( this.canShowScaleLabel ) {
-		this.$sizeText.append( this.$( '<span>' )
+		this.$sizeText.append( $( '<span>' )
 			.addClass( 've-ce-resizableNode-sizeText-scale' )
 			.text( Math.round( 100 * scalable.getCurrentScale() ) + '%' )
 		);
@@ -3212,6 +3332,10 @@ ve.ce.ResizableNode.prototype.updateSizeLabel = function () {
  * @param {string[]} [handles] List of handles to show: 'nw', 'ne', 'sw', 'se'. Show all if undefined.
  */
 ve.ce.ResizableNode.prototype.showHandles = function ( handles ) {
+	if ( !this.enabled ) {
+		return;
+	}
+
 	var i, len,
 		add = [],
 		remove = [],
@@ -3298,13 +3422,13 @@ ve.ce.ResizableNode.prototype.onResizableBlur = function () {
 ve.ce.ResizableNode.prototype.onResizableAlign = function ( align ) {
 	switch ( align ) {
 		case 'right':
-			this.showHandles( ['sw'] );
+			this.showHandles( [ 'sw' ] );
 			break;
 		case 'left':
-			this.showHandles( ['se'] );
+			this.showHandles( [ 'se' ] );
 			break;
 		case 'center':
-			this.showHandles( ['sw', 'se'] );
+			this.showHandles( [ 'sw', 'se' ] );
 			break;
 		default:
 			this.showHandles();
@@ -3417,7 +3541,7 @@ ve.ce.ResizableNode.prototype.onResizeHandlesCornerMouseDown = function ( e ) {
 		height: this.resizeInfo.height
 	} );
 	this.updateSizeLabel();
-	this.$( this.getElementDocument() ).on( {
+	$( this.getElementDocument() ).on( {
 		'mousemove.ve-ce-resizableNode': this.onDocumentMouseMove.bind( this ),
 		'mouseup.ve-ce-resizableNode': this.onDocumentMouseUp.bind( this )
 	} );
@@ -3432,6 +3556,10 @@ ve.ce.ResizableNode.prototype.onResizeHandlesCornerMouseDown = function ( e ) {
  * @method
  */
 ve.ce.ResizableNode.prototype.setResizableHandlesSizeAndPosition = function () {
+	if ( !this.enabled ) {
+		return;
+	}
+
 	var width = this.$resizable.width(),
 		height = this.$resizable.height();
 
@@ -3464,6 +3592,10 @@ ve.ce.ResizableNode.prototype.setResizableHandlesSizeAndPosition = function () {
  * @method
  */
 ve.ce.ResizableNode.prototype.setResizableHandlesPosition = function () {
+	if ( !this.enabled ) {
+		return;
+	}
+
 	var offset = this.getResizableOffset();
 
 	this.$resizeHandles.css( {
@@ -3557,7 +3689,7 @@ ve.ce.ResizableNode.prototype.onDocumentMouseUp = function () {
 		selection = surfaceModel.getSelection();
 
 	this.$resizeHandles.removeClass( 've-ce-resizableNode-handles-resizing' );
-	this.$( this.getElementDocument() ).off( '.ve-ce-resizableNode' );
+	$( this.getElementDocument() ).off( '.ve-ce-resizableNode' );
 	this.resizing = false;
 	this.root.getSurface().resizing = false;
 	this.hideSizeLabel();
@@ -3587,6 +3719,7 @@ ve.ce.ResizableNode.prototype.onDocumentMouseUp = function () {
  */
 ve.ce.ResizableNode.prototype.getAttributeChanges = function ( width, height ) {
 	var attrChanges = {};
+
 	if ( this.model.getAttribute( 'width' ) !== width ) {
 		attrChanges.width = width;
 	}
@@ -3629,9 +3762,8 @@ ve.ce.Surface = function VeCeSurface( model, ui, options ) {
 	this.model = model;
 	this.documentView = new ve.ce.Document( model.getDocument(), this );
 	this.surfaceObserver = new ve.ce.SurfaceObserver( this );
-	this.selectionTimeout = null;
-	this.$window = this.$( this.getElementWindow() );
-	this.$document = this.$( this.getElementDocument() );
+	this.$window = $( this.getElementWindow() );
+	this.$document = $( this.getElementDocument() );
 	this.$documentNode = this.getDocument().getDocumentNode().$element;
 	// Window.getSelection returns a live singleton representing the document's selection
 	this.nativeSelection = this.getElementWindow().getSelection();
@@ -3649,19 +3781,19 @@ ve.ce.Surface = function VeCeSurface( model, ui, options ) {
 	this.resizing = false;
 	this.focused = false;
 	this.deactivated = false;
-	this.$deactivatedSelection = this.$( '<div>' );
+	this.$deactivatedSelection = $( '<div>' );
 	this.activeTableNode = null;
 	this.contentBranchNodeChanged = false;
-	this.$highlightsFocused = this.$( '<div>' );
-	this.$highlightsBlurred = this.$( '<div>' );
-	this.$highlights = this.$( '<div>' ).append(
+	this.$highlightsFocused = $( '<div>' );
+	this.$highlightsBlurred = $( '<div>' );
+	this.$highlights = $( '<div>' ).append(
 		this.$highlightsFocused, this.$highlightsBlurred
 	);
-	this.$findResults = this.$( '<div>' );
-	this.$dropMarker = this.$( '<div>' ).addClass( 've-ce-surface-dropMarker oo-ui-element-hidden' );
+	this.$findResults = $( '<div>' );
+	this.$dropMarker = $( '<div>' ).addClass( 've-ce-surface-dropMarker oo-ui-element-hidden' );
 	this.$lastDropTarget = null;
 	this.lastDropPosition = null;
-	this.$pasteTarget = this.$( '<div>' );
+	this.$pasteTarget = $( '<div>' );
 	this.pasting = false;
 	this.copying = false;
 	this.pasteSpecial = false;
@@ -3670,15 +3802,18 @@ ve.ce.Surface = function VeCeSurface( model, ui, options ) {
 	// This is set on entering changeModel, then unset when leaving.
 	// It is used to test whether a reflected change event is emitted.
 	this.newModelSelection = null;
-	// These are set during cursor moves (but not text additions/deletions at the cursor)
-	this.cursorEvent = null;
-	// A frozen selection from the start of a cursor keydown. The nodes are live and mutable,
-	// and therefore the offsets may come to point to places that are misleadingly different
-	// from when the selection was saved.
-	this.misleadingCursorStartSelection = null;
+
+	// Snapshot updated at keyDown. See storeKeyDownState.
+	this.keyDownState = {
+		event: null,
+		selection: null,
+		focusIsAfterAnnotationBoundaries: null
+	};
+
 	this.cursorDirectionality = null;
 	this.unicorningNode = null;
 	this.setUnicorningRecursionGuard = false;
+	this.cursorHolders = null;
 
 	this.hasSelectionChangeEvents = 'onselectionchange' in this.getElementDocument();
 
@@ -3717,7 +3852,7 @@ ve.ce.Surface = function VeCeSurface( model, ui, options ) {
 	this.debounceFocusChange = ve.debounce( this.onFocusChange ).bind( this );
 	this.$document.on( 'mousedown', this.debounceFocusChange );
 
-	this.$pasteTarget.on( {
+	this.$pasteTarget.add( this.$highlights ).on( {
 		cut: this.onCut.bind( this ),
 		copy: this.onCopy.bind( this ),
 		paste: this.onPaste.bind( this )
@@ -3847,6 +3982,26 @@ ve.ce.Surface.static.unsafeAttributes = [
 	'style'
 ];
 
+/**
+ * Cursor holder template
+ *
+ * @static
+ * @property {HTMLElement}
+ */
+ve.ce.Surface.static.cursorHolderTemplate = (
+	$( '<div>' )
+		.addClass( 've-ce-cursorHolder' )
+		.prop( 'contentEditable', 'true' )
+		.append(
+			// The image does not need a src for Firefox in spite of cursoring
+			// bug https://bugzilla.mozilla.org/show_bug.cgi?id=989012 , because
+			// you can cursor to ce=false blocks in Firefox (see bug
+			// https://bugzilla.mozilla.org/show_bug.cgi?id=1155031 )
+			$( '<img>' ).addClass( 've-ce-cursorHolder-img' )
+		)
+		.get( 0 )
+);
+
 /* Static methods */
 
 /**
@@ -3932,7 +4087,7 @@ ve.ce.Surface.prototype.getOffsetFromCoords = function ( x, y ) {
 			textRange = document.body.createTextRange();
 			textRange.moveToPoint( x, y );
 			textRange.pasteHTML( '<span class="ve-ce-textRange-drop-marker">&nbsp;</span>' );
-			$marker = this.$( '.ve-ce-textRange-drop-marker' );
+			$marker = $( '.ve-ce-textRange-drop-marker' );
 			offset = ve.ce.getOffset( $marker.get( 0 ), 0 );
 			$marker.remove();
 		}
@@ -4232,7 +4387,8 @@ ve.ce.Surface.prototype.onFocusChange = function () {
 	hasFocus = OO.ui.contains(
 		[
 			this.$documentNode[0],
-			this.$pasteTarget[0]
+			this.$pasteTarget[0],
+			this.$highlights[0]
 		],
 		this.nativeSelection.anchorNode,
 		true
@@ -4312,7 +4468,7 @@ ve.ce.Surface.prototype.updateDeactivatedSelection = function () {
 	rects = this.getSelectionRects( selection );
 	if ( rects ) {
 		for ( i = 0, l = rects.length; i < l; i++ ) {
-			this.$deactivatedSelection.append( this.$( '<div>' ).css( {
+			this.$deactivatedSelection.append( $( '<div>' ).css( {
 				top: rects[i].top,
 				left: rects[i].left,
 				width: rects[i].width,
@@ -4839,7 +4995,7 @@ ve.ce.Surface.prototype.onDocumentKeyPress = function ( e ) {
  */
 ve.ce.Surface.prototype.afterDocumentKeyDown = function ( e ) {
 	var direction, focusableNode, startOffset, endOffset, offsetDiff, dmFocus, dmSelection,
-		ceNode, range, fixupCursorForUnicorn, matrix,
+		ceNode, range, fixupCursorForUnicorn, matrix, $focusNode,
 		surface = this,
 		isArrow = (
 			e.keyCode === OO.ui.Keys.UP ||
@@ -4866,7 +5022,7 @@ ve.ce.Surface.prototype.afterDocumentKeyDown = function ( e ) {
 	 * @returns {ve.ce.Node|null} node, or null if not in a focusable node
 	 */
 	function getSurroundingFocusableNode( node, offset, direction ) {
-		var focusNode;
+		var focusNode, $focusNode;
 		if ( node.nodeType === Node.TEXT_NODE ) {
 			focusNode = node;
 		} else if ( direction > 0 && offset < node.childNodes.length ) {
@@ -4876,7 +5032,13 @@ ve.ce.Surface.prototype.afterDocumentKeyDown = function ( e ) {
 		} else {
 			focusNode = node;
 		}
-		return $( focusNode ).closest( '.ve-ce-focusableNode, .ve-ce-tableNode:not(.ve-ce-tableNode-editing)' ).data( 'view' ) || null;
+		$focusNode = $( focusNode );
+		// If the first ancestor with contenteditable set is ce=true, then we are allowed
+		// to be inside this focusalbe node (e.g. editing a table cell or caption)
+		if ( $focusNode.closest( '[contenteditable]' ).prop( 'contenteditable' ) ) {
+			return null;
+		}
+		return $focusNode.closest( '.ve-ce-focusableNode, .ve-ce-tableNode' ).data( 'view' ) || null;
 	}
 
 	/**
@@ -4890,13 +5052,13 @@ ve.ce.Surface.prototype.afterDocumentKeyDown = function ( e ) {
 	function getDirection() {
 		return (
 			isArrow &&
-			surface.misleadingCursorStartSelection.focusNode &&
+			surface.keyDownState.selection.focusNode &&
 			surface.nativeSelection.focusNode &&
 			ve.compareDocumentOrder(
 				surface.nativeSelection.focusNode,
 				surface.nativeSelection.focusOffset,
-				surface.misleadingCursorStartSelection.focusNode,
-				surface.misleadingCursorStartSelection.focusOffset
+				surface.keyDownState.selection.focusNode,
+				surface.keyDownState.selection.focusOffset
 			)
 		) || null;
 	}
@@ -4926,7 +5088,7 @@ ve.ce.Surface.prototype.afterDocumentKeyDown = function ( e ) {
 		return;
 	}
 
-	if ( e !== this.cursorEvent ) {
+	if ( e !== this.keyDownState.event ) {
 		return;
 	}
 
@@ -4937,13 +5099,25 @@ ve.ce.Surface.prototype.afterDocumentKeyDown = function ( e ) {
 		return;
 	}
 
-	// If we arrowed a collapsed cursor across a focusable node, select the node instead
-	if (
+	// If we landed in a cursor holder, select the corresponding focusable node instead
+	// (which, for a table, will select the first cell). Else if we arrowed a collapsed
+	// cursor across a focusable node, select the node instead.
+	$focusNode = $( this.nativeSelection.focusNode );
+	if ( $focusNode.hasClass( 've-ce-cursorHolder' ) ) {
+		if ( $focusNode.hasClass( 've-ce-cursorHolder-after' ) ) {
+			direction = -1;
+			focusableNode = $focusNode.prev().data( 'view' );
+		} else {
+			direction = 1;
+			focusableNode = $focusNode.next().data( 'view' );
+		}
+		this.removeCursorHolders();
+	} else if (
 		isArrow &&
 		!e.ctrlKey &&
 		!e.altKey &&
 		!e.metaKey &&
-		this.misleadingCursorStartSelection.isCollapsed &&
+		this.keyDownState.selection.isCollapsed &&
 		this.nativeSelection.isCollapsed &&
 		( direction = getDirection() ) !== null
 	) {
@@ -4957,8 +5131,8 @@ ve.ce.Surface.prototype.afterDocumentKeyDown = function ( e ) {
 			// Calculate the DM offsets of our motion
 			try {
 				startOffset = ve.ce.getOffset(
-					this.misleadingCursorStartSelection.focusNode,
-					this.misleadingCursorStartSelection.focusOffset
+					this.keyDownState.selection.focusNode,
+					this.keyDownState.selection.focusOffset
 				);
 				endOffset = ve.ce.getOffset(
 					this.nativeSelection.focusNode,
@@ -4984,36 +5158,36 @@ ve.ce.Surface.prototype.afterDocumentKeyDown = function ( e ) {
 				}
 			}
 		}
+	}
 
-		if ( focusableNode ) {
-			if ( !range ) {
-				range = focusableNode.getOuterRange();
-				if ( direction < 0 ) {
-					range = range.flip();
-				}
+	if ( focusableNode ) {
+		if ( !range ) {
+			range = focusableNode.getOuterRange();
+			if ( direction < 0 ) {
+				range = range.flip();
 			}
-			if ( focusableNode instanceof ve.ce.TableNode ) {
-				if ( direction > 0 ) {
-					this.model.setSelection( new ve.dm.TableSelection(
-						this.model.documentModel, range, 0, 0
-					) );
-				} else {
-					matrix = focusableNode.getModel().getMatrix();
-					this.model.setSelection( new ve.dm.TableSelection(
-						this.model.documentModel, range, matrix.getColCount() - 1, matrix.getRowCount() - 1
-					) );
-				}
-			} else {
-				this.model.setLinearSelection( range );
-			}
-			if ( e.keyCode === OO.ui.Keys.LEFT ) {
-				this.cursorDirectionality = direction > 0 ? 'rtl' : 'ltr';
-			} else if ( e.keyCode === OO.ui.Keys.RIGHT ) {
-				this.cursorDirectionality = direction < 0 ? 'rtl' : 'ltr';
-			}
-			// else up/down pressed; leave this.cursorDirectionality as null
-			// (it was set by setLinearSelection calling onModelSelect)
 		}
+		if ( focusableNode instanceof ve.ce.TableNode ) {
+			if ( direction > 0 ) {
+				this.model.setSelection( new ve.dm.TableSelection(
+					this.model.documentModel, range, 0, 0
+				) );
+			} else {
+				matrix = focusableNode.getModel().getMatrix();
+				this.model.setSelection( new ve.dm.TableSelection(
+					this.model.documentModel, range, matrix.getColCount() - 1, matrix.getRowCount() - 1
+				) );
+			}
+		} else {
+			this.model.setLinearSelection( range );
+		}
+		if ( e.keyCode === OO.ui.Keys.LEFT ) {
+			this.cursorDirectionality = direction > 0 ? 'rtl' : 'ltr';
+		} else if ( e.keyCode === OO.ui.Keys.RIGHT ) {
+			this.cursorDirectionality = direction < 0 ? 'rtl' : 'ltr';
+		}
+		// else up/down pressed; leave this.cursorDirectionality as null
+		// (it was set by setLinearSelection calling onModelSelect)
 	}
 
 	fixupCursorForUnicorn = (
@@ -5148,7 +5322,7 @@ ve.ce.Surface.prototype.onCut = function ( e ) {
  */
 ve.ce.Surface.prototype.onCopy = function ( e ) {
 	var originalRange,
-		clipboardIndex, clipboardItem, pasteData,
+		clipboardIndex, clipboardItem,
 		scrollTop, unsafeSelector, range, slice,
 		selection = this.getModel().getSelection(),
 		view = this,
@@ -5166,8 +5340,6 @@ ve.ce.Surface.prototype.onCopy = function ( e ) {
 	}
 
 	slice = this.model.documentModel.cloneSliceFromRange( range );
-
-	pasteData = slice.data.clone();
 
 	// Clone the elements in the slice
 	slice.data.cloneElements( true );
@@ -5188,7 +5360,7 @@ ve.ce.Surface.prototype.onCopy = function ( e ) {
 	} );
 
 	// Some attributes (e.g RDFa attributes in Firefox) aren't preserved by copy
-	unsafeSelector = '[' + ve.ce.Surface.static.unsafeAttributes.join( '],[') + ']';
+	unsafeSelector = '[' + ve.ce.Surface.static.unsafeAttributes.join( '],[' ) + ']';
 	this.$pasteTarget.find( unsafeSelector ).each( function () {
 		var i, val,
 			attrs = {},
@@ -5224,7 +5396,7 @@ ve.ce.Surface.prototype.onCopy = function ( e ) {
 	} else {
 		clipboardItem.hash = this.constructor.static.getClipboardHash( this.$pasteTarget.contents() );
 		this.$pasteTarget.prepend(
-			this.$( '<span>' ).attr( 'data-ve-clipboard-key', this.clipboardId + '-' + clipboardIndex ).html( '&nbsp;' )
+			$( '<span>' ).attr( 'data-ve-clipboard-key', this.clipboardId + '-' + clipboardIndex ).html( '&nbsp;' )
 		);
 
 		// If direct clipboard editing is not allowed, we must use the pasteTarget to
@@ -5244,12 +5416,15 @@ ve.ce.Surface.prototype.onCopy = function ( e ) {
 			this.setScrollPosition( scrollTop );
 
 			setTimeout( function () {
-				// Change focus back
-				view.$documentNode[0].focus();
-				view.nativeSelection.removeAllRanges();
-				view.nativeSelection.addRange( originalRange.cloneRange() );
-				// Restore scroll position
-				view.setScrollPosition( scrollTop );
+				// If the range was in $highlights (right-click copy), don't restore it
+				if ( !OO.ui.contains( view.$highlights[0], originalRange.startContainer, true ) ) {
+					// Change focus back
+					view.$documentNode[0].focus();
+					view.nativeSelection.removeAllRanges();
+					view.nativeSelection.addRange( originalRange.cloneRange() );
+					// Restore scroll position
+					view.setScrollPosition( scrollTop );
+				}
 				view.surfaceObserver.clear();
 				view.surfaceObserver.enable();
 			} );
@@ -5473,7 +5648,7 @@ ve.ce.Surface.prototype.afterPaste = function () {
 		data, doc, htmlDoc, $images, i,
 		context, left, right, contextRange,
 		items = [],
-		importantSpan = 'span[id],span[typeof],span[rel]',
+		importantElement = '[id],[typeof],[rel]',
 		importRules = this.getSurface().getImportRules(),
 		beforePasteData = this.beforePasteData || {},
 		selection = this.model.getSelection(),
@@ -5526,7 +5701,7 @@ ve.ce.Surface.prototype.afterPaste = function () {
 		clipboardKey = beforePasteData.custom;
 	} else {
 		if ( beforePasteData.html ) {
-			$elements = this.$( $.parseHTML( beforePasteData.html ) );
+			$elements = $( $.parseHTML( beforePasteData.html ) );
 
 			// Try to find the clipboard key hidden in the HTML
 			$elements = $elements.filter( function () {
@@ -5620,16 +5795,16 @@ ve.ce.Surface.prototype.afterPaste = function () {
 			// If the clipboardKey is set (paste from other VE instance), and clipboard
 			// data is available, then make sure important spans haven't been dropped
 			if ( !$elements ) {
-				$elements = this.$( $.parseHTML( beforePasteData.html ) );
+				$elements = $( $.parseHTML( beforePasteData.html ) );
 			}
 			if (
 				// HACK: Allow the test runner to force the use of clipboardData
 				clipboardKey === 'useClipboardData-0' || (
-					$elements.find( importantSpan ).andSelf().filter( importantSpan ).length > 0 &&
-					this.$pasteTarget.find( importantSpan ).length === 0
+					$elements.find( importantElement ).andSelf().filter( importantElement ).length > 0 &&
+					this.$pasteTarget.find( importantElement ).length === 0
 				)
 			) {
-				// CE destroyed an important span, so revert to using clipboard data
+				// CE destroyed an important element, so revert to using clipboard data
 				htmlDoc = ve.createDocumentFromHtml( beforePasteData.html );
 				// Remove the pasteProtect class. See #onCopy.
 				$( htmlDoc ).find( 'span' ).removeClass( 've-pasteProtect' );
@@ -5655,8 +5830,10 @@ ve.ce.Surface.prototype.afterPaste = function () {
 			}
 		}
 		// External paste
-		// TODO: what about 'lang' and 'dir'?
-		doc = ve.dm.converter.getModelFromDom( htmlDoc, this.getModel().getDocument().getHtmlDocument(), null, null, this.getModel().getDocument());
+		doc = ve.dm.converter.getModelFromDom( htmlDoc, {
+			targetDoc: this.getModel().getDocument().getHtmlDocument(),
+			fromClipboard: true
+		}, this.getModel().getDocument());
 		data = doc.data;
 		// Clear metadata
 		doc.metadata = new ve.dm.MetaLinearData( doc.getStore(), new Array( 1 + data.getLength() ) );
@@ -5753,7 +5930,7 @@ ve.ce.Surface.prototype.afterPaste = function () {
 ve.ce.Surface.prototype.handleDataTransfer = function ( dataTransfer, isPaste, targetFragment ) {
 	var i, l, stringData,
 		items = [],
-		stringTypes = ['text/html', 'text/plain'];
+		stringTypes = [ 'text/html', 'text/plain' ];
 
 	if ( dataTransfer.items ) {
 		for ( i = 0, l = dataTransfer.items.length; i < l; i++ ) {
@@ -5871,6 +6048,10 @@ ve.ce.Surface.prototype.onModelSelect = function () {
 	this.cursorDirectionality = null;
 	this.contentBranchNodeChanged = false;
 
+	if ( selection instanceof ve.dm.NullSelection ) {
+		this.removeCursorHolders();
+	}
+
 	if ( selection instanceof ve.dm.LinearSelection ) {
 		blockSlug = this.findBlockSlug( selection.getRange() );
 		if ( blockSlug !== this.focusedBlockSlug ) {
@@ -5884,9 +6065,7 @@ ve.ce.Surface.prototype.onModelSelect = function () {
 			if ( blockSlug ) {
 				blockSlug.classList.add( 've-ce-branchNode-blockSlug-focused' );
 				this.focusedBlockSlug = blockSlug;
-				this.$pasteTarget.text( '☢' );
-				ve.selectElement( this.$pasteTarget[0] );
-				this.$pasteTarget[0].focus();
+				this.preparePasteTargetForCopy();
 			}
 		}
 
@@ -5904,14 +6083,7 @@ ve.ce.Surface.prototype.onModelSelect = function () {
 
 				// If dragging, we already have a native selection, so don't mess with it
 				if ( !this.dragging ) {
-					// As FF won't fire a copy event with nothing selected, make
-					// a dummy selection of one character in the pasteTarget.
-					// Previously this was a single space but this isn't selected programmatically
-					// properly, and in Safari results in a collapsed selection.
-					// onCopy will ignore this native selection and use the DM selection
-					this.$pasteTarget.text( '☢' );
-					ve.selectElement( this.$pasteTarget[0] );
-					this.$pasteTarget[0].focus();
+					this.preparePasteTargetForCopy();
 					// Since the selection is no longer in the documentNode, clear the SurfaceObserver's
 					// selection state. Otherwise, if the user places the selection back into the documentNode
 					// in exactly the same place where it was before, the observer won't consider that a change.
@@ -5923,9 +6095,7 @@ ve.ce.Surface.prototype.onModelSelect = function () {
 		}
 	} else {
 		if ( selection instanceof ve.dm.TableSelection ) {
-			this.$pasteTarget.text( '☢' );
-			ve.selectElement( this.$pasteTarget[0] );
-			this.$pasteTarget[0].focus();
+			this.preparePasteTargetForCopy();
 		}
 		if ( this.focusedNode ) {
 			this.focusedNode.setFocused( false );
@@ -5942,6 +6112,30 @@ ve.ce.Surface.prototype.onModelSelect = function () {
 	}
 	// Update the selection state in the SurfaceObserver
 	this.surfaceObserver.pollOnceNoEmit();
+};
+
+/**
+ * Prepare the paste target for a copy event by selecting some dummy text
+ */
+ve.ce.Surface.prototype.preparePasteTargetForCopy = function () {
+	// As FF won't fire a copy event with nothing selected, make
+	// a dummy selection of one character in the pasteTarget.
+	// Previously this was a single space but this isn't selected programmatically
+	// properly, and in Safari results in a collapsed selection.
+	// onCopy will ignore this native selection and use the DM selection
+	if ( !ve.init.platform.constructor.static.isIos() ) {
+		this.$pasteTarget.text( '☢' );
+		ve.selectElement( this.$pasteTarget[0] );
+		this.$pasteTarget[0].focus();
+	} else {
+		// Selecting the paste target fails on iOS:
+		// * The selection stays visible and causes scrolling
+		// * The user is unlikely to be able to trigger a keyboard copy anyway
+		// Instead just deactivate the surface so the native cursor doesn't
+		// get in the way.
+		// TODO: Provide a copy tool in the context menu
+		this.deactivate();
+	}
 };
 
 /**
@@ -6031,7 +6225,7 @@ ve.ce.Surface.prototype.onInsertionAnnotationsChange = function () {
 		return;
 	}
 	// Must re-apply the selection after re-rendering
-	this.showSelection( this.surface.getModel().getSelection() );
+	this.showSelection( this.getModel().getSelection() );
 	this.surfaceObserver.pollOnceNoEmit();
 };
 
@@ -6066,13 +6260,24 @@ ve.ce.Surface.prototype.renderSelectedContentBranchNode = function () {
  * @param {ve.ce.BranchNode} oldBranchNode Node from which the range anchor has just moved
  * @param {ve.ce.BranchNode} newBranchNode Node into which the range anchor has just moved
  */
-ve.ce.Surface.prototype.onSurfaceObserverBranchNodeChange = function ( oldBranchNode ) {
+ve.ce.Surface.prototype.onSurfaceObserverBranchNodeChange = function ( oldBranchNode, newBranchNode ) {
+	var surface;
 	if ( oldBranchNode instanceof ve.ce.ContentBranchNode ) {
 		oldBranchNode.renderContents();
 	}
-	// Re-apply selection in case the branch node change left us at an invalid offset
-	// e.g. in the document node.
-	this.showSelection( this.getModel().getSelection() );
+	// Optimisation: if newBranchNode is null there will be nothing to fix.
+	if ( newBranchNode ) {
+		surface = this;
+		// branchNodeChange happens before rangeChange. Deferring makes sure
+		// we don't apply the wrong selection.
+		// TODO: this setTimeout is ugly: it's working round our own 'emit' structure
+		setTimeout( function () {
+			// Re-apply selection in case the branch node change left us at an invalid offset
+			// e.g. in the document node.
+			surface.updateCursorHolders();
+			surface.showSelection( surface.getModel().getSelection() );
+		} );
+	}
 };
 
 /**
@@ -6116,7 +6321,7 @@ ve.ce.Surface.prototype.createSlug = function ( element ) {
  * @param {ve.Range|null} newRange
  */
 ve.ce.Surface.prototype.onSurfaceObserverRangeChange = function ( oldRange, newRange ) {
-	if ( oldRange && oldRange.equalsSelection( newRange ) ) {
+	if ( newRange && !newRange.isCollapsed() && oldRange && oldRange.equalsSelection( newRange ) ) {
 		// Ignore when the newRange is just a flipped oldRange
 		return;
 	}
@@ -6132,6 +6337,16 @@ ve.ce.Surface.prototype.onSurfaceObserverRangeChange = function ( oldRange, newR
 		this.decRenderLock();
 	}
 	this.checkUnicorns( false );
+	// Firefox lets you create multiple selections within a single paragraph
+	// which our model doesn't support, so detect and prevent these.
+	// This shouldn't create problems with IME candidates as only an explicit user action
+	// can create a multiple selection (CTRL+click), and we remove it immediately, so there can
+	// never be a multiple selection while the user is typing text; therefore the
+	// selection change will never commit IME candidates prematurely.
+	while ( this.nativeSelection.rangeCount > 1 ) {
+		// The current range is the last range, so remove ranges from the front
+		this.nativeSelection.removeRange( this.nativeSelection.getRangeAt( 0 ) );
+	}
 };
 
 /**
@@ -6239,7 +6454,16 @@ ve.ce.Surface.prototype.onSurfaceObserverContentChange = function ( node, previo
 		if ( lengthDiff > 0 && offsetDiff === lengthDiff && sameLeadingAndTrailing ) {
 			data = nextData.slice( previousStart, nextStart );
 			// Apply insertion annotations
-			annotations = node.unicornAnnotations || this.model.getInsertionAnnotations();
+			if ( node.unicornAnnotations ) {
+				annotations = node.unicornAnnotations;
+			} else if ( this.keyDownState.focusIsAfterAnnotationBoundaries ) {
+				annotations = modelData.getAnnotationsFromOffset(
+					nodeOffset + previousStart + 1
+				);
+			} else {
+				annotations = this.model.getInsertionAnnotations();
+			}
+
 			if ( annotations.getLength() ) {
 				filterForWordbreak( annotations, new ve.Range( previous.range.start ) );
 				ve.dm.Document.static.addAnnotationsToData( data, annotations );
@@ -6348,21 +6572,21 @@ ve.ce.Surface.prototype.onSurfaceObserverContentChange = function ( node, previo
 ve.ce.Surface.prototype.checkSequences = function () {
 	var i, sequences,
 		executed = false,
-		surfaceModel = this.surface.getModel(),
-		selection = surfaceModel.getSelection();
+		model = this.getModel(),
+		selection = model.getSelection();
 
 	if ( !( selection instanceof ve.dm.LinearSelection ) ) {
 		return;
 	}
 
-	sequences = ve.ui.sequenceRegistry.findMatching( surfaceModel.getDocument().data, selection.getRange().end );
+	sequences = ve.ui.sequenceRegistry.findMatching( model.getDocument().data, selection.getRange().end );
 
 	// sequences.length will likely be 0 or 1 so don't cache
 	for ( i = 0; i < sequences.length; i++ ) {
 		executed = sequences[i].execute( this.surface ) || executed;
 	}
 	if ( executed ) {
-		this.showSelection( this.surface.getModel().getSelection() );
+		this.showSelection( model.getSelection() );
 	}
 };
 
@@ -6382,7 +6606,6 @@ ve.ce.Surface.prototype.onWindowResize = ve.debounce( function () {
  *
  * @see ve.ce.FocusableNode
  *
- * @method
  * @param {ve.ce.Node} node Node being relocated
  */
 ve.ce.Surface.prototype.startRelocation = function ( node ) {
@@ -6394,9 +6617,6 @@ ve.ce.Surface.prototype.startRelocation = function ( node ) {
  * Complete a relocation action.
  *
  * @see ve.ce.FocusableNode
- *
- * @method
- * @param {ve.ce.Node} node Node being relocated
  */
 ve.ce.Surface.prototype.endRelocation = function () {
 	if ( this.relocatingNode ) {
@@ -6431,32 +6651,51 @@ ve.ce.Surface.prototype.getActiveTableNode = function () {
 /*! Utilities */
 
 /**
- * Store the current selection range, and a key down event if relevant
+ * Store a state snapshot at a keydown event, to be used in an after-keydown handler
  *
- * @param {jQuery.Event|null} e Key down event
+ * A selection object is stored, but only when the key event is a cursor key. It contains
+ * anchorNode/anchorOffset/focusNode/focusOffset/isCollapsed like a nativeSelection.
+ * (It would be misleading to save selection properties for key events where the DOM might get
+ * modified, because anchorNode/focusNode are live and mutable, and so the offsets may come to
+ * point confusingly to different places than they did when the selection was saved).
+ *
+ * Annotation changes before the cursor focus are detected: see ve.ce.isAfterAnnotationBoundaries .
+ *
+ * @param {jQuery.Event|null} e Key down event; must be active when this call is made
  */
 ve.ce.Surface.prototype.storeKeyDownState = function ( e ) {
-	if ( this.nativeSelection.rangeCount === 0 ) {
-		this.cursorEvent = null;
-		this.misleadingCursorStartSelection = null;
-		return;
+	this.keyDownState.event = e;
+	this.keyDownState.selection = null;
+	this.keyDownState.focusIsAfterAnnotationBoundaries = null;
+
+	if ( this.nativeSelection.rangeCount > 0 ) {
+		this.keyDownState.focusIsAfterAnnotationBoundaries = ve.ce.isAfterAnnotationBoundaries(
+			this.nativeSelection.focusNode,
+			this.nativeSelection.focusOffset
+		);
+		if (
+			e.keyCode === OO.ui.Keys.UP ||
+			e.keyCode === OO.ui.Keys.DOWN ||
+			e.keyCode === OO.ui.Keys.LEFT ||
+			e.keyCode === OO.ui.Keys.RIGHT
+		) {
+			this.keyDownState.selection = {
+				isCollapsed: this.nativeSelection.isCollapsed,
+				anchorNode: this.nativeSelection.anchorNode,
+				anchorOffset: this.nativeSelection.anchorOffset,
+				focusNode: this.nativeSelection.focusNode,
+				focusOffset: this.nativeSelection.focusOffset
+			};
+		}
 	}
-	this.cursorEvent = e;
-	this.misleadingCursorStartSelection = null;
-	if (
-		e.keyCode === OO.ui.Keys.UP ||
-		e.keyCode === OO.ui.Keys.DOWN ||
-		e.keyCode === OO.ui.Keys.LEFT ||
-		e.keyCode === OO.ui.Keys.RIGHT
-	) {
-		this.misleadingCursorStartSelection = {
-			isCollapsed: this.nativeSelection.isCollapsed,
-			anchorNode: this.nativeSelection.anchorNode,
-			anchorOffset: this.nativeSelection.anchorOffset,
-			focusNode: this.nativeSelection.focusNode,
-			focusOffset: this.nativeSelection.focusOffset
-		};
-	}
+};
+
+/**
+ * Clear a stored state snapshot from a key down event
+ */
+ve.ce.Surface.prototype.clearKeyDownState = function () {
+	this.keyDownState.event = null;
+	this.keyDownState.selection = null;
 };
 
 /**
@@ -6497,7 +6736,7 @@ ve.ce.Surface.prototype.getFocusedNodeDirectionality = function () {
 	if ( cursorNode.nodeType === Node.TEXT_NODE ) {
 		cursorNode = cursorNode.parentNode;
 	}
-	return this.$( cursorNode ).css( 'direction' );
+	return $( cursorNode ).css( 'direction' );
 };
 
 /**
@@ -6517,6 +6756,70 @@ ve.ce.Surface.prototype.restoreActiveTableNodeSelection = function () {
 		return true;
 	} else {
 		return false;
+	}
+};
+
+/**
+ * Find a ce=false branch node that a native cursor movement from here *might* skip
+ *
+ * If a node is returned, then it might get skipped by a single native cursor
+ * movement in the specified direction from the closest branch node at the
+ * current cursor focus. However, if null is returned, then any single such
+ * movement is guaranteed *not* to skip an uneditable branch node.
+ *
+ * Note we cannot predict precisely where/with which cursor key we might step out
+ * of the current closest branch node, because it is difficult to predict the
+ * behaviour of left/rightarrow (because of bidi visual cursoring) and
+ * up/downarrow (because of wrapping).
+ *
+ * @param {number} direction -1 for before the cursor, +1 for after
+ * @returns {Node|null} Potentially cursor-adjacent uneditable branch node, or null
+ */
+ve.ce.Surface.prototype.findAdjacentUneditableBranchNode = function ( direction ) {
+	var node,
+		forward = direction > 0;
+
+	node = $( this.nativeSelection.focusNode ).closest(
+		'.ve-ce-branchNode,.ve-ce-leafNode,.ve-ce-surface-paste'
+	)[0];
+	if ( !node || node.classList.contains( 've-ce-surface-paste' ) ) {
+		return null;
+	}
+
+	// Walk in document order till we find a ContentBranchNode (in which case
+	// return null) or a FocusableNode/TableNode (in which case return the node)
+	// or run out of nodes (in which case return null)
+	while ( true ) {
+		// Step up until we find a sibling
+		while ( !( forward ? node.nextSibling : node.previousSibling ) ) {
+			node = node.parentNode;
+			if ( node === null ) {
+				// Reached the document start/end
+				return null;
+			}
+		}
+		// Step back
+		node = forward ? node.nextSibling : node.previousSibling;
+		// Check and step down
+		while ( true ) {
+			if (
+				$.data( node, 'view' ) instanceof ve.ce.ContentBranchNode ||
+				// We shouldn't ever hit a raw text node, because they
+				// should all be wrapped in CBNs or focusable nodes, but
+				// just in case...
+				node.nodeType === Node.TEXT_NODE
+			) {
+				// This is cursorable (must have content or slugs)
+				return null;
+			}
+			if ( $( node ).is( '.ve-ce-focusableNode,.ve-ce-tableNode' ) ) {
+				return node;
+			}
+			if ( !node.childNodes || node.childNodes.length === 0 ) {
+				break;
+			}
+			node = forward ? node.firstChild : node.lastChild;
+		}
 	}
 };
 
@@ -6670,7 +6973,7 @@ ve.ce.Surface.prototype.handleLinearArrowKey = function ( e ) {
 				);
 			}
 			newRange = (
-				afterDirection === 1 ?
+				afterDirection > 0 ?
 				viewNode.getOuterRange() :
 				viewNode.getOuterRange().flip()
 			);
@@ -6687,6 +6990,61 @@ ve.ce.Surface.prototype.handleLinearArrowKey = function ( e ) {
 		}
 		surface.surfaceObserver.pollOnce();
 	} } );
+};
+
+/**
+ * Insert cursor holders, if they might be required as a cursor target
+ */
+ve.ce.Surface.prototype.updateCursorHolders = function () {
+	var holderBefore = null,
+		holderAfter = null,
+		doc = this.getElementDocument(),
+		nodeBefore = this.findAdjacentUneditableBranchNode( -1 ),
+		nodeAfter = this.findAdjacentUneditableBranchNode( 1 );
+
+	this.removeCursorHolders();
+
+	if ( nodeBefore ) {
+		holderBefore = doc.importNode( this.constructor.static.cursorHolderTemplate, true );
+		holderBefore.classList.add( 've-ce-cursorHolder-after' );
+		if ( ve.inputDebug ) {
+			$( holderBefore ).css( {
+				width: '2px',
+				height: '2px',
+				border: 'solid red 1px'
+			} );
+		}
+		$( nodeBefore ).after( holderBefore );
+	}
+	if ( nodeAfter ) {
+		holderAfter = doc.importNode( this.constructor.static.cursorHolderTemplate, true );
+		holderAfter.classList.add( 've-ce-cursorHolder-before' );
+		if ( ve.inputDebug ) {
+			$( holderAfter ).css( {
+				width: '2px',
+				height: '2px',
+				border: 'solid red 1px'
+			} );
+		}
+		$( nodeAfter ).before( holderAfter );
+	}
+	this.cursorHolders = { before: holderBefore, after: holderAfter };
+};
+
+/**
+ * Remove cursor holders, if they exist
+ */
+ve.ce.Surface.prototype.removeCursorHolders = function () {
+	if ( !this.cursorHolders ) {
+		return;
+	}
+	if ( this.cursorHolders.before ) {
+		this.cursorHolders.before.remove();
+	}
+	if ( this.cursorHolders.after ) {
+		this.cursorHolders.after.remove();
+	}
+	this.cursorHolders = null;
 };
 
 /**
@@ -6819,7 +7177,7 @@ ve.ce.Surface.prototype.handleLinearEnter = function ( e ) {
 		range = this.model.getSelection().getRange(),
 		cursor = range.from,
 		documentModel = this.model.getDocument(),
-		emptyParagraph = [{ type: 'paragraph' }, { type: '/paragraph' }],
+		emptyParagraph = [ { type: 'paragraph' }, { type: '/paragraph' } ],
 		advanceCursor = true,
 		stack = [],
 		outermostNode = null,
@@ -7162,16 +7520,34 @@ ve.ce.Surface.prototype.getViewportRange = function () {
 		bottom = top + this.$window.height() - this.surface.toolbarHeight + ( padding * 2 ),
 		documentRange = new ve.Range( 0, this.getModel().getDocument().getInternalList().getListNode().getOuterRange().start );
 
+	function highestIgnoreChildrenNode( childNode ) {
+		var ignoreChildrenNode = null;
+		childNode.traverseUpstream( function ( node ) {
+			if ( node.shouldIgnoreChildren() ) {
+				ignoreChildrenNode = node;
+			}
+		} );
+		return ignoreChildrenNode;
+	}
+
 	function binarySearch( offset, range, side ) {
-		var mid, rect,
+		var mid, rect, midNode, ignoreChildrenNode, nodeRange,
 			start = range.start,
 			end = range.end,
 			lastLength = Infinity;
 		while ( range.getLength() < lastLength ) {
 			lastLength = range.getLength();
-			mid = data.getNearestContentOffset(
-				Math.round( ( range.start + range.end ) / 2 )
-			);
+			mid = Math.round( ( range.start + range.end ) / 2 );
+			midNode = documentModel.documentNode.getNodeFromOffset( mid );
+			ignoreChildrenNode = highestIgnoreChildrenNode( midNode );
+
+			if ( ignoreChildrenNode ) {
+				nodeRange = ignoreChildrenNode.getOuterRange();
+				mid = side === 'top' ? nodeRange.end : nodeRange.start;
+			} else {
+				mid = data.getNearestContentOffset( mid );
+			}
+
 			rect = surface.getSelectionBoundingRect( new ve.dm.LinearSelection( documentModel, new ve.Range( mid ) ) );
 			if ( rect[side] > offset ) {
 				end = mid;
@@ -7486,8 +7862,7 @@ ve.ce.Surface.prototype.changeModel = function ( transaction, selection ) {
  */
 ve.ce.Surface.prototype.setContentBranchNodeChanged = function () {
 	this.contentBranchNodeChanged = true;
-	this.cursorEvent = null;
-	this.cursorStartRange = null;
+	this.clearKeyDownState();
 };
 
 /**
@@ -7784,6 +8159,9 @@ ve.ce.SurfaceObserver.prototype.pollOnceInternal = function ( emitChanges, selec
 	}
 
 	if ( newState.selectionChanged && emitChanges ) {
+		// Caution: selectionChanged is true if the CE selection is different, which can
+		// be the case even if the DM selection is unchanged. So the following line can
+		// emit a rangeChange event with identical oldState and newState.
 		this.emit(
 			'rangeChange',
 			( oldState ? oldState.veRange : null ),
@@ -7885,12 +8263,11 @@ ve.ce.GeneratedContentNode.static.renderHtmlAttributes = false;
  * by forceUpdate().
  *
  * @abstract
+ * @method
  * @param {Object} [config] Optional additional data
  * @returns {jQuery.Promise} Promise object, may be abortable
  */
-ve.ce.GeneratedContentNode.prototype.generateContents = function () {
-	throw new Error( 've.ce.GeneratedContentNode subclass must implement generateContents' );
-};
+ve.ce.GeneratedContentNode.prototype.generateContents = null;
 
 /* Methods */
 
@@ -7915,20 +8292,8 @@ ve.ce.GeneratedContentNode.prototype.onGeneratedContentNodeUpdate = function () 
  * @returns {HTMLElement[]} Clones of the DOM elements in the right document, with modifications
  */
 ve.ce.GeneratedContentNode.prototype.getRenderedDomElements = function ( domElements ) {
-	var i, len, attr, $rendering,
+	var i, len, $rendering,
 		doc = this.getElementDocument();
-
-	/**
-	 * Callback for jQuery.fn.each that resolves the value of attr to the computed
-	 * property value. Called in the context of an HTMLElement.
-	 * @private
-	 */
-	function resolveAttribute() {
-		var origDoc = domElements[0].ownerDocument,
-			nodeInOrigDoc = origDoc.createElement( this.nodeName );
-		nodeInOrigDoc.setAttribute( attr, this.getAttribute( attr ) );
-		this.setAttribute( attr, nodeInOrigDoc[attr] );
-	}
 
 	// Clone the elements into the target document
 	$rendering = $( ve.copyDomElements( domElements, doc ) );
@@ -7944,19 +8309,19 @@ ve.ce.GeneratedContentNode.prototype.getRenderedDomElements = function ( domElem
 		// Span wrap root text nodes so they can be measured
 		for ( i = 0, len = $rendering.length; i < len; i++ ) {
 			if ( $rendering[i].nodeType === Node.TEXT_NODE ) {
-				$rendering[i] = this.$( '<span>' ).append( $rendering[i] )[0];
+				$rendering[i] = $( '<span>' ).append( $rendering[i] )[0];
 			}
 		}
 	} else {
-		$rendering = this.$( '<span>' );
+		$rendering = $( '<span>' );
 	}
 
 	// Render the computed values of some attributes
-	for ( i = 0, len = ve.dm.Converter.computedAttributes.length; i < len; i++ ) {
-		attr = ve.dm.Converter.computedAttributes[i];
-		$rendering.find( '[' + attr + ']' ).each( resolveAttribute );
-		$rendering.filter( '[' + attr + ']' ).each( resolveAttribute );
-	}
+	ve.resolveAttributes(
+		$rendering,
+		domElements[0].ownerDocument,
+		ve.dm.Converter.computedAttributes
+	);
 
 	return $rendering.toArray();
 };
@@ -7972,7 +8337,7 @@ ve.ce.GeneratedContentNode.prototype.render = function ( generatedContents ) {
 	if ( this.live ) {
 		this.emit( 'teardown' );
 	}
-	var $newElements = this.$( this.getRenderedDomElements( ve.copyDomElements( generatedContents ) ) );
+	var $newElements = $( this.getRenderedDomElements( ve.copyDomElements( generatedContents ) ) );
 	if ( !this.$element[0].parentNode ) {
 		// this.$element hasn't been attached yet, so just overwrite it
 		this.$element = $newElements;
@@ -8390,7 +8755,7 @@ ve.ce.nodeFactory.register( ve.ce.CenterNode );
  * @class
  * @extends ve.ce.LeafNode
  * @mixins ve.ce.FocusableNode
- * @mixins OO.ui.IndicatorElement
+ * @mixins OO.ui.mixin.IndicatorElement
  *
  * @constructor
  * @param {ve.dm.CommentNode} model Model to observe
@@ -8402,7 +8767,7 @@ ve.ce.CommentNode = function VeCeCommentNode( model, config ) {
 
 	// Mixin constructors
 	ve.ce.FocusableNode.call( this, this.$element, config );
-	OO.ui.IndicatorElement.call( this, $.extend( {}, config, {
+	OO.ui.mixin.IndicatorElement.call( this, $.extend( {}, config, {
 		$indicator: this.$element, indicator: 'alert'
 	} ) );
 
@@ -8417,7 +8782,7 @@ ve.ce.CommentNode = function VeCeCommentNode( model, config ) {
 
 OO.inheritClass( ve.ce.CommentNode, ve.ce.LeafNode );
 OO.mixinClass( ve.ce.CommentNode, ve.ce.FocusableNode );
-OO.mixinClass( ve.ce.CommentNode, OO.ui.IndicatorElement );
+OO.mixinClass( ve.ce.CommentNode, OO.ui.mixin.IndicatorElement );
 
 /* Static Properties */
 
@@ -8779,7 +9144,7 @@ ve.ce.InternalListNode = function VeCeInternalListNode() {
 	ve.ce.InternalListNode.super.apply( this, arguments );
 
 	// An internal list has no rendering
-	this.$element = this.$( [] );
+	this.$element = $( [] );
 };
 
 /* Inheritance */
@@ -9213,20 +9578,18 @@ ve.ce.TableNode.prototype.onSetup = function () {
 	this.surface = this.getRoot().getSurface();
 
 	// Overlay
-	this.$selectionBox = this.$( '<div>' ).addClass( 've-ce-tableNodeOverlay-selection-box' );
-	this.$selectionBoxAnchor = this.$( '<div>' ).addClass( 've-ce-tableNodeOverlay-selection-box-anchor' );
-	this.colContext = new ve.ui.TableContext( this, 'table-col', {
-		$: this.$,
-		classes: ['ve-ui-tableContext-colContext'],
+	this.$selectionBox = $( '<div>' ).addClass( 've-ce-tableNodeOverlay-selection-box' );
+	this.$selectionBoxAnchor = $( '<div>' ).addClass( 've-ce-tableNodeOverlay-selection-box-anchor' );
+	this.colContext = new ve.ui.TableContext( this, 'col', {
+		classes: [ 've-ui-tableContext-colContext' ],
 		indicator: 'down'
 	} );
-	this.rowContext = new ve.ui.TableContext( this, 'table-row', {
-		$: this.$,
-		classes: ['ve-ui-tableContext-rowContext'],
+	this.rowContext = new ve.ui.TableContext( this, 'row', {
+		classes: [ 've-ui-tableContext-rowContext' ],
 		indicator: 'next'
 	} );
 
-	this.$overlay = this.$( '<div>' )
+	this.$overlay = $( '<div>' )
 		.addClass( 've-ce-tableNodeOverlay oo-ui-element-hidden' )
 		.append( [
 			this.$selectionBox,
@@ -9407,8 +9770,10 @@ ve.ce.TableNode.prototype.onTableMouseUp = function () {
  * @param {boolean} noSelect Don't change the selection
  */
 ve.ce.TableNode.prototype.setEditing = function ( isEditing, noSelect ) {
+	var cell, offset, cellRange,
+		surfaceModel = this.surface.getModel(),
+		selection = surfaceModel.getSelection();
 	if ( isEditing ) {
-		var cell, selection = this.surface.getModel().getSelection();
 		if ( !selection.isSingleCell() ) {
 			selection = selection.collapseToFrom();
 			this.surface.getModel().setSelection( selection );
@@ -9417,13 +9782,16 @@ ve.ce.TableNode.prototype.setEditing = function ( isEditing, noSelect ) {
 		cell = this.getCellNodesFromSelection( selection )[0];
 		cell.setEditing( true );
 		if ( !noSelect ) {
-			// TODO: Find content offset within cell
-			this.surface.getModel().setLinearSelection( new ve.Range( cell.getModel().getRange().end - 1 ) );
+			cellRange = cell.getModel().getRange();
+			offset = surfaceModel.getDocument().data.getNearestContentOffset( cellRange.end, -1 );
+			if ( offset > cellRange.start ) {
+				surfaceModel.setLinearSelection( new ve.Range( offset ) );
+			}
 		}
 	} else if ( this.editingFragment ) {
 		this.getCellNodesFromSelection( this.editingFragment.getSelection() )[0].setEditing( false );
 		if ( !noSelect ) {
-			this.surface.getModel().setSelection( this.editingFragment.getSelection() );
+			surfaceModel.setSelection( this.editingFragment.getSelection() );
 		}
 		this.editingFragment = null;
 	}
@@ -9476,7 +9844,7 @@ ve.ce.TableNode.prototype.onSurfaceModelSelect = function ( selection ) {
 			this.$element.on( 'touchstart.ve-ce-tableNode', this.onTableMouseDown.bind( this ) );
 		}
 		this.surface.setActiveTableNode( this );
-		this.updateOverlayDebounced();
+		this.updateOverlayDebounced( true );
 	} else if ( !active && this.active ) {
 		this.$overlay.addClass( 'oo-ui-element-hidden' );
 		if ( this.editingFragment ) {
@@ -9493,9 +9861,11 @@ ve.ce.TableNode.prototype.onSurfaceModelSelect = function ( selection ) {
 
 /**
  * Update the overlay positions
+ *
+ * @param {boolean} selectionChanged The update was triggered by a selection change
  */
-ve.ce.TableNode.prototype.updateOverlay = function () {
-	if ( !this.active ) {
+ve.ce.TableNode.prototype.updateOverlay = function ( selectionChanged ) {
+	if ( !this.active || !this.root ) {
 		return;
 	}
 
@@ -9523,7 +9893,7 @@ ve.ce.TableNode.prototype.updateOverlay = function () {
 	right = -Infinity;
 
 	// Compute a bounding box for the given cell elements
-	for ( i = 0, l = nodes.length; i < l; i++) {
+	for ( i = 0, l = nodes.length; i < l; i++ ) {
 		cellOffset = nodes[i].$element[0].getBoundingClientRect();
 
 		top = Math.min( top, cellOffset.top );
@@ -9580,6 +9950,10 @@ ve.ce.TableNode.prototype.updateOverlay = function () {
 	this.$selectionBox
 		.toggleClass( 've-ce-tableNodeOverlay-selection-box-fullRow', selection.isFullRow() )
 		.toggleClass( 've-ce-tableNodeOverlay-selection-box-fullCol', selection.isFullCol() );
+
+	if ( selectionChanged ) {
+		OO.ui.Element.static.scrollIntoView( this.$selectionBox.get( 0 ) );
+	}
 };
 
 /**
@@ -9794,6 +10168,14 @@ ve.ce.TextNode.prototype.getAnnotatedHtml = function () {
 	}
 
 	if ( !significantWhitespace ) {
+		for ( i = 0; i < data.length; i++ ) {
+			chr = getChar( i, data );
+			// Show meaningful whitespace characters
+			if ( Object.prototype.hasOwnProperty.call( whitespaceHtmlChars, chr ) ) {
+				setChar( whitespaceHtmlChars[chr], i, data );
+			}
+		}
+
 		// Replace spaces with &nbsp; where needed
 		// \u00a0 == &#160; == &nbsp;
 		if ( data.length > 0 ) {
@@ -9809,20 +10191,13 @@ ve.ce.TextNode.prototype.getAnnotatedHtml = function () {
 			}
 		}
 
-		for ( i = 0; i < data.length; i++ ) {
-			chr = getChar( i, data );
-
+		for ( i = 0; i < data.length - 1; i++ ) {
 			// Replace any sequence of 2+ spaces with an alternating pattern
 			// (space-nbsp-space-nbsp-...).
 			// The leading and trailing space, if present, have already been converted
 			// to nbsp, so we know that i is between 1 and data.length - 2.
-			if ( chr === ' ' && getChar( i + 1, data ) === ' ' ) {
+			if ( getChar( i, data ) === ' ' && getChar( i + 1, data ) === ' ' ) {
 				setChar( '\u00a0', i + 1, data );
-			}
-
-			// Show meaningful whitespace characters
-			if ( Object.prototype.hasOwnProperty.call( whitespaceHtmlChars, chr ) ) {
-				setChar( whitespaceHtmlChars[chr], i, data );
 			}
 		}
 	}
@@ -9952,7 +10327,7 @@ ve.ce.BlockImageNode = function VeCeBlockImageNode( model, config ) {
 	ve.ce.BlockImageNode.super.call( this, model, config );
 
 	// Build DOM
-	this.$image = this.$( '<img>' )
+	this.$image = $( '<img>' )
 		.prop( 'src', this.getResolvedAttribute( 'src' ) )
 		.prependTo( this.$element );
 
@@ -10086,29 +10461,6 @@ ve.ce.InlineImageNode.static.tagName = 'img';
 
 ve.ce.nodeFactory.register( ve.ce.InlineImageNode );
 
-ve.ce.SectionNode = function VeCeSectionNode() {
-	// Parent constructor
-	ve.ce.SectionNode.super.apply( this, arguments );
-
-	this.$element.addClass('ve-ce-sectionnode');
-};
-
-/* Inheritance */
-
-OO.inheritClass( ve.ce.SectionNode, ve.ce.BranchNode );
-
-/* Static Properties */
-
-ve.ce.SectionNode.static.name = 'section';
-
-ve.ce.SectionNode.static.tagName = 'section';
-
-/* Methods */
-
-/* Registration */
-
-ve.ce.nodeFactory.register( ve.ce.SectionNode );
-
 /*!
  * VisualEditor ContentEditable LanguageAnnotation class.
  *
@@ -10134,8 +10486,8 @@ ve.ce.LanguageAnnotation = function VeCeLanguageAnnotation() {
 		.addClass( 've-ce-languageAnnotation' )
 		.addClass( 've-ce-bidi-isolate' )
 		.prop( {
-			lang: this.model.getAttribute( 'lang' ),
-			dir: this.model.getAttribute( 'dir' ),
+			lang: this.model.getAttribute( 'lang' ) || undefined,
+			dir: this.model.getAttribute( 'dir' ) || undefined,
 			title: this.constructor.static.getDescription( this.model )
 		} );
 };
@@ -11061,6 +11413,7 @@ OO.inheritClass( ve.ui.Overlay, OO.ui.Element );
  * @param {Object} [config] Configuration options
  * @cfg {string[]} [excludeCommands] List of commands to exclude
  * @cfg {Object} [importRules] Import rules
+ * @cfg {string} [inDialog] The name of the dialog this surface is in
  */
 ve.ui.Surface = function VeUiSurface( surfaceModel, config ) {
 	config = config || {};
@@ -11074,20 +11427,21 @@ ve.ui.Surface = function VeUiSurface( surfaceModel, config ) {
 	OO.EventEmitter.call( this, config );
 
 	// Properties
-	this.globalOverlay = new ve.ui.Overlay( { classes: ['ve-ui-overlay-global'] } );
-	this.localOverlay = new ve.ui.Overlay( { $: this.$, classes: ['ve-ui-overlay-local'] } );
-	this.$selections = this.$( '<div>' );
-	this.$blockers = this.$( '<div>' );
-	this.$controls = this.$( '<div>' );
-	this.$menus = this.$( '<div>' );
+	this.inDialog = config.inDialog || '';
+	this.globalOverlay = new ve.ui.Overlay( { classes: [ 've-ui-overlay-global' ] } );
+	this.localOverlay = new ve.ui.Overlay( { classes: [ 've-ui-overlay-local' ] } );
+	this.$selections = $( '<div>' );
+	this.$blockers = $( '<div>' );
+	this.$controls = $( '<div>' );
+	this.$menus = $( '<div>' );
 	this.triggerListener = new ve.TriggerListener( OO.simpleArrayDifference(
 		Object.keys( ve.ui.commandRegistry.registry ), config.excludeCommands || []
 	) );
 
 	this.model = surfaceModel;
 	documentModel = surfaceModel.getDocument();
-
 	this.view = new ve.ce.Surface( this.model, this, { $: this.$ } );
+
 	this.dialogs = this.createDialogWindowManager();
 	this.importRules = config.importRules || { external: { blacklist: [] }, all: null };
 	this.enabled = true;
@@ -11099,7 +11453,6 @@ ve.ui.Surface = function VeUiSurface( surfaceModel, config ) {
 
 	this.toolbarHeight = 0;
 	this.toolbarDialogs = new ve.ui.ToolbarDialogWindowManager( this, {
-		$: this.$,
 		factory: ve.ui.windowFactory,
 		modal: false
 	} );
@@ -11176,7 +11529,25 @@ ve.ui.Surface.prototype.initialize = function () {
 	this.$element.addClass( 've-ui-surface-dir-' + this.getDir() );
 
 	this.getView().initialize();
-	this.getModel().startHistoryTracking();
+	this.getModel().initialize();
+};
+
+/**
+ * Get the DOM representation of the surface's current state.
+ *
+ * @return {HTMLDocument} HTML document
+ */
+ve.ui.Surface.prototype.getDom = function () {
+	return ve.dm.converter.getDomFromModel( this.getModel().getDocument() );
+};
+
+/**
+ * Get the HTML representation of the surface's current state.
+ *
+ * @return {string} HTML
+ */
+ve.ui.Surface.prototype.getHtml = function () {
+	return ve.properInnerHtml( this.getDom().body );
 };
 
 /**
@@ -11185,11 +11556,8 @@ ve.ui.Surface.prototype.initialize = function () {
  * @method
  * @abstract
  * @return {ve.ui.Context} Context
- * @throws {Error} If this method is not overridden in a concrete subclass
  */
-ve.ui.Surface.prototype.createContext = function () {
-	throw new Error( 've.ui.Surface.createContext must be overridden in subclass' );
-};
+ve.ui.Surface.prototype.createContext = null;
 
 /**
  * Create a dialog window manager.
@@ -11197,11 +11565,8 @@ ve.ui.Surface.prototype.createContext = function () {
  * @method
  * @abstract
  * @return {ve.ui.WindowManager} Dialog window manager
- * @throws {Error} If this method is not overridden in a concrete subclass
  */
-ve.ui.Surface.prototype.createDialogWindowManager = function () {
-	throw new Error( 've.ui.Surface.createDialogWindowManager must be overridden in subclass' );
-};
+ve.ui.Surface.prototype.createDialogWindowManager = null;
 
 /**
  * Set up the debug bar and insert it into the DOM.
@@ -11434,7 +11799,9 @@ ve.ui.Surface.prototype.initFilibuster = function () {
 			ve.ui.Surface.prototype.stopFilibuster
 		] )
 		.setObserver( 'dm doc', function () {
-			return JSON.stringify( surface.model.documentModel.data.data );
+			return JSON.stringify( ve.Filibuster.static.clonePlain(
+				surface.model.documentModel.data.data
+			) );
 		} )
 		.setObserver( 'dm selection', function () {
 			var selection = surface.model.selection;
@@ -11479,6 +11846,14 @@ ve.ui.Surface.prototype.stopFilibuster = function () {
 	this.filibuster.stop();
 };
 
+/**
+ * Get the name of the dialog this surface is in
+ * @return {string} The name of the dialog this surface is in
+ */
+ve.ui.Surface.prototype.getInDialog = function () {
+	return this.inDialog;
+};
+
 /*!
  * VisualEditor UserInterface Context class.
  *
@@ -11491,7 +11866,7 @@ ve.ui.Surface.prototype.stopFilibuster = function () {
  * @class
  * @abstract
  * @extends OO.ui.Element
- * @mixins OO.ui.GroupElement
+ * @mixins OO.ui.mixin.GroupElement
  *
  * @constructor
  * @param {ve.ui.Surface} surface
@@ -11502,25 +11877,12 @@ ve.ui.Context = function VeUiContext( surface, config ) {
 	ve.ui.Context.super.call( this, config );
 
 	// Mixin constructors
-	OO.ui.GroupElement.call( this, config );
+	OO.ui.mixin.GroupElement.call( this, config );
 
 	// Properties
 	this.surface = surface;
 	this.visible = false;
 	this.choosing = false;
-	this.inspector = null;
-	this.inspectors = this.createInspectorWindowManager();
-	this.lastSelectedNode = null;
-	this.afterContextChangeTimeout = null;
-	this.afterContextChangeHandler = this.afterContextChange.bind( this );
-	this.updateDimensionsDebounced = ve.debounce( this.updateDimensions.bind( this ) );
-
-	// Events
-	this.surface.getModel().connect( this, {
-		contextChange: 'onContextChange',
-		documentUpdate: 'onDocumentUpdate'
-	} );
-	this.inspectors.connect( this, { opening: 'onInspectorOpening' } );
 
 	// Initialization
 	// Hide element using a class, not this.toggle, as child implementations
@@ -11529,13 +11891,13 @@ ve.ui.Context = function VeUiContext( surface, config ) {
 	this.$element
 		.addClass( 've-ui-context oo-ui-element-hidden' )
 		.append( this.$group );
-	this.inspectors.$element.addClass( 've-ui-context-inspectors' );
 };
 
 /* Inheritance */
 
 OO.inheritClass( ve.ui.Context, OO.ui.Element );
-OO.mixinClass( ve.ui.Context, OO.ui.GroupElement );
+
+OO.mixinClass( ve.ui.Context, OO.ui.mixin.GroupElement );
 
 /* Static Property */
 
@@ -11555,6 +11917,208 @@ ve.ui.Context.prototype.shouldUseBasicRendering = function () {
 };
 
 /**
+ * Check if context is visible.
+ *
+ * @return {boolean} Context is visible
+ */
+ve.ui.Context.prototype.isVisible = function () {
+	return this.visible;
+};
+
+/**
+ * Get related item sources.
+ *
+ * Result is cached, and cleared when the model or selection changes.
+ *
+ * @method
+ * @abstract
+ * @returns {Object[]} List of objects containing `type`, `name` and `model` properties,
+ *   representing each compatible type (either `item` or `tool`), symbolic name of the item or tool
+ *   and the model the item or tool is compatible with
+ */
+ve.ui.Context.prototype.getRelatedSources = null;
+
+/**
+ * Get the surface the context is being used with.
+ *
+ * @return {ve.ui.Surface}
+ */
+ve.ui.Context.prototype.getSurface = function () {
+	return this.surface;
+};
+
+/**
+ * Toggle the menu.
+ *
+ * @param {boolean} [show] Show the menu, omit to toggle
+ * @chainable
+ */
+ve.ui.Context.prototype.toggleMenu = function ( show ) {
+	show = show === undefined ? !this.choosing : !!show;
+
+	if ( show !== this.choosing ) {
+		this.choosing = show;
+		this.$element.toggleClass( 've-ui-context-choosing', show );
+		if ( show ) {
+			this.setupMenuItems();
+		} else {
+			this.teardownMenuItems();
+		}
+	}
+
+	return this;
+};
+
+/**
+ * Setup menu items.
+ *
+ * @protected
+ * @chainable
+ */
+ve.ui.Context.prototype.setupMenuItems = function () {
+	var i, len, source,
+		sources = this.getRelatedSources(),
+		items = [];
+
+	for ( i = 0, len = sources.length; i < len; i++ ) {
+		source = sources[i];
+		if ( source.type === 'item' ) {
+			items.push( ve.ui.contextItemFactory.create(
+				sources[i].name, this, sources[i].model
+			) );
+		} else if ( source.type === 'tool' ) {
+			items.push( new ve.ui.ToolContextItem(
+				this, sources[i].model, ve.ui.toolFactory.lookup( sources[i].name )
+			) );
+		}
+	}
+
+	this.addItems( items );
+	for ( i = 0, len = items.length; i < len; i++ ) {
+		items[i].connect( this, { command: 'onContextItemCommand' } );
+		items[i].setup();
+	}
+
+	return this;
+};
+
+/**
+ * Teardown menu items.
+ *
+ * @protected
+ * @chainable
+ */
+ve.ui.Context.prototype.teardownMenuItems = function () {
+	var i, len;
+
+	for ( i = 0, len = this.items.length; i < len; i++ ) {
+		this.items[i].teardown();
+	}
+	this.clearItems();
+
+	return this;
+};
+
+/**
+ * Handle command events from context items
+ */
+ve.ui.Context.prototype.onContextItemCommand = function () {};
+
+/**
+ * Toggle the visibility of the context.
+ *
+ * @param {boolean} [show] Show the context, omit to toggle
+ * @return {jQuery.Promise} Promise resolved when context is finished showing/hiding
+ */
+ve.ui.Context.prototype.toggle = function ( show ) {
+	show = show === undefined ? !this.visible : !!show;
+	if ( show !== this.visible ) {
+		this.visible = show;
+		this.$element.toggleClass( 'oo-ui-element-hidden', !this.visible );
+	}
+	return $.Deferred().resolve().promise();
+};
+
+/**
+ * Update the size and position of the context.
+ *
+ * @chainable
+ */
+ve.ui.Context.prototype.updateDimensions = function () {
+	// Override in subclass if context is positioned relative to content
+	return this;
+};
+
+/**
+ * Destroy the context, removing all DOM elements.
+ */
+ve.ui.Context.prototype.destroy = function () {
+	// Disconnect events
+	this.surface.getModel().disconnect( this );
+
+	this.$element.remove();
+	return this;
+};
+
+/*!
+ * VisualEditor UserInterface Linear Context class.
+ *
+ * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
+ */
+
+/**
+ * UserInterface context.
+ *
+ * @class
+ * @abstract
+ * @extends ve.ui.Context
+ *
+ * @constructor
+ * @param {ve.ui.Surface} surface
+ * @param {Object} [config] Configuration options
+ */
+ve.ui.LinearContext = function VeUiLinearContext() {
+	// Parent constructor
+	ve.ui.LinearContext.super.apply( this, arguments );
+
+	// Properties
+	this.inspector = null;
+	this.inspectors = this.createInspectorWindowManager();
+	this.lastSelectedNode = null;
+	this.afterContextChangeTimeout = null;
+	this.afterContextChangeHandler = this.afterContextChange.bind( this );
+	this.updateDimensionsDebounced = ve.debounce( this.updateDimensions.bind( this ) );
+
+	// Events
+	this.surface.getModel().connect( this, {
+		contextChange: 'onContextChange',
+		documentUpdate: 'onDocumentUpdate'
+	} );
+	this.inspectors.connect( this, { opening: 'onInspectorOpening' } );
+};
+
+/* Inheritance */
+
+OO.inheritClass( ve.ui.LinearContext, ve.ui.Context );
+
+/* Static Property */
+
+/**
+ * Instruct items to provide only a basic rendering.
+ *
+ * @static
+ * @inheritable
+ * @property {boolean}
+ */
+ve.ui.LinearContext.static.basicRendering = false;
+
+/* Methods */
+
+ve.ui.LinearContext.prototype.shouldUseBasicRendering = function () {
+	return this.constructor.static.basicRendering;
+};
+
+/**
  * Handle context change event.
  *
  * While an inspector is opening or closing, all changes are ignored so as to prevent inspectors
@@ -11567,7 +12131,7 @@ ve.ui.Context.prototype.shouldUseBasicRendering = function () {
  *
  * @see #afterContextChange
  */
-ve.ui.Context.prototype.onContextChange = function () {
+ve.ui.LinearContext.prototype.onContextChange = function () {
 	if ( this.inspector && ( this.inspector.isOpening() || this.inspector.isClosing() ) ) {
 		// Cancel debounced change handler
 		clearTimeout( this.afterContextChangeTimeout );
@@ -11586,7 +12150,7 @@ ve.ui.Context.prototype.onContextChange = function () {
 /**
  * Handle document update event.
  */
-ve.ui.Context.prototype.onDocumentUpdate = function () {
+ve.ui.LinearContext.prototype.onDocumentUpdate = function () {
 	// Only mind this event if the menu is visible
 	if ( this.isVisible() && !this.isEmpty() ) {
 		// Reuse the debounced context change hanlder
@@ -11597,7 +12161,7 @@ ve.ui.Context.prototype.onDocumentUpdate = function () {
 /**
  * Handle debounced context change events.
  */
-ve.ui.Context.prototype.afterContextChange = function () {
+ve.ui.LinearContext.prototype.afterContextChange = function () {
 	var selectedNode = this.surface.getModel().getSelectedNode();
 
 	// Reset debouncing state
@@ -11643,7 +12207,7 @@ ve.ui.Context.prototype.afterContextChange = function () {
  *   closing, the second argument will be the opening data
  * @param {Object} data Window opening data
  */
-ve.ui.Context.prototype.onInspectorOpening = function ( win, opening ) {
+ve.ui.LinearContext.prototype.onInspectorOpening = function ( win, opening ) {
 	var context = this,
 		observer = this.surface.getView().surfaceObserver;
 	this.inspector = win;
@@ -11657,12 +12221,13 @@ ve.ui.Context.prototype.onInspectorOpening = function ( win, opening ) {
 	opening
 		.progress( function ( data ) {
 			if ( data.state === 'setup' ) {
+				if ( !context.isVisible() ) {
+					// Change state: closed -> inspector
+					context.toggle( true );
+				}
 				if ( !context.isEmpty() ) {
 					// Change state: menu -> inspector
 					context.toggleMenu( false );
-				} else if ( !context.isVisible() ) {
-					// Change state: closed -> inspector
-					context.toggle( true );
 				}
 			}
 			context.updateDimensionsDebounced();
@@ -11700,7 +12265,7 @@ ve.ui.Context.prototype.onInspectorOpening = function ( win, opening ) {
  *
  * @return {boolean} Context is visible
  */
-ve.ui.Context.prototype.isVisible = function () {
+ve.ui.LinearContext.prototype.isVisible = function () {
 	return this.visible;
 };
 
@@ -11709,38 +12274,14 @@ ve.ui.Context.prototype.isVisible = function () {
  *
  * @return {boolean} Content is inspectable
  */
-ve.ui.Context.prototype.isInspectable = function () {
+ve.ui.LinearContext.prototype.isInspectable = function () {
 	return !!this.getRelatedSources().length;
 };
 
 /**
- * Check if the context menu for current content is embeddable.
- *
- * @return {boolean} Context menu is embeddable
+ * @inheritdoc
  */
-ve.ui.Context.prototype.isEmbeddable = function () {
-	var i, len,
-		sources = this.getRelatedSources();
-
-	for ( i = 0, len = sources.length; i < len; i++ ) {
-		if ( !sources[i].embeddable ) {
-			return false;
-		}
-	}
-
-	return true;
-};
-
-/**
- * Get related item sources.
- *
- * Result is cached, and cleared when the model or selection changes.
- *
- * @returns {Object[]} List of objects containing `type`, `name` and `model` properties,
- *   representing each compatible type (either `item` or `tool`), symbolic name of the item or tool
- *   and the model the item or tool is compatible with
- */
-ve.ui.Context.prototype.getRelatedSources = function () {
+ve.ui.LinearContext.prototype.getRelatedSources = function () {
 	var i, len, toolClass, items, tools, models, selectedModels;
 
 	if ( !this.relatedSources ) {
@@ -11780,20 +12321,11 @@ ve.ui.Context.prototype.getRelatedSources = function () {
 };
 
 /**
- * Get the surface the context is being used with.
- *
- * @return {ve.ui.Surface}
- */
-ve.ui.Context.prototype.getSurface = function () {
-	return this.surface;
-};
-
-/**
  * Get inspector window set.
  *
  * @return {ve.ui.WindowManager}
  */
-ve.ui.Context.prototype.getInspectors = function () {
+ve.ui.LinearContext.prototype.getInspectors = function () {
 	return this.inspectors;
 };
 
@@ -11803,114 +12335,14 @@ ve.ui.Context.prototype.getInspectors = function () {
  * @method
  * @abstract
  * @return {ve.ui.WindowManager} Inspector window manager
- * @throws {Error} If this method is not overridden in a concrete subclass
  */
-ve.ui.Context.prototype.createInspectorWindowManager = function () {
-	throw new Error( 've.ui.Context.createInspectorWindowManager must be overridden in subclass' );
-};
+ve.ui.LinearContext.prototype.createInspectorWindowManager = null;
 
 /**
- * Toggle the menu.
- *
- * @param {boolean} [show] Show the menu, omit to toggle
- * @chainable
+ * @inheritdoc
  */
-ve.ui.Context.prototype.toggleMenu = function ( show ) {
-	show = show === undefined ? !this.choosing : !!show;
-
-	if ( show !== this.choosing ) {
-		this.choosing = show;
-		this.$element.toggleClass( 've-ui-context-choosing', show );
-		if ( show ) {
-			this.setupMenuItems();
-		} else {
-			this.teardownMenuItems();
-		}
-	}
-
-	return this;
-};
-
-/**
- * Setup menu items.
- *
- * @protected
- * @chainable
- */
-ve.ui.Context.prototype.setupMenuItems = function () {
-	var i, len, source,
-		sources = this.getRelatedSources(),
-		items = [];
-
-	for ( i = 0, len = sources.length; i < len; i++ ) {
-		source = sources[i];
-		if ( source.type === 'item' ) {
-			items.push( ve.ui.contextItemFactory.create(
-				sources[i].name, this, sources[i].model, { $: this.$ }
-			) );
-		} else if ( source.type === 'tool' ) {
-			items.push( new ve.ui.ToolContextItem(
-				this, sources[i].model, ve.ui.toolFactory.lookup( sources[i].name ), { $: this.$ }
-			) );
-		}
-	}
-
-	this.addItems( items );
-	for ( i = 0, len = items.length; i < len; i++ ) {
-		items[i].setup();
-	}
-
-	return this;
-};
-
-/**
- * Teardown menu items.
- *
- * @protected
- * @chainable
- */
-ve.ui.Context.prototype.teardownMenuItems = function () {
-	var i, len;
-
-	for ( i = 0, len = this.items.length; i < len; i++ ) {
-		this.items[i].teardown();
-	}
-	this.clearItems();
-
-	return this;
-};
-
-/**
- * Toggle the visibility of the context.
- *
- * @param {boolean} [show] Show the context, omit to toggle
- * @return {jQuery.Promise} Promise resolved when context is finished showing/hiding
- */
-ve.ui.Context.prototype.toggle = function ( show ) {
-	show = show === undefined ? !this.visible : !!show;
-	if ( show !== this.visible ) {
-		this.visible = show;
-		this.$element.toggleClass( 'oo-ui-element-hidden', !this.visible );
-	}
-	return $.Deferred().resolve().promise();
-};
-
-/**
- * Update the size and position of the context.
- *
- * @chainable
- */
-ve.ui.Context.prototype.updateDimensions = function () {
-	// Override in subclass if context is positioned relative to content
-	return this;
-};
-
-/**
- * Destroy the context, removing all DOM elements.
- */
-ve.ui.Context.prototype.destroy = function () {
+ve.ui.LinearContext.prototype.destroy = function () {
 	// Disconnect events
-	this.surface.getModel().disconnect( this );
 	this.inspectors.disconnect( this );
 
 	// Destroy inspectors WindowManager
@@ -11919,8 +12351,147 @@ ve.ui.Context.prototype.destroy = function () {
 	// Stop timers
 	clearTimeout( this.afterContextChangeTimeout );
 
-	this.$element.remove();
-	return this;
+	// Parent method
+	return ve.ui.LinearContext.super.prototype.destroy.call( this );
+};
+
+/*!
+ * VisualEditor UserInterface Table Context class.
+ *
+ * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
+ */
+
+/**
+ * Context menu for editing tables.
+ *
+ * Two are usually generated for column and row actions separately.
+ *
+ * @class
+ * @extends ve.ui.Context
+ *
+ * @constructor
+ * @param {ve.ce.TableNode} tableNode
+ * @param {string} itemGroup Tool group to use, 'col' or 'row'
+ * @param {Object} [config] Configuration options
+ * @cfg {string} [indicator] Indicator to use on button
+ */
+ve.ui.TableContext = function VeUiTableContext( tableNode, itemGroup, config ) {
+	config = config || {};
+
+	// Parent constructor
+	ve.ui.TableContext.super.call( this, tableNode.surface.getSurface(), config );
+
+	// Properties
+	this.tableNode = tableNode;
+	this.itemGroup = itemGroup;
+	this.indicator = new OO.ui.IndicatorWidget( {
+		classes: [ 've-ui-tableContext-indicator' ],
+		indicator: config.indicator
+	} );
+	this.popup = new OO.ui.PopupWidget( {
+		classes: [ 've-ui-tableContext-menu' ],
+		$container: this.surface.$element,
+		width: 150
+	} );
+
+	// Events
+	this.indicator.$element.on( 'mousedown', this.onIndicatorMouseDown.bind( this ) );
+	this.onDocumentMouseDownHandler = this.onDocumentMouseDown.bind( this );
+
+	// Initialization
+	this.popup.$body.append( this.$group );
+	this.$element.addClass( 've-ui-tableContext' ).append( this.indicator.$element, this.popup.$element );
+	// Visibility is handled by the table overlay
+	this.toggle( true );
+};
+
+/* Inheritance */
+
+OO.inheritClass( ve.ui.TableContext, ve.ui.Context );
+
+/* Static Properties */
+
+ve.ui.TableContext.static.basicRendering = true;
+
+ve.ui.TableContext.static.groups = {
+	col: [ 'insertColumnBefore', 'insertColumnAfter', 'deleteColumn' ],
+	row: [ 'insertRowBefore', 'insertRowAfter', 'deleteRow' ]
+};
+
+/* Methods */
+
+/**
+ * @inheritdoc
+ */
+ve.ui.TableContext.prototype.getRelatedSources = function () {
+	var i, l,
+		items = this.constructor.static.groups[this.itemGroup];
+
+	if ( !this.relatedSources ) {
+		this.relatedSources = [];
+
+		for ( i = 0, l = items.length; i < l; i++ ) {
+			this.relatedSources.push( {
+				type: 'item',
+				name: items[i]
+			} );
+		}
+	}
+	return this.relatedSources;
+};
+
+/**
+ * @inheritdoc
+ */
+ve.ui.TableContext.prototype.onContextItemCommand = function () {
+	this.toggleMenu( false );
+};
+
+/**
+ * Handle mouse down events on the indicator
+ *
+ * @param {jQuery.Event} e Mouse down event
+ */
+ve.ui.TableContext.prototype.onIndicatorMouseDown = function ( e ) {
+	e.preventDefault();
+	this.toggleMenu();
+};
+
+/**
+ * Handle document mouse down events
+ *
+ * @param {jQuery.Event} e Mouse down event
+ */
+ve.ui.TableContext.prototype.onDocumentMouseDown = function ( e ) {
+	if ( !$( e.target ).closest( this.$element ).length ) {
+		this.toggleMenu( false );
+	}
+};
+
+/**
+ * @inheritdoc
+ */
+ve.ui.TableContext.prototype.toggleMenu = function ( show ) {
+	// Parent method
+	ve.ui.TableContext.super.prototype.toggleMenu.call( this, show );
+
+	var dir,
+		surfaceModel = this.surface.getModel(),
+		surfaceView = this.surface.getView();
+
+	this.popup.toggle( show );
+	if ( this.popup.isVisible() ) {
+		this.tableNode.setEditing( false );
+		surfaceModel.connect( this, { select: 'toggleMenu' } );
+		surfaceView.$document.on( 'mousedown', this.onDocumentMouseDownHandler );
+		dir = surfaceView.getDocument().getDirectionFromSelection( surfaceModel.getSelection() ) || surfaceModel.getDocument().getDir();
+		this.$element
+			.removeClass( 've-ui-dir-block-rtl ve-ui-dir-block-ltr' )
+			.addClass( 've-ui-dir-block-' + dir );
+	} else {
+		surfaceModel.disconnect( this );
+		surfaceView.$document.off( 'mousedown', this.onDocumentMouseDownHandler );
+	}
 };
 
 /*!
@@ -12024,9 +12595,9 @@ ve.ui.ModeledFactory.prototype.getRelatedItems = function ( models ) {
  *
  * @class
  * @extends OO.ui.Widget
- * @mixins OO.ui.IconElement
- * @mixins OO.ui.LabelElement
- * @mixins OO.ui.PendingElement
+ * @mixins OO.ui.mixin.IconElement
+ * @mixins OO.ui.mixin.LabelElement
+ * @mixins OO.ui.mixin.PendingElement
  *
  * @constructor
  * @param {ve.ui.Context} context Context item is in
@@ -12039,9 +12610,9 @@ ve.ui.ContextItem = function ( context, model, config ) {
 	ve.ui.ContextItem.super.call( this, config );
 
 	// Mixin constructors
-	OO.ui.IconElement.call( this, config );
-	OO.ui.LabelElement.call( this, config );
-	OO.ui.PendingElement.call( this, config );
+	OO.ui.mixin.IconElement.call( this, config );
+	OO.ui.mixin.LabelElement.call( this, config );
+	OO.ui.mixin.PendingElement.call( this, config );
 
 	// Properties
 	this.context = context;
@@ -12089,14 +12660,28 @@ ve.ui.ContextItem = function ( context, model, config ) {
 /* Inheritance */
 
 OO.inheritClass( ve.ui.ContextItem, OO.ui.Widget );
-OO.mixinClass( ve.ui.ContextItem, OO.ui.IconElement );
-OO.mixinClass( ve.ui.ContextItem, OO.ui.LabelElement );
-OO.mixinClass( ve.ui.ContextItem, OO.ui.PendingElement );
+OO.mixinClass( ve.ui.ContextItem, OO.ui.mixin.IconElement );
+OO.mixinClass( ve.ui.ContextItem, OO.ui.mixin.LabelElement );
+OO.mixinClass( ve.ui.ContextItem, OO.ui.mixin.PendingElement );
+
+/* Events */
+
+/**
+ * @event command
+ */
 
 /* Static Properties */
 
 ve.ui.ContextItem.static.editable = true;
 
+/**
+ * Whether the context item should try (if space permits) to go inside the node,
+ * rather than below with an arrow
+ *
+ * @static
+ * @property {boolean}
+ * @inheritable
+ */
 ve.ui.ContextItem.static.embeddable = true;
 
 /**
@@ -12135,6 +12720,7 @@ ve.ui.ContextItem.prototype.onEditButtonClick = function () {
 
 	if ( command ) {
 		command.execute( this.context.getSurface() );
+		this.emit( 'command' );
 	}
 };
 
@@ -12308,6 +12894,7 @@ ve.ui.contextItemFactory = new ve.ui.ContextItemFactory();
 /**
  * Context item for an alignable node.
  *
+ * @class
  * @extends ve.ui.ContextItem
  *
  * @param {ve.ui.Context} context Context item is in
@@ -12323,9 +12910,7 @@ ve.ui.AlignableContextItem = function VeAlignable( context, model, config ) {
 	this.align = new ve.ui.AlignWidget( {
 		dir: this.context.getSurface().getDir()
 	} );
-	if ( align ) {
-		this.align.selectItem( this.align.getItemFromData( align ) );
-	}
+	this.align.selectItemByData( align );
 	this.align.connect( this, { choose: 'onAlignChoose' } );
 
 	// Initialization
@@ -12385,6 +12970,7 @@ ve.ui.contextItemFactory.register( ve.ui.AlignableContextItem );
 /**
  * Context item for a comment.
  *
+ * @class
  * @extends ve.ui.ContextItem
  *
  * @param {ve.ui.Context} context Context item is in
@@ -12439,6 +13025,7 @@ ve.ui.contextItemFactory.register( ve.ui.CommentContextItem );
 /**
  * Context item for a language.
  *
+ * @class
  * @extends ve.ui.ContextItem
  *
  * @param {ve.ui.Context} context Context item is in
@@ -12461,7 +13048,7 @@ OO.inheritClass( ve.ui.LanguageContextItem, ve.ui.ContextItem );
 
 ve.ui.LanguageContextItem.static.name = 'language';
 
-ve.ui.LanguageContextItem.static.icon = 'language';
+ve.ui.LanguageContextItem.static.icon = 'textLanguage';
 
 ve.ui.LanguageContextItem.static.label = OO.ui.deferMsg( 'visualeditor-languageinspector-title' );
 
@@ -12493,6 +13080,7 @@ ve.ui.contextItemFactory.register( ve.ui.LanguageContextItem );
 /**
  * Context item for a link.
  *
+ * @class
  * @extends ve.ui.ContextItem
  *
  * @param {ve.ui.Context} context Context item is in
@@ -12562,6 +13150,7 @@ ve.ui.contextItemFactory.register( ve.ui.LinkContextItem );
 /**
  * Context item for a tool.
  *
+ * @class
  * @extends ve.ui.ContextItem
  *
  * @param {ve.ui.Context} context Context item is in
@@ -12613,138 +13202,155 @@ ve.ui.ToolContextItem.prototype.getDescription = function () {
 };
 
 /*!
- * VisualEditor UserInterface Table Context class.
+ * VisualEditor TableContextItem class.
  *
  * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
  */
 
 /**
- * Context menu for editing tables.
- *
- * Two are usually generated for column and row actions separately.
+ * Context item for a table tool.
  *
  * @class
- * @extends OO.ui.Element
+ * @abstract
+ * @extends ve.ui.ContextItem
  *
- * @constructor
- * @param {ve.ce.TableNode} tableNode
- * @param {string} toolGroup Tool group to use, 'table-col' or 'table-row'
- * @param {Object} [config] Configuration options
- * @cfg {string} [indicator] Indicator to use on button
+ * @param {ve.ui.Context} context Context item is in
+ * @param {ve.dm.Model} model Model the item is related to
+ * @param {Function} tool Tool class the item is based on
+ * @param {Object} config Configuration options
  */
-ve.ui.TableContext = function VeUiTableContext( tableNode, toolGroup, config ) {
-	config = config || {};
-
+ve.ui.TableContextItem = function VeTableContextItem() {
 	// Parent constructor
-	ve.ui.TableContext.super.call( this, config );
-
-	// Properties
-	this.tableNode = tableNode;
-	this.toolGroup = toolGroup;
-	this.surface = tableNode.surface.getSurface();
-	this.visible = false;
-	this.indicator = new OO.ui.IndicatorWidget( {
-		$: this.$,
-		classes: ['ve-ui-tableContext-indicator'],
-		indicator: config.indicator
-	} );
-	this.menu = new ve.ui.ContextSelectWidget( { $: this.$ } );
-	this.popup = new OO.ui.PopupWidget( {
-		$: this.$,
-		$container: this.surface.$element,
-		width: 150
-	} );
-
-	// Events
-	this.indicator.$element.on( 'mousedown', this.onIndicatorMouseDown.bind( this ) );
-	this.menu.connect( this, { choose: 'onContextItemChoose' } );
-	this.onDocumentMouseDownHandler = this.onDocumentMouseDown.bind( this );
+	ve.ui.TableContextItem.super.apply( this, arguments );
 
 	// Initialization
-	this.populateMenu();
-	this.menu.$element.addClass( 've-ui-tableContext-menu' );
-	this.popup.$body.append( this.menu.$element );
-	this.$element.addClass( 've-ui-tableContext' ).append( this.indicator.$element, this.popup.$element );
+	this.$title.remove();
+	this.$info.remove();
+	this.editButton.toggleFramed( false ).clearFlags();
+	this.$element.addClass( 've-ui-tableContextItem' );
 };
 
 /* Inheritance */
 
-OO.inheritClass( ve.ui.TableContext, OO.ui.Element );
+OO.inheritClass( ve.ui.TableContextItem, ve.ui.ContextItem );
+
+/* Static Properties */
+
+ve.ui.TableContextItem.static.name = 'table';
+
+/**
+ * Title to use for context item action
+ *
+ * @static
+ * @property {string}
+ * @inheritable
+ */
+ve.ui.TableContextItem.static.title = null;
 
 /* Methods */
 
 /**
- * Populate menu items.
+ * Get the title of the tool, used by the button label
+ *
+ * @return {jQuery|string|OO.ui.HtmlSnippet|Function} Tool title
  */
-ve.ui.TableContext.prototype.populateMenu = function () {
-	var i, l, tool,
-		items = [],
-		toolList = ve.ui.toolFactory.getTools( [ { group: this.toolGroup } ] );
-
-	this.menu.clearItems();
-	for ( i = 0, l = toolList.length; i < l; i++ ) {
-		tool = ve.ui.toolFactory.lookup( toolList[i] );
-		items.push( new ve.ui.ContextOptionWidget(
-			tool, this.tableNode.getModel(), { $: this.$, data: tool.static.name }
-		) );
-	}
-	this.menu.addItems( items );
+ve.ui.TableContextItem.prototype.getTitle = function () {
+	return this.constructor.static.title;
 };
 
 /**
- * Handle context item choose events.
- *
- * @param {ve.ui.ContextOptionWidget} item Chosen item
+ * @inheritdoc
  */
-ve.ui.TableContext.prototype.onContextItemChoose = function ( item ) {
-	item.getCommand().execute( this.surface );
-	this.toggle( false );
+ve.ui.TableContextItem.prototype.setup = function () {
+	// Parent method
+	ve.ui.TableContextItem.super.prototype.setup.call( this );
+
+	this.editButton
+		.setIcon( this.constructor.static.icon )
+		.setLabel( this.getTitle() );
 };
 
-/**
- * Handle mouse down events on the indicator
- *
- * @param {jQuery.Event} e Mouse down event
- */
-ve.ui.TableContext.prototype.onIndicatorMouseDown = function ( e ) {
-	e.preventDefault();
-	this.toggle();
-};
+/* Specific tools */
 
-/**
- * Handle document mouse down events
- *
- * @param {jQuery.Event} e Mouse down event
- */
-ve.ui.TableContext.prototype.onDocumentMouseDown = function ( e ) {
-	if ( !$( e.target ).closest( this.$element ).length ) {
-		this.toggle( false );
-	}
+ve.ui.InsertColumnBeforeContextItem = function VeUiInsertColumnBeforeContextItem() {
+	ve.ui.InsertColumnBeforeContextItem.super.apply( this, arguments );
 };
+OO.inheritClass( ve.ui.InsertColumnBeforeContextItem, ve.ui.TableContextItem );
+ve.ui.InsertColumnBeforeContextItem.static.name = 'insertColumnBefore';
+ve.ui.InsertColumnBeforeContextItem.static.group = 'table-col';
+ve.ui.InsertColumnBeforeContextItem.static.icon = 'tableAddColumnBefore';
+ve.ui.InsertColumnBeforeContextItem.static.title =
+	OO.ui.deferMsg( 'visualeditor-table-insert-col-before' );
+ve.ui.InsertColumnBeforeContextItem.static.commandName = 'insertColumnBefore';
+ve.ui.contextItemFactory.register( ve.ui.InsertColumnBeforeContextItem );
 
-/**
- * Toggle visibility
- *
- * @param {boolean} [show] Show the context menu
- */
-ve.ui.TableContext.prototype.toggle = function ( show ) {
-	var dir,
-		surfaceModel = this.surface.getModel(),
-		surfaceView = this.surface.getView();
-	this.popup.toggle( show );
-	if ( this.popup.isVisible() ) {
-		this.tableNode.setEditing( false );
-		surfaceModel.connect( this, { select: 'toggle' } );
-		surfaceView.$document.on( 'mousedown', this.onDocumentMouseDownHandler );
-		dir = surfaceView.getDocument().getDirectionFromSelection( surfaceModel.getSelection() ) || surfaceModel.getDocument().getDir();
-		this.$element
-			.removeClass( 've-ui-dir-block-rtl ve-ui-dir-block-ltr' )
-			.addClass( 've-ui-dir-block-' + dir );
-	} else {
-		surfaceModel.disconnect( this );
-		surfaceView.$document.off( 'mousedown', this.onDocumentMouseDownHandler );
-	}
+ve.ui.InsertColumnAfterContextItem = function VeUiInsertColumnAfterContextItem() {
+	ve.ui.InsertColumnAfterContextItem.super.apply( this, arguments );
 };
+OO.inheritClass( ve.ui.InsertColumnAfterContextItem, ve.ui.TableContextItem );
+ve.ui.InsertColumnAfterContextItem.static.name = 'insertColumnAfter';
+ve.ui.InsertColumnAfterContextItem.static.group = 'table-col';
+ve.ui.InsertColumnAfterContextItem.static.icon = 'tableAddColumnAfter';
+ve.ui.InsertColumnAfterContextItem.static.title =
+	OO.ui.deferMsg( 'visualeditor-table-insert-col-after' );
+ve.ui.InsertColumnAfterContextItem.static.commandName = 'insertColumnAfter';
+ve.ui.contextItemFactory.register( ve.ui.InsertColumnAfterContextItem );
+
+ve.ui.DeleteColumnContextItem = function VeUiDeleteColumnContextItem() {
+	ve.ui.DeleteColumnContextItem.super.apply( this, arguments );
+};
+OO.inheritClass( ve.ui.DeleteColumnContextItem, ve.ui.TableContextItem );
+ve.ui.DeleteColumnContextItem.static.name = 'deleteColumn';
+ve.ui.DeleteColumnContextItem.static.group = 'table-col';
+ve.ui.DeleteColumnContextItem.static.icon = 'remove';
+ve.ui.DeleteColumnContextItem.static.commandName = 'deleteColumn';
+ve.ui.DeleteColumnContextItem.prototype.getTitle = function () {
+	var selection = this.context.getSurface().getModel().getSelection(),
+		colCount = selection instanceof ve.dm.TableSelection ? selection.getColCount() : 0;
+
+	return ve.msg( 'visualeditor-table-delete-col', colCount );
+};
+ve.ui.contextItemFactory.register( ve.ui.DeleteColumnContextItem );
+
+ve.ui.InsertRowBeforeContextItem = function VeUiInsertRowBeforeContextItem() {
+	ve.ui.InsertRowBeforeContextItem.super.apply( this, arguments );
+};
+OO.inheritClass( ve.ui.InsertRowBeforeContextItem, ve.ui.TableContextItem );
+ve.ui.InsertRowBeforeContextItem.static.name = 'insertRowBefore';
+ve.ui.InsertRowBeforeContextItem.static.group = 'table-row';
+ve.ui.InsertRowBeforeContextItem.static.icon = 'tableAddRowBefore';
+ve.ui.InsertRowBeforeContextItem.static.title =
+	OO.ui.deferMsg( 'visualeditor-table-insert-row-before' );
+ve.ui.InsertRowBeforeContextItem.static.commandName = 'insertRowBefore';
+ve.ui.contextItemFactory.register( ve.ui.InsertRowBeforeContextItem );
+
+ve.ui.InsertRowAfterContextItem = function VeUiInsertRowAfterContextItem() {
+	ve.ui.InsertRowAfterContextItem.super.apply( this, arguments );
+};
+OO.inheritClass( ve.ui.InsertRowAfterContextItem, ve.ui.TableContextItem );
+ve.ui.InsertRowAfterContextItem.static.name = 'insertRowAfter';
+ve.ui.InsertRowAfterContextItem.static.group = 'table-row';
+ve.ui.InsertRowAfterContextItem.static.icon = 'tableAddRowAfter';
+ve.ui.InsertRowAfterContextItem.static.title =
+	OO.ui.deferMsg( 'visualeditor-table-insert-row-after' );
+ve.ui.InsertRowAfterContextItem.static.commandName = 'insertRowAfter';
+ve.ui.contextItemFactory.register( ve.ui.InsertRowAfterContextItem );
+
+ve.ui.DeleteRowContextItem = function VeUiDeleteRowContextItem() {
+	ve.ui.DeleteRowContextItem.super.apply( this, arguments );
+};
+OO.inheritClass( ve.ui.DeleteRowContextItem, ve.ui.TableContextItem );
+ve.ui.DeleteRowContextItem.static.name = 'deleteRow';
+ve.ui.DeleteRowContextItem.static.group = 'table-row';
+ve.ui.DeleteRowContextItem.static.icon = 'remove';
+ve.ui.DeleteRowContextItem.static.commandName = 'deleteRow';
+ve.ui.DeleteRowContextItem.prototype.getTitle = function () {
+	var selection = this.context.getSurface().getModel().getSelection(),
+		rowCount = selection instanceof ve.dm.TableSelection ? selection.getRowCount() : 0;
+
+	return ve.msg( 'visualeditor-table-delete-row', rowCount );
+};
+ve.ui.contextItemFactory.register( ve.ui.DeleteRowContextItem );
 
 /*!
  * VisualEditor UserInterface Tool classes.
@@ -12753,7 +13359,7 @@ ve.ui.TableContext.prototype.toggle = function ( show ) {
  */
 
 /**
- * UserInterface annotation tool.
+ * UserInterface tool.
  *
  * @class
  * @abstract
@@ -12766,6 +13372,9 @@ ve.ui.TableContext.prototype.toggle = function ( show ) {
 ve.ui.Tool = function VeUiTool( toolGroup, config ) {
 	// Parent constructor
 	OO.ui.Tool.call( this, toolGroup, config );
+
+	// Disable initially
+	this.setDisabled( true );
 };
 
 /* Inheritance */
@@ -12860,6 +13469,7 @@ ve.ui.Tool.prototype.getCommand = function () {
  * @constructor
  * @param {Object} [config] Configuration options
  * @cfg {boolean} [floatable] Toolbar floats when scrolled off the page
+ * @cfg {number} [scrollOffset] Offset from top of the window, when the toolbar should float
  */
 ve.ui.Toolbar = function VeUiToolbar( config ) {
 	config = config || {};
@@ -12870,8 +13480,9 @@ ve.ui.Toolbar = function VeUiToolbar( config ) {
 	// Properties
 	this.floating = false;
 	this.floatable = !!config.floatable;
-	this.$window = this.$( this.getElementWindow() );
+	this.$window = $( this.getElementWindow() );
 	this.elementOffset = null;
+	this.scrollOffset = config.scrollOffset || 0;
 	this.windowEvents = {
 		// Must use Function#bind (or a closure) instead of direct reference
 		// because we need a unique function references for each Toolbar instance
@@ -12953,7 +13564,7 @@ ve.ui.Toolbar.prototype.isToolAvailable = function ( name ) {
 ve.ui.Toolbar.prototype.onWindowScroll = function () {
 	var scrollTop = this.$window.scrollTop();
 
-	if ( scrollTop > this.elementOffset.top ) {
+	if ( scrollTop + this.scrollOffset > this.elementOffset.top ) {
 		this.float();
 	} else if ( this.floating ) {
 		this.unfloat();
@@ -13429,189 +14040,189 @@ ve.ui.commandRegistry = new ve.ui.CommandRegistry();
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'bold', 'annotation', 'toggle',
-		{ args: ['textStyle/bold'], supportedSelections: ['linear', 'table'] }
+		{ args: [ 'textStyle/bold' ], supportedSelections: [ 'linear', 'table' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'italic', 'annotation', 'toggle',
-		{ args: ['textStyle/italic'], supportedSelections: ['linear', 'table'] }
+		{ args: [ 'textStyle/italic' ], supportedSelections: [ 'linear', 'table' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'code', 'annotation', 'toggle',
-		{ args: ['textStyle/code'], supportedSelections: ['linear', 'table'] }
+		{ args: [ 'textStyle/code' ], supportedSelections: [ 'linear', 'table' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'strikethrough', 'annotation', 'toggle',
-		{ args: ['textStyle/strikethrough'], supportedSelections: ['linear', 'table'] }
+		{ args: [ 'textStyle/strikethrough' ], supportedSelections: [ 'linear', 'table' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'underline', 'annotation', 'toggle',
-		{ args: ['textStyle/underline'], supportedSelections: ['linear', 'table'] }
+		{ args: [ 'textStyle/underline' ], supportedSelections: [ 'linear', 'table' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'subscript', 'annotation', 'toggle',
-		{ args: ['textStyle/subscript'], supportedSelections: ['linear', 'table'] }
+		{ args: [ 'textStyle/subscript' ], supportedSelections: [ 'linear', 'table' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'superscript', 'annotation', 'toggle',
-		{ args: ['textStyle/superscript'], supportedSelections: ['linear', 'table'] }
+		{ args: [ 'textStyle/superscript' ], supportedSelections: [ 'linear', 'table' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'link', 'window', 'open',
-		{ args: ['link'], supportedSelections: ['linear'] }
+		{ args: [ 'link' ], supportedSelections: [ 'linear' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'specialCharacter', 'window', 'toggle',
-		{ args: ['specialCharacter'], supportedSelections: ['linear'] }
+		{ args: [ 'specialCharacter' ], supportedSelections: [ 'linear' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'number', 'list', 'toggle',
-		{ args: ['number'], supportedSelections: ['linear'] }
+		{ args: [ 'number' ], supportedSelections: [ 'linear' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'bullet', 'list', 'toggle',
-		{ args: ['bullet'], supportedSelections: ['linear'] }
+		{ args: [ 'bullet' ], supportedSelections: [ 'linear' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'numberWrapOnce', 'list', 'wrapOnce',
-		{ args: ['number', true], supportedSelections: ['linear'] }
+		{ args: [ 'number', true ], supportedSelections: [ 'linear' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'bulletWrapOnce', 'list', 'wrapOnce',
-		{ args: ['bullet', true], supportedSelections: ['linear'] }
+		{ args: [ 'bullet', true ], supportedSelections: [ 'linear' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
-		'commandHelp', 'window', 'open', { args: ['commandHelp'] }
+		'commandHelp', 'window', 'open', { args: [ 'commandHelp' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
-		'findAndReplace', 'window', 'toggle', { args: ['findAndReplace'] }
+		'findAndReplace', 'window', 'toggle', { args: [ 'findAndReplace' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
-		'findNext', 'window', 'open', { args: ['findAndReplace', null, 'findNext'] }
+		'findNext', 'window', 'open', { args: [ 'findAndReplace', null, 'findNext' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
-		'findPrevious', 'window', 'open', { args: ['findAndReplace', null, 'findPrevious'] }
+		'findPrevious', 'window', 'open', { args: [ 'findAndReplace', null, 'findPrevious' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'code', 'annotation', 'toggle',
-		{ args: ['textStyle/code'], supportedSelections: ['linear', 'table'] }
+		{ args: [ 'textStyle/code' ], supportedSelections: [ 'linear', 'table' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'strikethrough', 'annotation', 'toggle',
-		{ args: ['textStyle/strikethrough'], supportedSelections: ['linear', 'table'] }
+		{ args: [ 'textStyle/strikethrough' ], supportedSelections: [ 'linear', 'table' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'language', 'window', 'open',
-		{ args: ['language'], supportedSelections: ['linear'] }
+		{ args: [ 'language' ], supportedSelections: [ 'linear' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'paragraph', 'format', 'convert',
-		{ args: ['paragraph'], supportedSelections: ['linear'] }
+		{ args: [ 'paragraph' ], supportedSelections: [ 'linear' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'heading1', 'format', 'convert',
-		{ args: ['heading', { level: 1 } ], supportedSelections: ['linear'] }
+		{ args: [ 'heading', { level: 1 } ], supportedSelections: [ 'linear' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'heading2', 'format', 'convert',
-		{ args: ['heading', { level: 2 } ], supportedSelections: ['linear'] }
+		{ args: [ 'heading', { level: 2 } ], supportedSelections: [ 'linear' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'heading3', 'format', 'convert',
-		{ args: ['heading', { level: 3 } ], supportedSelections: ['linear'] }
+		{ args: [ 'heading', { level: 3 } ], supportedSelections: [ 'linear' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'heading4', 'format', 'convert',
-		{ args: ['heading', { level: 4 } ], supportedSelections: ['linear'] }
+		{ args: [ 'heading', { level: 4 } ], supportedSelections: [ 'linear' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'heading5', 'format', 'convert',
-		{ args: ['heading', { level: 5 } ], supportedSelections: ['linear'] }
+		{ args: [ 'heading', { level: 5 } ], supportedSelections: [ 'linear' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'heading6', 'format', 'convert',
-		{ args: ['heading', { level: 6 } ], supportedSelections: ['linear'] }
+		{ args: [ 'heading', { level: 6 } ], supportedSelections: [ 'linear' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'preformatted', 'format', 'convert',
-		{ args: ['preformatted'], supportedSelections: ['linear'] }
+		{ args: [ 'preformatted' ], supportedSelections: [ 'linear' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'blockquote', 'format', 'convert',
-		{ args: ['blockquote'], supportedSelections: ['linear'] }
+		{ args: [ 'blockquote' ], supportedSelections: [ 'linear' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'pasteSpecial', 'content', 'pasteSpecial',
-		{ supportedSelections: ['linear', 'table'] }
+		{ supportedSelections: [ 'linear', 'table' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'selectAll', 'content', 'selectAll',
-		{ supportedSelections: ['linear', 'table'] }
+		{ supportedSelections: [ 'linear', 'table' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'comment', 'window', 'open',
-		{ args: ['comment'], supportedSelections: ['linear'] }
+		{ args: [ 'comment' ], supportedSelections: [ 'linear' ] }
 	)
 );
 ve.ui.commandRegistry.register(
@@ -13623,61 +14234,61 @@ ve.ui.commandRegistry.register(
 				rows: 3,
 				cols: 4
 			} ],
-			supportedSelections: ['linear']
+			supportedSelections: [ 'linear' ]
 		}
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'deleteTable', 'table', 'delete',
-		{ args: ['table'], supportedSelections: ['table'] }
+		{ args: [ 'table' ], supportedSelections: [ 'table' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'insertRowBefore', 'table', 'insert',
-		{ args: ['row', 'before'], supportedSelections: ['table'] }
+		{ args: [ 'row', 'before' ], supportedSelections: [ 'table' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'insertRowAfter', 'table', 'insert',
-		{ args: ['row', 'after'], supportedSelections: ['table'] }
+		{ args: [ 'row', 'after' ], supportedSelections: [ 'table' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'deleteRow', 'table', 'delete',
-		{ args: ['row'], supportedSelections: ['table'] }
+		{ args: [ 'row' ], supportedSelections: [ 'table' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'insertColumnBefore', 'table', 'insert',
-		{ args: ['col', 'before'], supportedSelections: ['table'] }
+		{ args: [ 'col', 'before' ], supportedSelections: [ 'table' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'insertColumnAfter', 'table', 'insert',
-		{ args: ['col', 'after'], supportedSelections: ['table'] }
+		{ args: [ 'col', 'after' ], supportedSelections: [ 'table' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command( 'deleteColumn', 'table', 'delete',
-		{ args: ['col'], supportedSelections: ['table'] }
+		{ args: [ 'col' ], supportedSelections: [ 'table' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'tableCellHeader', 'table', 'changeCellStyle',
-		{ args: ['header'], supportedSelections: ['table'] }
+		{ args: [ 'header' ], supportedSelections: [ 'table' ] }
 	)
 );
 ve.ui.commandRegistry.register(
 	new ve.ui.Command(
 		'tableCellData', 'table', 'changeCellStyle',
-		{ args: ['data'], supportedSelections: ['table'] }
+		{ args: [ 'data' ], supportedSelections: [ 'table' ] }
 	)
 );
 
@@ -13753,7 +14364,7 @@ OO.initClass( ve.ui.Trigger );
  * @property
  * @inheritable
  */
-ve.ui.Trigger.static.modifierKeys = ['meta', 'ctrl', 'alt', 'shift'];
+ve.ui.Trigger.static.modifierKeys = [ 'meta', 'ctrl', 'alt', 'shift' ];
 
 /**
  * Symbolic primary key names.
@@ -14634,10 +15245,11 @@ ve.ui.DataTransferHandler.static.matchFunction = null;
  * Process the file
  *
  * Implementations should aim to resolve this.insertableDataDeferred.
+ *
+ * @abstract
+ * @method
  */
-ve.ui.DataTransferHandler.prototype.process = function () {
-	throw new Error( 've.ui.DataTransferHandler subclass must implement process' );
-};
+ve.ui.DataTransferHandler.prototype.process = null;
 
 /**
  * Insert the file at a specified fragment
@@ -14699,6 +15311,17 @@ OO.inheritClass( ve.ui.FileTransferHandler, ve.ui.DataTransferHandler );
 /* Static properties */
 
 ve.ui.FileTransferHandler.static.kinds = [ 'file' ];
+
+/**
+ * List of file extensions supported by this handler
+ *
+ * This is used as a fallback if no types were matched.
+ *
+ * @static
+ * @property {string[]}
+ * @inheritable
+ */
+ve.ui.FileTransferHandler.static.extensions = [];
 
 /* Methods */
 
@@ -14775,6 +15398,8 @@ ve.ui.DataTransferHandlerFactory = function VeUiDataTransferHandlerFactory() {
 	this.handlerNamesByType = {};
 	// Handlers which match a specific kind and type
 	this.handlerNamesByKindAndType = {};
+	// Handlers which match a specific file extension as a fallback
+	this.handlerNamesByExtension = {};
 };
 
 /* Inheritance */
@@ -14792,7 +15417,8 @@ ve.ui.DataTransferHandlerFactory.prototype.register = function ( constructor ) {
 
 	var i, j, ilen, jlen,
 		kinds = constructor.static.kinds,
-		types = constructor.static.types;
+		types = constructor.static.types,
+		extensions = constructor.static.extensions;
 
 	if ( !kinds ) {
 		for ( j = 0, jlen = types.length; j < jlen; j++ ) {
@@ -14806,6 +15432,11 @@ ve.ui.DataTransferHandlerFactory.prototype.register = function ( constructor ) {
 			}
 		}
 	}
+	if ( constructor.prototype instanceof ve.ui.FileTransferHandler ) {
+		for ( i = 0, ilen = extensions.length; i < ilen; i++ ) {
+			this.handlerNamesByExtension[extensions[i]] = constructor.static.name;
+		}
+	}
 };
 
 /**
@@ -14817,8 +15448,13 @@ ve.ui.DataTransferHandlerFactory.prototype.register = function ( constructor ) {
  */
 ve.ui.DataTransferHandlerFactory.prototype.getHandlerNameForItem = function ( item, isPaste ) {
 	var constructor,
-		name = ( this.handlerNamesByKindAndType[item.kind] && this.handlerNamesByKindAndType[item.kind][item.type] ) ||
-		this.handlerNamesByType[item.type];
+		name =
+			// 1. Match by kind + type (e.g. 'file' + 'text/html')
+			( this.handlerNamesByKindAndType[item.kind] && this.handlerNamesByKindAndType[item.kind][item.type] ) ||
+			// 2. Match by just type (e.g. 'image/jpeg')
+			this.handlerNamesByType[item.type] ||
+			// 3. Match by file extension (e.g. 'csv')
+			this.handlerNamesByExtension[item.getExtension()];
 
 	if ( !name ) {
 		return;
@@ -14853,13 +15489,15 @@ ve.ui.dataTransferHandlerFactory = new ve.ui.DataTransferHandlerFactory();
  * @param {Blob} [data.blob] File blob
  * @param {string} [data.stringData] String data
  * @param {DataTransferItem} [data.item] Native data transfer item
+ * @param {string} [name] Item's name, for types which support it, e.g. File
  */
-ve.ui.DataTransferItem = function VeUiDataTransferItem( kind, type, data ) {
+ve.ui.DataTransferItem = function VeUiDataTransferItem( kind, type, data, name ) {
 	this.kind = kind;
 	this.type = type;
 	this.data = data;
 	this.blob = this.data.blob || null;
 	this.stringData = this.data.stringData || ve.getProp( this.blob, 'name' ) || null;
+	this.name = name;
 };
 
 /* Inheritance */
@@ -14875,7 +15513,7 @@ OO.initClass( ve.ui.DataTransferItem );
  * @return {ve.ui.DataTransferItem} New data transfer item
  */
 ve.ui.DataTransferItem.static.newFromBlob = function ( blob ) {
-	return new ve.ui.DataTransferItem( 'file', blob.type, { blob: blob } );
+	return new ve.ui.DataTransferItem( 'file', blob.type, { blob: blob }, blob.name );
 };
 
 /**
@@ -14907,7 +15545,7 @@ ve.ui.DataTransferItem.static.newFromString = function ( stringData, type ) {
  * @return {ve.ui.DataTransferItem} New data transfer item
  */
 ve.ui.DataTransferItem.static.newFromItem = function ( item ) {
-	return new ve.ui.DataTransferItem( item.kind, item.type, { item: item } );
+	return new ve.ui.DataTransferItem( item.kind, item.type, { item: item }, item.getAsFile().name );
 };
 
 /**
@@ -14937,6 +15575,15 @@ ve.ui.DataTransferItem.prototype.getAsFile = function () {
 		);
 	}
 	return this.blob;
+};
+
+/**
+ * Get the extension of the item's name
+ *
+ * @return {string|null} The extension of the item's name, or null if not present
+ */
+ve.ui.DataTransferItem.prototype.getExtension = function () {
+	return this.name ? this.name.split( '.' ).pop() : null;
 };
 
 /**
@@ -15969,9 +16616,9 @@ ve.ui.ListAction.prototype.wrap = function ( style, noBreakpoints ) {
 					documentModel,
 					groupRange,
 					[],
-					[{ type: 'list', attributes: { style: style } }],
+					[ { type: 'list', attributes: { style: style } } ],
 					[],
-					[{ type: 'listItem' }]
+					[ { type: 'listItem' } ]
 				);
 				surfaceModel.change(
 					tx,
@@ -15983,7 +16630,6 @@ ve.ui.ListAction.prototype.wrap = function ( style, noBreakpoints ) {
 	if ( !noBreakpoints ) {
 		surfaceModel.breakpoint();
 	}
-	this.surface.getView().focus();
 	return true;
 };
 
@@ -16017,7 +16663,6 @@ ve.ui.ListAction.prototype.unwrap = function ( noBreakpoints ) {
 		surfaceModel.breakpoint();
 	}
 
-	this.surface.getView().focus();
 	return true;
 };
 
@@ -16068,9 +16713,9 @@ ve.ui.TableAction.static.methods = [ 'create', 'insert', 'delete', 'changeCellSt
  * Creates a new table.
  *
  * @param {Object} [options] Table creation options
- * @param {number} [options.cols=4] Number of rows
- * @param {number} [options.rows=3] Number of columns
- * @param {boolean} [options.header] Make the first row a header row
+ * @param {boolean} [options.header] Include a header row
+ * @param {number} [options.cols=4] Number of columns
+ * @param {number} [options.rows=3] Number of rows (not including optional header row)
  * @param {Object} [options.type='table'] Table node type, must inherit from table
  * @param {Object} [options.attributes] Attributes to give the table
  * @return {boolean} Action was executed
@@ -16613,7 +17258,7 @@ ve.ui.TableAction.prototype.deleteRowsOrColumns = function ( matrix, mode, minIn
 
 		// Cell nodes only get deleted when deleting columns (otherwise row nodes)
 		if ( mode === 'col' ) {
-			actions.push( { action: 'delete', cell: cell });
+			actions.push( { action: 'delete', cell: cell } );
 		}
 	}
 
@@ -16725,9 +17370,11 @@ ve.ui.WindowAction.static.methods = [ 'open', 'close', 'toggle' ];
  * @return {boolean} Action was executed
  */
 ve.ui.WindowAction.prototype.open = function ( name, data, action ) {
-	var windowType = this.getWindowType( name ),
+	var currentInspector, inspectorWindowManager,
+		windowType = this.getWindowType( name ),
 		windowManager = windowType && this.getWindowManager( windowType ),
-		autoClosePromise = $.Deferred().resolve().promise(),
+		currentWindow = windowManager.getCurrentWindow(),
+		autoClosePromises = [],
 		surface = this.surface,
 		fragment = surface.getModel().getFragment( undefined, true ),
 		dir = surface.getView().getDocument().getDirectionFromSelection( fragment.getSelection() ) ||
@@ -16740,11 +17387,24 @@ ve.ui.WindowAction.prototype.open = function ( name, data, action ) {
 	data = ve.extendObject( { dir: dir }, data, { fragment: fragment } );
 	if ( windowType === 'toolbar' || windowType === 'inspector' ) {
 		data = ve.extendObject( data, { surface: surface } );
+		// Auto-close the current window if it is different to the one we are
+		// trying to open.
 		// TODO: Make auto-close a window manager setting
-		autoClosePromise = windowManager.closeWindow( windowManager.getCurrentWindow() );
+		if ( currentWindow && currentWindow.constructor.static.name !== name ) {
+			autoClosePromises.push( windowManager.closeWindow( currentWindow ) );
+		}
 	}
 
-	autoClosePromise.always( function () {
+	// If we're opening a dialog, close all inspectors first
+	if ( windowType === 'dialog' ) {
+		inspectorWindowManager = this.getWindowManager( 'inspector' );
+		currentInspector = inspectorWindowManager.getCurrentWindow();
+		if ( currentInspector ) {
+			autoClosePromises.push( inspectorWindowManager.closeWindow( currentInspector ) );
+		}
+	}
+
+	$.when.apply( $, autoClosePromises ).always( function () {
 		windowManager.getWindow( name ).then( function ( win ) {
 			var opening = windowManager.openWindow( win, data );
 
@@ -16878,7 +17538,7 @@ ve.ui.ClearAnnotationCommand = function VeUiClearAnnotationCommand() {
 	// Parent constructor
 	ve.ui.ClearAnnotationCommand.super.call(
 		this, 'clear', 'annotation', 'clearAll',
-		{ supportedSelections: ['linear', 'table'] }
+		{ supportedSelections: [ 'linear', 'table' ] }
 	);
 };
 
@@ -16970,7 +17630,7 @@ ve.ui.IndentationCommand = function VeUiIndentationCommand( name, method ) {
 	// Parent constructor
 	ve.ui.IndentationCommand.super.call(
 		this, name, 'indentation', method,
-		{ supportedSelections: ['linear'] }
+		{ supportedSelections: [ 'linear' ] }
 	);
 };
 
@@ -17024,7 +17684,7 @@ ve.ui.MergeCellsCommand = function VeUiMergeCellsCommand() {
 	// Parent constructor
 	ve.ui.MergeCellsCommand.super.call(
 		this, 'mergeCells', 'table', 'mergeCells',
-		{ supportedSelections: ['table'] }
+		{ supportedSelections: [ 'table' ] }
 	);
 };
 
@@ -17065,7 +17725,7 @@ ve.ui.TableCaptionCommand = function VeUiTableCaptionCommand() {
 	// Parent constructor
 	ve.ui.TableCaptionCommand.super.call(
 		this, 'tableCaption', 'table', 'caption',
-		{ supportedSelections: ['linear', 'table'] }
+		{ supportedSelections: [ 'linear', 'table' ] }
 	);
 };
 
@@ -17286,7 +17946,7 @@ ve.ui.ToolbarDialog = function VeUiToolbarDialog( config ) {
 
 	// Properties
 	this.disabled = false;
-	this.$shield = this.$( '<div>' ).addClass( 've-ui-toolbarDialog-shield' );
+	this.$shield = $( '<div>' ).addClass( 've-ui-toolbarDialog-shield' );
 
 	// Pre-initialization
 	// This class needs to exist before setup to constrain the height
@@ -17401,16 +18061,15 @@ ve.ui.CommandHelpDialog.prototype.initialize = function () {
 		commandGroups = this.constructor.static.getCommandGroups();
 
 	this.contentLayout = new OO.ui.PanelLayout( {
-		$: this.$,
 		scrollable: true,
 		padded: true,
 		expanded: false
 	} );
-	this.$container = this.$( '<div>' ).addClass( 've-ui-commandHelpDialog-container' );
+	this.$container = $( '<div>' ).addClass( 've-ui-commandHelpDialog-container' );
 
 	for ( i in commandGroups ) {
 		commands = commandGroups[i].commands;
-		$list = this.$( '<dl>' ).addClass( 've-ui-commandHelpDialog-list' );
+		$list = $( '<dl>' ).addClass( 've-ui-commandHelpDialog-list' );
 		for ( j = 0, jLen = commands.length; j < jLen; j++ ) {
 			if ( commands[j].trigger ) {
 				triggerList = ve.ui.triggerRegistry.lookup( commands[j].trigger );
@@ -17426,22 +18085,22 @@ ve.ui.CommandHelpDialog.prototype.initialize = function () {
 					);
 				}
 			}
-			$shortcut = this.$( '<dt>' );
+			$shortcut = $( '<dt>' );
 			for ( k = 0, kLen = triggerList.length; k < kLen; k++ ) {
-				$shortcut.append( this.$( '<kbd>' ).text(
+				$shortcut.append( $( '<kbd>' ).text(
 					triggerList[k].getMessage().replace( /\+/g, ' + ' )
 				) );
 			}
 			$list.append(
 				$shortcut,
-				this.$( '<dd>' ).text( ve.msg( commands[j].msg ) )
+				$( '<dd>' ).text( ve.msg( commands[j].msg ) )
 			);
 		}
 		this.$container.append(
-			this.$( '<div>' )
+			$( '<div>' )
 				.addClass( 've-ui-commandHelpDialog-section' )
 				.append(
-					this.$( '<h3>' ).text( ve.msg( commandGroups[i].title ) ),
+					$( '<h3>' ).text( ve.msg( commandGroups[i].title ) ),
 					$list
 				)
 		);
@@ -17506,7 +18165,7 @@ ve.ui.CommandHelpDialog.static.getCommandGroups = function () {
 			title: 'visualeditor-shortcuts-formatting',
 			commands: [
 				{ trigger: 'paragraph', msg: 'visualeditor-formatdropdown-format-paragraph' },
-				{ shortcuts: ['ctrl+(1-6)'], msg: 'visualeditor-formatdropdown-format-heading-label' },
+				{ shortcuts: [ 'ctrl+(1-6)' ], msg: 'visualeditor-formatdropdown-format-heading-label' },
 				{ trigger: 'preformatted', msg: 'visualeditor-formatdropdown-format-preformatted' },
 				{ trigger: 'blockquote', msg: 'visualeditor-formatdropdown-format-blockquote' },
 				{ trigger: 'indent', msg: 'visualeditor-indentationbutton-indent-tooltip' },
@@ -17556,10 +18215,6 @@ ve.ui.FindAndReplaceDialog = function VeUiFindAndReplaceDialog( config ) {
 	// Parent constructor
 	ve.ui.FindAndReplaceDialog.super.call( this, config );
 
-	// Properties
-	this.surface = null;
-	this.invalidRegex = false;
-
 	// Pre-initialization
 	this.$element.addClass( 've-ui-findAndReplaceDialog' );
 };
@@ -17588,7 +18243,11 @@ ve.ui.FindAndReplaceDialog.prototype.initialize = function () {
 	// Parent method
 	ve.ui.FindAndReplaceDialog.super.prototype.initialize.call( this );
 
-	this.$findResults = this.$( '<div>' ).addClass( 've-ui-findAndReplaceDialog-findResults' );
+	// Properties
+	this.surface = null;
+	this.invalidRegex = false;
+	this.$findResults = $( '<div>' ).addClass( 've-ui-findAndReplaceDialog-findResults' );
+	this.initialFragment = null;
 	this.fragments = [];
 	this.results = 0;
 	// Range over the list of fragments indicating which ones where rendered,
@@ -17598,76 +18257,69 @@ ve.ui.FindAndReplaceDialog.prototype.initialize = function () {
 	this.focusedIndex = 0;
 	this.query = null;
 	this.findText = new OO.ui.TextInputWidget( {
-		$: this.$,
-		placeholder: ve.msg( 'visualeditor-find-and-replace-find-text' )
+		placeholder: ve.msg( 'visualeditor-find-and-replace-find-text' ),
+		validate: ( function ( dialog ) {
+			return function () {
+				return !dialog.invalidRegex;
+			};
+		} )( this )
 	} );
 	this.matchCaseToggle = new OO.ui.ToggleButtonWidget( {
-		$: this.$,
-		icon: 'case-sensitive',
+		icon: 'searchCaseSensitive',
 		iconTitle: ve.msg( 'visualeditor-find-and-replace-match-case' )
 	} );
 	this.regexToggle = new OO.ui.ToggleButtonWidget( {
-		$: this.$,
-		icon: 'regular-expression',
+		icon: 'searchRegularExpression',
 		iconTitle: ve.msg( 'visualeditor-find-and-replace-regular-expression' )
 	} );
 
 	this.previousButton = new OO.ui.ButtonWidget( {
-		$: this.$,
 		icon: 'previous',
 		iconTitle: ve.msg( 'visualeditor-find-and-replace-previous-button' ) + ' ' +
 			ve.ui.triggerRegistry.getMessages( 'findPrevious' ).join( ', ' )
 	} );
 	this.nextButton = new OO.ui.ButtonWidget( {
-		$: this.$,
 		icon: 'next',
 		iconTitle: ve.msg( 'visualeditor-find-and-replace-next-button' ) + ' ' +
 			ve.ui.triggerRegistry.getMessages( 'findNext' ).join( ', ' )
 	} );
 	this.replaceText = new OO.ui.TextInputWidget( {
-		$: this.$,
 		placeholder: ve.msg( 'visualeditor-find-and-replace-replace-text' )
 	} );
 	this.replaceButton = new OO.ui.ButtonWidget( {
-		$: this.$,
 		label: ve.msg( 'visualeditor-find-and-replace-replace-button' )
 	} );
 	this.replaceAllButton = new OO.ui.ButtonWidget( {
-		$: this.$,
 		label: ve.msg( 'visualeditor-find-and-replace-replace-all-button' )
 	} );
 
 	var optionsGroup = new OO.ui.ButtonGroupWidget( {
-			$: this.$,
-			classes: ['ve-ui-findAndReplaceDialog-cell'],
+			classes: [ 've-ui-findAndReplaceDialog-cell' ],
 			items: [
 				this.matchCaseToggle,
 				this.regexToggle
 			]
 		} ),
 		navigateGroup = new OO.ui.ButtonGroupWidget( {
-			$: this.$,
-			classes: ['ve-ui-findAndReplaceDialog-cell'],
+			classes: [ 've-ui-findAndReplaceDialog-cell' ],
 			items: [
 				this.previousButton,
 				this.nextButton
 			]
 		} ),
 		replaceGroup = new OO.ui.ButtonGroupWidget( {
-			$: this.$,
-			classes: ['ve-ui-findAndReplaceDialog-cell'],
+			classes: [ 've-ui-findAndReplaceDialog-cell' ],
 			items: [
 				this.replaceButton,
 				this.replaceAllButton
 			]
 		} ),
 		doneButton = new OO.ui.ButtonWidget( {
-			$: this.$,
-			classes: ['ve-ui-findAndReplaceDialog-cell'],
+			classes: [ 've-ui-findAndReplaceDialog-cell' ],
 			label: ve.msg( 'visualeditor-find-and-replace-done' )
 		} ),
-		$findRow = this.$( '<div>' ).addClass( 've-ui-findAndReplaceDialog-row' ),
-		$replaceRow = this.$( '<div>' ).addClass( 've-ui-findAndReplaceDialog-row' );
+		$findRow = $( '<div>' ).addClass( 've-ui-findAndReplaceDialog-row' ),
+		$replaceRow = $( '<div>' ).addClass( 've-ui-findAndReplaceDialog-row' );
 
 	// Events
 	this.onWindowScrollDebounced = ve.debounce( this.onWindowScroll.bind( this ), 250 );
@@ -17692,14 +18344,14 @@ ve.ui.FindAndReplaceDialog.prototype.initialize = function () {
 	this.$body
 		.append(
 			$findRow.append(
-				this.$( '<div>' ).addClass( 've-ui-findAndReplaceDialog-cell ve-ui-findAndReplaceDialog-cell-input' ).append(
+				$( '<div>' ).addClass( 've-ui-findAndReplaceDialog-cell ve-ui-findAndReplaceDialog-cell-input' ).append(
 					this.findText.$element
 				),
 				navigateGroup.$element,
 				optionsGroup.$element
 			),
 			$replaceRow.append(
-				this.$( '<div>' ).addClass( 've-ui-findAndReplaceDialog-cell ve-ui-findAndReplaceDialog-cell-input' ).append(
+				$( '<div>' ).addClass( 've-ui-findAndReplaceDialog-cell ve-ui-findAndReplaceDialog-cell-input' ).append(
 					this.replaceText.$element
 				),
 				replaceGroup.$element,
@@ -17715,6 +18367,8 @@ ve.ui.FindAndReplaceDialog.prototype.getSetupProcess = function ( data ) {
 	data = data || {};
 	return ve.ui.FindAndReplaceDialog.super.prototype.getSetupProcess.call( this, data )
 		.first( function () {
+			var text, fragment = data.fragment;
+
 			this.surface = data.surface;
 			this.surface.$selections.append( this.$findResults );
 
@@ -17723,12 +18377,14 @@ ve.ui.FindAndReplaceDialog.prototype.getSetupProcess = function ( data ) {
 			this.surface.getView().connect( this, { position: this.renderFragmentsDebounced } );
 			this.surface.getView().$window.on( 'scroll', this.onWindowScrollDebounced );
 
-			var text = data.fragment.getText();
+			text = fragment.getText();
 			if ( text && text !== this.findText.getValue() ) {
 				this.findText.setValue( text );
 			} else {
 				this.onFindChange();
 			}
+
+			this.initialFragment = fragment;
 		}, this );
 };
 
@@ -17748,14 +18404,31 @@ ve.ui.FindAndReplaceDialog.prototype.getReadyProcess = function ( data ) {
 ve.ui.FindAndReplaceDialog.prototype.getTeardownProcess = function ( data ) {
 	return ve.ui.FindAndReplaceDialog.super.prototype.getTeardownProcess.call( this, data )
 		.next( function () {
-			var surfaceView = this.surface.getView();
+			var selection,
+				surfaceView = this.surface.getView(),
+				surfaceModel = this.surface.getModel();
 
 			// Events
 			this.surface.getModel().disconnect( this );
 			surfaceView.disconnect( this );
 			this.surface.getView().$window.off( 'scroll', this.onWindowScrollDebounced );
 
-			surfaceView.focus();
+			// If the surface isn't selected, put the selection back in a sensible place
+			if ( surfaceModel.getSelection() instanceof ve.dm.NullSelection ) {
+				if ( this.fragments.length ) {
+					// Either the active search result...
+					selection = this.fragments[this.focusedIndex].getSelection();
+				} else if ( !( this.initialFragment.getSelection() instanceof ve.dm.NullSelection ) ) {
+					// ... or the initial selection
+					selection = this.initialFragment.getSelection();
+				}
+			}
+			if ( selection ) {
+				surfaceModel.setSelection( selection );
+			} else {
+				// If the selection wasn't changed, focus anyway
+				surfaceView.focus();
+			}
 			this.$findResults.empty().detach();
 			this.fragments = [];
 			this.surface = null;
@@ -17820,7 +18493,7 @@ ve.ui.FindAndReplaceDialog.prototype.updateFragments = function () {
 	} else {
 		this.query = find;
 	}
-	this.findText.$element.toggleClass( 've-ui-findAndReplaceDialog-findText-error', this.invalidRegex );
+	this.findText.setValidityFlag();
 
 	this.fragments = [];
 	if ( this.query ) {
@@ -17883,11 +18556,11 @@ ve.ui.FindAndReplaceDialog.prototype.renderRangeOfFragments = function ( range )
 	this.$findResults.empty();
 	for ( i = range.start; i < range.end; i++ ) {
 		rects = this.surface.getView().getSelectionRects( this.fragments[i].getSelection() );
-		$result = this.$( '<div>' ).addClass( 've-ui-findAndReplaceDialog-findResult' );
+		$result = $( '<div>' ).addClass( 've-ui-findAndReplaceDialog-findResult' );
 		top = Infinity;
 		for ( j = 0, jlen = rects.length; j < jlen; j++ ) {
 			top = Math.min( top, rects[j].top );
-			$result.append( this.$( '<div>' ).css( {
+			$result.append( $( '<div>' ).css( {
 				top: rects[j].top,
 				left: rects[j].left,
 				width: rects[j].width,
@@ -17931,11 +18604,10 @@ ve.ui.FindAndReplaceDialog.prototype.highlightFocused = function ( scrollIntoVie
 			.addClass( 've-ui-findAndReplaceDialog-findResult-focused' );
 
 		top = $result.data( 'top' );
-	} else {
-		// Focused result hasn't been rendered yet so find its offset manually
+	} else if ( scrollIntoView ) {
+		// If we're about to scroll into view and the result isn't rendered, compute the offset manually.
 		rect = surfaceView.getSelectionBoundingRect( this.fragments[this.focusedIndex].getSelection() );
 		top = rect.top;
-		this.renderRangeOfFragments( new ve.Range( this.focusedIndex, this.focusedIndex + 1 ) );
 	}
 
 	if ( scrollIntoView ) {
@@ -17945,7 +18617,7 @@ ve.ui.FindAndReplaceDialog.prototype.highlightFocused = function ( scrollIntoVie
 		windowScrollHeight = surfaceView.$window.height() - this.surface.toolbarHeight;
 
 		if ( offset < windowScrollTop || offset > windowScrollTop + windowScrollHeight ) {
-			surfaceView.$( 'body, html' ).animate( { scrollTop: offset - ( windowScrollHeight / 2  ) }, 'fast' );
+			$( 'body, html' ).animate( { scrollTop: offset - ( windowScrollHeight / 2  ) }, 'fast' );
 		}
 	}
 };
@@ -18108,20 +18780,18 @@ ve.ui.ProgressDialog.prototype.getSetupProcess = function ( data ) {
 
 			for ( i = 0, l = progresses.length; i < l; i++ ) {
 				cancelDeferred = $.Deferred();
-				$row = this.$( '<div>' ).addClass( 've-ui-progressDialog-row' );
-				progressBar = new OO.ui.ProgressBarWidget( { $: this.$ } );
+				$row = $( '<div>' ).addClass( 've-ui-progressDialog-row' );
+				progressBar = new OO.ui.ProgressBarWidget();
 				fieldLayout = new OO.ui.FieldLayout(
 					progressBar,
 					{
-						$: this.$,
 						label: progresses[i].label,
 						align: 'top'
 					}
 				);
 				cancelButton = new OO.ui.ButtonWidget( {
-					$: this.$,
 					framed: false,
-					icon: 'clear',
+					icon: 'cancel',
 					iconTitle: OO.ui.deferMsg( 'visualeditor-dialog-action-cancel' )
 				} ).on( 'click', cancelDeferred.reject.bind( cancelDeferred ) );
 
@@ -18182,7 +18852,7 @@ ve.ui.windowFactory.register( ve.ui.ProgressDialog );
 /*!
  * VisualEditor UserInterface SpecialCharacterDialog class.
  *
- * @copyright 2011-2014 VisualEditor Team and others; see http://ve.mit-license.org
+ * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
  */
 
 /**
@@ -18229,7 +18899,7 @@ ve.ui.SpecialCharacterDialog.prototype.initialize = function () {
 	// Parent method
 	ve.ui.SpecialCharacterDialog.super.prototype.initialize.call( this );
 
-	this.$spinner = this.$( '<div>' ).addClass( 've-ui-specialCharacterDialog-spinner' );
+	this.$spinner = $( '<div>' ).addClass( 've-ui-specialCharacterDialog-spinner' );
 	this.$content.append( this.$spinner );
 };
 
@@ -18303,21 +18973,16 @@ ve.ui.SpecialCharacterDialog.prototype.onContextChange = function () {
  * Builds the button DOM list based on the character list
  */
 ve.ui.SpecialCharacterDialog.prototype.buildButtonList = function () {
-	var category,
-		// HACK: When displaying this inside a dialog, menu would tend to be wider than content
-		isInsideDialog = !!this.manager.$element.closest( '.oo-ui-dialog' ).length;
+	var category;
 
 	this.bookletLayout = new OO.ui.BookletLayout( {
-		$: this.$,
 		outlined: true,
-		menuSize: isInsideDialog ? '10em' : '18em',
 		continuous: true
 	} );
 	this.pages = [];
 	for ( category in this.characters ) {
 		this.pages.push(
 			new ve.ui.SpecialCharacterPage( category, {
-				$: this.$,
 				label: category,
 				characters: this.characters[category]
 			} )
@@ -18337,9 +19002,19 @@ ve.ui.SpecialCharacterDialog.prototype.buildButtonList = function () {
  * Handle the click event on the list
  */
 ve.ui.SpecialCharacterDialog.prototype.onListClick = function ( e ) {
-	var character = $( e.target ).data( 'character' );
+	var
+		character = $( e.target ).data( 'character' ),
+		fragment = this.surface.getModel().getFragment();
+
 	if ( character ) {
-		this.surface.getModel().getFragment().insertContent( character, true ).collapseToEnd().select();
+		if ( typeof character === 'string' ) {
+			fragment.insertContent( character, true ).collapseToEnd().select();
+		} else if ( character.action.type === 'replace' ) {
+			fragment.insertContent( character.action.options.peri, true ).collapseToEnd().select();
+		} else if ( character.action.type === 'encapsulate' ) {
+			fragment.collapseToStart().insertContent( character.action.options.pre, true );
+			fragment.collapseToEnd().insertContent( character.action.options.post, true ).collapseToEnd().select();
+		}
 	}
 };
 
@@ -18472,6 +19147,8 @@ ve.ui.DSVFileTransferHandler.static.name = 'dsv';
 
 ve.ui.DSVFileTransferHandler.static.types = [ 'text/csv', 'text/tab-separated-values' ];
 
+ve.ui.DSVFileTransferHandler.static.extensions = [ 'csv', 'tsv' ];
+
 /* Methods */
 
 /**
@@ -18502,7 +19179,7 @@ ve.ui.DSVFileTransferHandler.prototype.onFileLoad = function () {
 		input = Papa.parse( this.reader.result );
 
 	if ( input.meta.aborted || ( input.data.length <= 0 ) ) {
-		this.insertableDataDeffered.reject();
+		this.insertableDataDeferred.reject();
 		return;
 	}
 
@@ -18581,7 +19258,9 @@ OO.inheritClass( ve.ui.PlainTextFileTransferHandler, ve.ui.FileTransferHandler )
 
 ve.ui.PlainTextFileTransferHandler.static.name = 'plainTextFile';
 
-ve.ui.PlainTextFileTransferHandler.static.types = ['text/plain'];
+ve.ui.PlainTextFileTransferHandler.static.types = [ 'text/plain' ];
+
+ve.ui.PlainTextFileTransferHandler.static.extension = [ 'txt' ];
 
 /* Methods */
 
@@ -18665,6 +19344,8 @@ OO.inheritClass( ve.ui.HTMLFileTransferHandler, ve.ui.FileTransferHandler );
 ve.ui.HTMLFileTransferHandler.static.name = 'htmlFile';
 
 ve.ui.HTMLFileTransferHandler.static.types = [ 'text/html', 'application/xhtml+xml' ];
+
+ve.ui.HTMLFileTransferHandler.static.extensions = [ 'html', 'htm', 'xhtml' ];
 
 /* Methods */
 
@@ -18789,21 +19470,18 @@ ve.ui.AlignWidget = function VeUiAlignWidget( config ) {
 
 	var alignButtons = [
 			new OO.ui.ButtonOptionWidget( {
-				$: this.$,
 				data: 'left',
-				icon: 'align-float-left',
+				icon: 'alignLeft',
 				label: ve.msg( 'visualeditor-align-widget-left' )
 			} ),
 			new OO.ui.ButtonOptionWidget( {
-				$: this.$,
 				data: 'center',
-				icon: 'align-center',
+				icon: 'alignCentre',
 				label: ve.msg( 'visualeditor-align-widget-center' )
 			} ),
 			new OO.ui.ButtonOptionWidget( {
-				$: this.$,
 				data: 'right',
-				icon: 'align-float-right',
+				icon: 'alignRight',
 				label: ve.msg( 'visualeditor-align-widget-right' )
 			} )
 		];
@@ -18855,7 +19533,6 @@ ve.ui.LanguageSearchWidget = function VeUiLanguageSearchWidget( config ) {
 		languageCode = languageCodes[i];
 		this.languageResultWidgets.push(
 			new ve.ui.LanguageResultWidget( {
-				$: this.$,
 				data: {
 					code: languageCode,
 					name: ve.init.platform.getLanguageName( languageCode ),
@@ -18915,7 +19592,7 @@ ve.ui.LanguageSearchWidget.prototype.setAvailableLanguages = function ( availabl
  */
 ve.ui.LanguageSearchWidget.prototype.addResults = function () {
 	var i, iLen, j, jLen, languageResult, data, matchedProperty,
-		matchProperties = ['name', 'autonym', 'code'],
+		matchProperties = [ 'name', 'autonym', 'code' ],
 		query = this.query.getValue().trim(),
 		matcher = new RegExp( '^' + this.constructor.static.escapeRegex( query ), 'i' ),
 		hasQuery = !!query.length,
@@ -18984,8 +19661,8 @@ ve.ui.LanguageResultWidget = function VeUiLanguageResultWidget( config ) {
 
 	// Initialization
 	this.$element.addClass( 've-ui-languageResultWidget' );
-	this.$name = this.$( '<div>' ).addClass( 've-ui-languageResultWidget-name' );
-	this.$otherMatch = this.$( '<div>' ).addClass( 've-ui-languageResultWidget-otherMatch' );
+	this.$name = $( '<div>' ).addClass( 've-ui-languageResultWidget-name' );
+	this.$otherMatch = $( '<div>' ).addClass( 've-ui-languageResultWidget-otherMatch' );
 	this.setLabel( this.$otherMatch.add( this.$name ) );
 };
 
@@ -19011,7 +19688,7 @@ ve.ui.LanguageResultWidget.prototype.updateLabel = function ( query, matchedProp
 
 	// Highlight where applicable
 	if ( matchedProperty ) {
-		$highlighted = this.highlightQuery( data[matchedProperty], query );
+		$highlighted = ve.highlightQuery( data[matchedProperty], query );
 		if ( matchedProperty === 'name' ) {
 			this.$name.empty().append( $highlighted );
 		} else {
@@ -19020,30 +19697,6 @@ ve.ui.LanguageResultWidget.prototype.updateLabel = function ( query, matchedProp
 	}
 
 	return this;
-};
-
-/**
- * Highlight text where a substring query matches
- *
- * @param {string} text Text
- * @param {string} query Query to find
- * @returns {jQuery} Text with query substring wrapped in highlighted span
- */
-ve.ui.LanguageResultWidget.prototype.highlightQuery = function ( text, query ) {
-	var $result = this.$( '<span>' ),
-		offset = text.toLowerCase().indexOf( query.toLowerCase() );
-
-	if ( !query.length || offset === -1 ) {
-		return $result.text( text );
-	}
-	$result.append(
-		document.createTextNode( text.slice( 0, offset ) ),
-		this.$( '<span>' )
-			.addClass( 've-ui-languageResultWidget-highlight' )
-			.text( text.slice( offset, offset + query.length ) ),
-		document.createTextNode( text.slice( offset + query.length ) )
-	);
-	return $result.contents();
 };
 
 /*!
@@ -19102,9 +19755,7 @@ ve.ui.LanguageSearchDialog.static.languageSearchWidget = ve.ui.LanguageSearchWid
 ve.ui.LanguageSearchDialog.prototype.initialize = function () {
 	ve.ui.LanguageSearchDialog.super.prototype.initialize.apply( this, arguments );
 
-	this.searchWidget = new this.constructor.static.languageSearchWidget( {
-		$: this.$
-	} );
+	this.searchWidget = new this.constructor.static.languageSearchWidget();
 	this.searchWidget.getResults().connect( this, { choose: 'onSearchResultsChoose' } );
 	this.$body.append( this.searchWidget.$element );
 };
@@ -19193,35 +19844,29 @@ ve.ui.LanguageInputWidget = function VeUiLanguageInputWidget( config ) {
 	// Properties
 	this.lang = null;
 	this.dir = null;
-	this.overlay = new ve.ui.Overlay( { classes: ['ve-ui-overlay-global'] } );
+	this.overlay = new ve.ui.Overlay( { classes: [ 've-ui-overlay-global' ] } );
 	this.dialogs = config.dialogManager || new ve.ui.WindowManager( { factory: ve.ui.windowFactory, isolate: true } );
 	this.availableLanguages = config.availableLanguages;
 	this.findLanguageButton = new OO.ui.ButtonWidget( {
-		$: this.$,
 		classes: [ 've-ui-languageInputWidget-findLanguageButton' ],
 		label: ve.msg( 'visualeditor-languageinspector-widget-changelang' ),
 		indicator: 'next'
 	} );
 	this.languageCodeTextInput = new OO.ui.TextInputWidget( {
-		$: this.$,
 		classes: [ 've-ui-languageInputWidget-languageCodeTextInput' ]
 	} );
 	this.directionSelect = new OO.ui.ButtonSelectWidget( {
-		$: this.$,
 		classes: [ 've-ui-languageInputWidget-directionSelect' ]
 	} );
 	this.findLanguageField = new OO.ui.FieldLayout( this.findLanguageButton, {
-		$: this.$,
 		align: 'left',
 		label: ve.msg( 'visualeditor-languageinspector-widget-label-language' )
 	} );
 	this.languageCodeField = new OO.ui.FieldLayout( this.languageCodeTextInput, {
-		$: this.$,
 		align: 'left',
 		label: ve.msg( 'visualeditor-languageinspector-widget-label-langcode' )
 	} );
 	this.directionField = new OO.ui.FieldLayout( this.directionSelect, {
-		$: this.$,
 		align: 'left',
 		label: ve.msg( 'visualeditor-languageinspector-widget-label-direction' )
 	} );
@@ -19234,20 +19879,17 @@ ve.ui.LanguageInputWidget = function VeUiLanguageInputWidget( config ) {
 	// Initialization
 	var dirItems = [
 		new OO.ui.ButtonOptionWidget( {
-			$: this.$,
 			data: 'rtl',
-			icon: 'text-dir-rtl'
+			icon: 'textDirRTL'
 		} ),
 		new OO.ui.ButtonOptionWidget( {
-			$: this.$,
 			data: 'ltr',
-			icon: 'text-dir-ltr'
+			icon: 'textDirLTR'
 		} )
 	];
 	if ( !config.requireDir ) {
 		dirItems.splice(
 			1, 0, new OO.ui.ButtonOptionWidget( {
-				$: this.$,
 				data: null,
 				label: ve.msg( 'visualeditor-dialog-language-auto-direction' )
 			} )
@@ -19337,15 +19979,13 @@ ve.ui.LanguageInputWidget.prototype.setLangAndDir = function ( lang, dir ) {
 			ve.init.platform.getLanguageName( lang.toLowerCase() ) ||
 			ve.msg( 'visualeditor-languageinspector-widget-changelang' )
 		);
-		this.directionSelect.selectItem(
-			this.directionSelect.getItemFromData( dir || null )
-		);
+		this.directionSelect.selectItemByData( dir );
 	} else {
 		this.languageCodeTextInput.setValue( '' );
 		this.findLanguageButton.setLabel(
 			ve.msg( 'visualeditor-languageinspector-widget-changelang' )
 		);
-		this.directionSelect.selectItem( this.directionSelect.getItemFromData( null ) );
+		this.directionSelect.selectItem( null );
 	}
 	this.updating = false;
 
@@ -19391,6 +20031,7 @@ ve.ui.LanguageInputWidget.prototype.getDir = function () {
  * @cfg {Object[]} [tools] Toolbar configuration
  * @cfg {string[]} [excludeCommands] List of commands to exclude
  * @cfg {Object} [importRules] Import rules
+ * @cfg {string} [inDialog] The name of the dialog this surface widget is in
  */
 ve.ui.SurfaceWidget = function VeUiSurfaceWidget( doc, config ) {
 	// Config initialization
@@ -19401,9 +20042,9 @@ ve.ui.SurfaceWidget = function VeUiSurfaceWidget( doc, config ) {
 
 	// Properties
 	this.surface = ve.init.target.createSurface( doc, {
-		$: this.$,
 		excludeCommands: config.excludeCommands,
-		importRules: config.importRules
+		importRules: config.importRules,
+		inDialog: config.inDialog
 	} );
 	this.toolbar = new ve.ui.Toolbar();
 
@@ -19490,98 +20131,130 @@ ve.ui.SurfaceWidget.prototype.focus = function () {
 };
 
 /*!
- * VisualEditor UserInterface LinkTargetInputWidget class.
+ * VisualEditor UserInterface LinkAnnotationWidget class.
  *
  * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
  */
 
 /**
- * Creates an ve.ui.LinkTargetInputWidget object.
+ * Creates an ve.ui.LinkAnnotationWidget object.
  *
  * @class
- * @extends OO.ui.TextInputWidget
+ * @extends OO.ui.Widget
  *
  * @constructor
  * @param {Object} [config] Configuration options
  */
-ve.ui.LinkTargetInputWidget = function VeUiLinkTargetInputWidget( config ) {
-	// Parent constructor
-	OO.ui.TextInputWidget.call( this, $.extend( {
-		validate: /^(https?:\/\/)?[\w-]+(\.[\w-]+)+\.?(:\d+)?(\/\S*)?/gi
-	}, config ) );
-
+ve.ui.LinkAnnotationWidget = function VeUiLinkAnnotationWidget( config ) {
 	// Properties
 	this.annotation = null;
+	this.text = this.createInputWidget( config );
+
+	// Parent constructor
+	// Must be called after this.text is set as parent constructor calls this.setDisabled
+	ve.ui.LinkAnnotationWidget.super.apply( this, arguments );
 
 	// Initialization
-	this.$element.addClass( 've-ui-linkTargetInputWidget' );
+	this.$element
+		.append( this.text.$element )
+		.addClass( 've-ui-linkAnnotationWidget' );
 
-	// Default RTL/LTR check
-	// Has to use global $() instead of this.$() because only the main document's <body> has
-	// the 'rtl' class; inspectors and dialogs have oo-ui-rtl instead.
-	if ( $( 'body' ).hasClass( 'rtl' ) ) {
-		this.$input.addClass( 'oo-ui-rtl' );
-	}
+	// Events
+	this.text.connect( this, { change: 'onTextChange' } );
 };
 
 /* Inheritance */
 
-OO.inheritClass( ve.ui.LinkTargetInputWidget, OO.ui.TextInputWidget );
+OO.inheritClass( ve.ui.LinkAnnotationWidget, OO.ui.Widget );
 
-/* Methods */
+/* Events */
 
 /**
- * Handle value-changing events
+ * @event change
  *
- * Overrides onEdit to perform RTL test based on the typed URL
+ * A change event is emitted when the annotation value of the input changes.
  *
- * @method
+ * @param {ve.dm.LinkAnnotation|null} annotation
  */
-ve.ui.LinkTargetInputWidget.prototype.onEdit = function () {
-	var widget = this;
-	if ( !this.disabled ) {
 
-		// Allow the stack to clear so the value will be updated
-		setTimeout( function () {
-			// RTL/LTR check
-			// Has to use global $() instead of this.$() because only the main document's <body> has
-			// the 'rtl' class; inspectors and dialogs have oo-ui-rtl instead.
-			if ( $( 'body' ).hasClass( 'rtl' ) ) {
-				var isExt = ve.init.platform.getExternalLinkUrlProtocolsRegExp()
-					.test( widget.$input.val() );
-				// If URL is external, flip to LTR. Otherwise, set back to RTL
-				widget.setRTL( !isExt );
+/* Static Methods */
+
+/**
+ * Get an annotation from the current text value
+ *
+ * @static
+ * @param {string} value Text value
+ * @return {ve.dm.LinkAnnotation|null} Link annotation
+ */
+ve.ui.LinkAnnotationWidget.static.getAnnotationFromText = function ( value ) {
+	var href = value.trim();
+
+	// Keep annotation in sync with value
+	if ( href === '' ) {
+		return null;
+	} else {
+		return new ve.dm.LinkAnnotation( {
+			type: 'link',
+			attributes: {
+				href: href
 			}
-			widget.setValue( widget.$input.val(), true );
 		} );
 	}
 };
 
 /**
- * Set the value of the input.
+ * Get a text value for the current annotation
  *
- * Overrides setValue to keep annotations in sync.
+ * @static
+ * @param {ve.dm.LinkAnnotation|null} annotation Link annotation
+ */
+ve.ui.LinkAnnotationWidget.static.getTextFromAnnotation = function ( annotation ) {
+	return annotation ? annotation.getHref() : '';
+};
+
+/* Methods */
+
+/**
+ * Create a text input widget to be used by the annotation widget
+ *
+ * @param {Object} [config] Configuration options
+ * @return {OO.ui.TextInputWidget} Text input widget
+ */
+ve.ui.LinkAnnotationWidget.prototype.createInputWidget = function () {
+	return new OO.ui.TextInputWidget( { validate: 'non-empty' } );
+};
+
+/**
+ * @inheritdoc
+ */
+ve.ui.LinkAnnotationWidget.prototype.setDisabled = function () {
+	// Parent method
+	ve.ui.LinkAnnotationWidget.super.prototype.setDisabled.apply( this, arguments );
+
+	this.text.setDisabled( this.isDisabled() );
+};
+
+/**
+ * Handle value-changing events from the text input
  *
  * @method
- * @param {string} value New value
- * @param {boolean} [fromInput] Value was generated from input element
  */
-ve.ui.LinkTargetInputWidget.prototype.setValue = function ( value, fromInput ) {
-	// Keep annotation in sync with value
-	value = this.cleanUpValue( value );
-	if ( value === '' ) {
-		this.annotation = null;
-	} else {
-		this.setAnnotation( new ve.dm.LinkAnnotation( {
-			type: 'link',
-			attributes: {
-				href: value.trim()
-			}
-		} ), fromInput );
+ve.ui.LinkAnnotationWidget.prototype.onTextChange = function ( value ) {
+	var isExt,
+		widget = this;
+
+	// RTL/LTR check
+	// TODO: Make this work properly
+	if ( $( 'body' ).hasClass( 'rtl' ) ) {
+		isExt = ve.init.platform.getExternalLinkUrlProtocolsRegExp().test( value.trim() );
+		// If URL is external, flip to LTR. Otherwise, set back to RTL
+		this.text.setRTL( !isExt );
 	}
 
-	// Parent method
-	OO.ui.TextInputWidget.prototype.setValue.call( this, value );
+	this.text.isValid().done( function ( valid ) {
+		// Keep annotation in sync with value
+		widget.setAnnotation( valid ? widget.constructor.static.getAnnotationFromText( value ) : null, true );
+	} );
 };
 
 /**
@@ -19590,21 +20263,27 @@ ve.ui.LinkTargetInputWidget.prototype.setValue = function ( value, fromInput ) {
  * The input value will automatically be updated.
  *
  * @method
- * @param {ve.dm.LinkAnnotation} annotation Link annotation
- * @param {boolean} [fromInput] Annotation was generated from input element value
+ * @param {ve.dm.LinkAnnotation|null} annotation Link annotation
+ * @param {boolean} [fromText] Annotation was generated from text input
  * @chainable
  */
-ve.ui.LinkTargetInputWidget.prototype.setAnnotation = function ( annotation, fromInput ) {
+ve.ui.LinkAnnotationWidget.prototype.setAnnotation = function ( annotation, fromText ) {
+	if ( ve.compare(
+			annotation ? annotation.getComparableObject() : {},
+			this.annotation ? this.annotation.getComparableObject() : {}
+	) ) {
+		// No change
+		return this;
+	}
+
 	this.annotation = annotation;
 
-	// If this method was triggered by the user typing into the input, don't update
-	// the input element to avoid the cursor jumping as the user types
-	if ( !fromInput ) {
-		// Parent method
-		OO.ui.TextInputWidget.prototype.setValue.call(
-			this, this.getTargetFromAnnotation( annotation )
-		);
+	// If this method was triggered by a change to the text input, leave it alone.
+	if ( !fromText ) {
+		this.text.setValue( this.constructor.static.getTextFromAnnotation( annotation ) );
 	}
+
+	this.emit( 'change', this.annotation );
 
 	return this;
 };
@@ -19615,7 +20294,7 @@ ve.ui.LinkTargetInputWidget.prototype.setAnnotation = function ( annotation, fro
  * @method
  * @returns {ve.dm.LinkAnnotation} Link annotation
  */
-ve.ui.LinkTargetInputWidget.prototype.getAnnotation = function () {
+ve.ui.LinkAnnotationWidget.prototype.getAnnotation = function () {
 	return this.annotation;
 };
 
@@ -19624,22 +20303,8 @@ ve.ui.LinkTargetInputWidget.prototype.getAnnotation = function () {
  *
  * @return {string} Hyperlink location
  */
-ve.ui.LinkTargetInputWidget.prototype.getHref = function () {
-	return this.getValue();
-};
-
-/**
- * Gets a target from an annotation.
- *
- * @method
- * @param {ve.dm.LinkAnnotation} annotation Link annotation
- * @returns {string} Target
- */
-ve.ui.LinkTargetInputWidget.prototype.getTargetFromAnnotation = function ( annotation ) {
-	if ( annotation instanceof ve.dm.LinkAnnotation ) {
-		return annotation.getAttribute( 'href' );
-	}
-	return '';
+ve.ui.LinkAnnotationWidget.prototype.getHref = function () {
+	return this.constructor.static.getTextFromAnnotation( this.annotation );
 };
 
 /*!
@@ -19774,6 +20439,7 @@ ve.ui.ContextOptionWidget.prototype.getCommand = function () {
  * @constructor
  * @param {Object} [config] Configuration options
  * @cfg {Object} [defaults] Default dimensions
+ * @cfg {Object} [validate] Validation pattern passed to TextInputWidgets
  */
 ve.ui.DimensionsWidget = function VeUiDimensionsWidget( config ) {
 	var labelTimes, labelPx;
@@ -19784,22 +20450,16 @@ ve.ui.DimensionsWidget = function VeUiDimensionsWidget( config ) {
 	// Parent constructor
 	OO.ui.Widget.call( this, config );
 
-	this.widthInput = new OO.ui.TextInputWidget( {
-		$: this.$
-	} );
-	this.heightInput = new OO.ui.TextInputWidget( {
-		$: this.$
-	} );
+	this.widthInput = new OO.ui.TextInputWidget( { validate: config.validate } );
+	this.heightInput = new OO.ui.TextInputWidget( { validate: config.validate } );
 
 	this.defaults = config.defaults || { width: '', height: '' };
 	this.renderDefaults();
 
 	labelTimes = new OO.ui.LabelWidget( {
-		$: this.$,
 		label: ve.msg( 'visualeditor-dimensionswidget-times' )
 	} );
 	labelPx = new OO.ui.LabelWidget( {
-		$: this.$,
 		label: ve.msg( 'visualeditor-dimensionswidget-px' )
 	} );
 
@@ -19993,6 +20653,14 @@ ve.ui.DimensionsWidget.prototype.setHeight = function ( value ) {
 	this.heightInput.setValue( value );
 };
 
+/**
+ * Sets the 'invalid' flag appropriately on both text inputs.
+ */
+ve.ui.DimensionsWidget.prototype.setValidityFlag = function () {
+	this.widthInput.setValidityFlag();
+	this.heightInput.setValidityFlag();
+};
+
 /*!
  * VisualEditor UserInterface MediaSizeWidget class.
  *
@@ -20029,53 +20697,42 @@ ve.ui.MediaSizeWidget = function VeUiMediaSizeWidget( scalable, config ) {
 
 	// Define button select widget
 	this.sizeTypeSelectWidget = new OO.ui.ButtonSelectWidget( {
-		$: this.$,
 		classes: [ 've-ui-mediaSizeWidget-section-sizetype' ]
 	} );
 	this.sizeTypeSelectWidget.addItems( [
 		new OO.ui.ButtonOptionWidget( {
-			$: this.$,
 			data: 'default',
 			label: ve.msg( 'visualeditor-mediasizewidget-sizeoptions-default' )
 		} ),
 		// TODO: when upright is supported by Parsoid
 		// new OO.ui.ButtonOptionWidget( {
-		// $: this.$,
 		// data: 'scale',
 		// label: ve.msg( 'visualeditor-mediasizewidget-sizeoptions-scale' )
 		// } ),
 		new OO.ui.ButtonOptionWidget( {
-			$: this.$,
 			data: 'custom',
 			label: ve.msg( 'visualeditor-mediasizewidget-sizeoptions-custom' )
 		} )
 	] );
 
 	// Define scale
-	this.scaleInput = new OO.ui.TextInputWidget( {
-		$: this.$
-	} );
+	this.scaleInput = new OO.ui.TextInputWidget();
 	scalePercentLabel = new OO.ui.LabelWidget( {
-		$: this.$,
 		input: this.scaleInput,
 		label: ve.msg( 'visualeditor-mediasizewidget-label-scale-percent' )
 	} );
 
-	this.dimensionsWidget = new ve.ui.DimensionsWidget( {
-		$: this.$
-	} );
+	this.dimensionsWidget = new ve.ui.DimensionsWidget( { validate: this.isValid.bind( this ) } );
 
 	// Error label is available globally so it can be displayed and
 	// hidden as needed
 	this.errorLabel = new OO.ui.LabelWidget( {
-		$: this.$,
 		label: ve.msg( 'visualeditor-mediasizewidget-label-defaulterror' )
 	} );
 
 	// Field layouts
 	fieldScale = new OO.ui.FieldLayout(
 		this.scaleInput, {
-			$: this.$,
 			align: 'right',
 			// TODO: when upright is supported by Parsoid
 			// classes: ['ve-ui-mediaSizeWidget-section-scale'],
@@ -20086,18 +20743,16 @@ ve.ui.MediaSizeWidget = function VeUiMediaSizeWidget( scalable, config ) {
 	// this.scaleInput.$element.append( scalePercentLabel.$element );
 	fieldCustom = new OO.ui.FieldLayout(
 		this.dimensionsWidget, {
-			$: this.$,
 			align: 'right',
 			label: ve.msg( 'visualeditor-mediasizewidget-label-custom' ),
-			classes: ['ve-ui-mediaSizeWidget-section-custom']
+			classes: [ 've-ui-mediaSizeWidget-section-custom' ]
 		}
 	);
 
 	// Buttons
 	this.fullSizeButton = new OO.ui.ButtonWidget( {
-		$: this.$,
 		label: ve.msg( 'visualeditor-mediasizewidget-button-originaldimensions' ),
-		classes: ['ve-ui-mediaSizeWidget-button-fullsize']
+		classes: [ 've-ui-mediaSizeWidget-button-fullsize' ]
 	} );
 
 	// Build GUI
@@ -20109,15 +20764,15 @@ ve.ui.MediaSizeWidget = function VeUiMediaSizeWidget( scalable, config ) {
 			// fieldScale.$element,
 			fieldCustom.$element,
 			this.fullSizeButton.$element,
-			this.$( '<div>' )
+			$( '<div>' )
 				.addClass( 've-ui-mediaSizeWidget-label-error' )
 				.append( this.errorLabel.$element )
 		);
 
 	// Events
 	this.dimensionsWidget.connect( this, {
-		widthChange: ['onDimensionsChange', 'width'],
-		heightChange: ['onDimensionsChange', 'height']
+		widthChange: [ 'onDimensionsChange', 'width' ],
+		heightChange: [ 'onDimensionsChange', 'height' ]
 	} );
 	// TODO: when upright is supported by Parsoid
 	// this.scaleInput.connect( this, { change: 'onScaleChange' } );
@@ -20231,13 +20886,9 @@ ve.ui.MediaSizeWidget.prototype.onScaleChange = function () {
 	// If the input changed (and not empty), set to 'custom'
 	// Otherwise, set to 'default'
 	if ( !this.dimensionsWidget.isEmpty() ) {
-		this.sizeTypeSelectWidget.selectItem(
-			this.sizeTypeSelectWidget.getItemFromData( 'scale' )
-		);
+		this.sizeTypeSelectWidget.selectItemByData( 'scale' );
 	} else {
-		this.sizeTypeSelectWidget.selectItem(
-			this.sizeTypeSelectWidget.getItemFromData( 'default' )
-		);
+		this.sizeTypeSelectWidget.selectItemByData( 'default' );
 	}
 };
 
@@ -20512,7 +21163,7 @@ ve.ui.MediaSizeWidget.prototype.validateDimensions = function () {
 	if ( this.valid !== isValid ) {
 		this.valid = isValid;
 		this.errorLabel.toggle( !isValid );
-		this.$element.toggleClass( 've-ui-mediaSizeWidget-input-hasError', !isValid );
+		this.dimensionsWidget.setValidityFlag();
 		// Emit change event
 		this.emit( 'valid', this.valid );
 	}
@@ -20605,6 +21256,118 @@ ve.ui.MediaSizeWidget.prototype.isValid = function () {
 };
 
 /*!
+ * VisualEditor UserInterface PreviewWidget class.
+ *
+ * @copyright 2011-2015 VisualEditor Team and others; see AUTHORS.txt
+ * @license The MIT License (MIT); see LICENSE.txt
+ */
+
+/**
+ * Creates an ve.ui.PreviewWidget object.
+ *
+ * @class
+ * @extends OO.ui.Widget
+ *
+ * @constructor
+ * @param {ve.dm.Node} nodeModel Model from which to create a preview
+ * @param {Object} [config] Configuration options
+ */
+ve.ui.PreviewWidget = function VeUiPreviewWidget( nodeModel, config ) {
+	var promise, promises = [],
+		widget = this;
+
+	// Parent constructor
+	OO.ui.Widget.call( this, config );
+
+	this.model = nodeModel;
+
+	// Initial CE node
+	this.rendering = ve.ce.nodeFactory.create( this.model.getType(), this.model );
+
+	// Traverse children to see when they are all rerendered
+	if ( this.rendering instanceof ve.ce.BranchNode ) {
+		ve.BranchNode.static.traverse( this.rendering, function ( node ) {
+			if ( typeof node.generateContents === 'function' ) {
+				if ( node.isGenerating() ) {
+					promise = $.Deferred();
+					node.once( 'rerender', promise.resolve );
+					promises.push( promise );
+				}
+			}
+		} );
+	} else if ( typeof this.rendering.generateContents === 'function' ) {
+		if ( this.rendering.isGenerating() ) {
+			promise = $.Deferred();
+			this.rendering.once( 'rerender', promise.resolve );
+			promises.push( promise );
+		}
+	}
+
+	// When all children are rerendered, replace with dm DOM
+	$.when.apply( $, promises )
+		.then( function () {
+			// Verify that the widget and/or the ce node weren't destroyed
+			if ( widget.rendering ) {
+				widget.replaceWithModelDom();
+			}
+		} );
+
+	// Initialize
+	this.$element.addClass( 've-ui-previewWidget' );
+};
+
+/* Inheritance */
+
+OO.inheritClass( ve.ui.PreviewWidget, OO.ui.Widget );
+
+/**
+ * Destroy the preview node.
+ */
+ve.ui.PreviewWidget.prototype.destroy = function () {
+	if ( this.rendering ) {
+		this.rendering.destroy();
+		this.rendering = null;
+	}
+};
+
+/**
+ * Replace the content of the body with the model DOM
+ * @fires render
+ */
+ve.ui.PreviewWidget.prototype.replaceWithModelDom = function () {
+	var preview = ve.dm.converter.getDomFromModel( this.model.getDocument(), true ),
+		$preview = $( preview.body );
+
+	// Resolve attributes
+	ve.resolveAttributes(
+		$preview,
+		this.model.getDocument().getHtmlDocument(),
+		ve.dm.Converter.computedAttributes
+	);
+
+	// Make all links open in a new window (sync rendering)
+	$preview.find( 'a' ).attr( 'target', '_blank' );
+
+	// Replace content
+	this.$element.empty().append( $preview.contents() );
+
+	// Event
+	this.emit( 'render' );
+
+	// Cleanup
+	this.rendering.destroy();
+	this.rendering = null;
+};
+
+/**
+ * Check if the preview is still generating
+ * @return {boolean} Still generating
+ */
+ve.ui.PreviewWidget.prototype.isGenerating = function () {
+	return this.rendering && this.rendering.isGenerating();
+};
+
+/*!
  * VisualEditor UserInterface WhitespacePreservingTextInputWidget class.
  *
  * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
@@ -20678,7 +21441,7 @@ ve.ui.WhitespacePreservingTextInputWidget.prototype.getValue = function () {
 		// In case getValue() is called from a parent constructor
 		return this.value;
 	}
-	return this.whitespace[0] + this.value + this.whitespace[1];
+	return this.whitespace[0] + this.getInnerValue() + this.whitespace[1];
 };
 
 /**
@@ -20687,7 +21450,7 @@ ve.ui.WhitespacePreservingTextInputWidget.prototype.getValue = function () {
  * @return {string} Inner/displayed value
  */
 ve.ui.WhitespacePreservingTextInputWidget.prototype.getInnerValue = function () {
-	return this.value;
+	return $.trim( this.value );
 };
 
 /*!
@@ -20758,37 +21521,7 @@ ve.ui.BoldAnnotationTool = function VeUiBoldAnnotationTool( toolGroup, config ) 
 OO.inheritClass( ve.ui.BoldAnnotationTool, ve.ui.AnnotationTool );
 ve.ui.BoldAnnotationTool.static.name = 'bold';
 ve.ui.BoldAnnotationTool.static.group = 'textStyle';
-ve.ui.BoldAnnotationTool.static.icon = {
-	default: 'bold-a',
-	ar: 'bold-arab-ain',
-	be: 'bold-cyrl-te',
-	cs: 'bold-b',
-	da: 'bold-f',
-	de: 'bold-f',
-	en: 'bold-b',
-	es: 'bold-n',
-	eu: 'bold-l',
-	fa: 'bold-arab-dad',
-	fi: 'bold-l',
-	fr: 'bold-g',
-	gl: 'bold-n',
-	he: 'bold-b',
-	hu: 'bold-f',
-	hy: 'bold-armn-to',
-	it: 'bold-g',
-	ka: 'bold-geor-man',
-	ksh: 'bold-f',
-	ky: 'bold-cyrl-zhe',
-	ml: 'bold-b',
-	nl: 'bold-v',
-	nn: 'bold-f',
-	no: 'bold-f',
-	os: 'bold-cyrl-be',
-	pl: 'bold-b',
-	pt: 'bold-n',
-	ru: 'bold-cyrl-zhe',
-	sv: 'bold-f'
-};
+ve.ui.BoldAnnotationTool.static.icon = 'bold';
 ve.ui.BoldAnnotationTool.static.title =
 	OO.ui.deferMsg( 'visualeditor-annotationbutton-bold-tooltip' );
 ve.ui.BoldAnnotationTool.static.annotation = { name: 'textStyle/bold' };
@@ -20810,37 +21543,7 @@ ve.ui.ItalicAnnotationTool = function VeUiItalicAnnotationTool( toolGroup, confi
 OO.inheritClass( ve.ui.ItalicAnnotationTool, ve.ui.AnnotationTool );
 ve.ui.ItalicAnnotationTool.static.name = 'italic';
 ve.ui.ItalicAnnotationTool.static.group = 'textStyle';
-ve.ui.ItalicAnnotationTool.static.icon = {
-	default: 'italic-a',
-	ar: 'italic-arab-meem',
-	be: 'italic-cyrl-ka',
-	cs: 'italic-i',
-	da: 'italic-k',
-	de: 'italic-k',
-	en: 'italic-i',
-	es: 'italic-c',
-	eu: 'italic-e',
-	fa: 'italic-arab-keheh-jeem',
-	fi: 'italic-k',
-	fr: 'italic-i',
-	gl: 'italic-c',
-	he: 'italic-i',
-	hu: 'italic-d',
-	hy: 'italic-armn-sha',
-	it: 'italic-c',
-	ka: 'italic-geor-kan',
-	ksh: 'italic-s',
-	ky: 'italic-cyrl-ka',
-	ml: 'italic-i',
-	nl: 'italic-c',
-	nn: 'italic-k',
-	no: 'italic-k',
-	os: 'italic-cyrl-ka',
-	pl: 'italic-i',
-	pt: 'italic-i',
-	ru: 'italic-cyrl-ka',
-	sv: 'italic-k'
-};
+ve.ui.ItalicAnnotationTool.static.icon = 'italic';
 ve.ui.ItalicAnnotationTool.static.title =
 	OO.ui.deferMsg( 'visualeditor-annotationbutton-italic-tooltip' );
 ve.ui.ItalicAnnotationTool.static.annotation = { name: 'textStyle/italic' };
@@ -20884,11 +21587,7 @@ ve.ui.StrikethroughAnnotationTool = function VeUiStrikethroughAnnotationTool( to
 OO.inheritClass( ve.ui.StrikethroughAnnotationTool, ve.ui.AnnotationTool );
 ve.ui.StrikethroughAnnotationTool.static.name = 'strikethrough';
 ve.ui.StrikethroughAnnotationTool.static.group = 'textStyle';
-ve.ui.StrikethroughAnnotationTool.static.icon = {
-	default: 'strikethrough-a',
-	en: 'strikethrough-s',
-	fi: 'strikethrough-y'
-};
+ve.ui.StrikethroughAnnotationTool.static.icon = 'strikethrough';
 ve.ui.StrikethroughAnnotationTool.static.title =
 	OO.ui.deferMsg( 'visualeditor-annotationbutton-strikethrough-tooltip' );
 ve.ui.StrikethroughAnnotationTool.static.annotation = { name: 'textStyle/strikethrough' };
@@ -20910,10 +21609,7 @@ ve.ui.UnderlineAnnotationTool = function VeUiUnderlineAnnotationTool( toolGroup,
 OO.inheritClass( ve.ui.UnderlineAnnotationTool, ve.ui.AnnotationTool );
 ve.ui.UnderlineAnnotationTool.static.name = 'underline';
 ve.ui.UnderlineAnnotationTool.static.group = 'textStyle';
-ve.ui.UnderlineAnnotationTool.static.icon = {
-	default: 'underline-a',
-	en: 'underline-u'
-};
+ve.ui.UnderlineAnnotationTool.static.icon = 'underline';
 ve.ui.UnderlineAnnotationTool.static.title =
 	OO.ui.deferMsg( 'visualeditor-annotationbutton-underline-tooltip' );
 ve.ui.UnderlineAnnotationTool.static.annotation = { name: 'textStyle/underline' };
@@ -20984,7 +21680,7 @@ ve.ui.MoreTextStyleTool.static.title =
 	OO.ui.deferMsg( 'visualeditor-toolbar-style-tooltip' );
 ve.ui.MoreTextStyleTool.static.groupConfig = {
 	header: OO.ui.deferMsg( 'visualeditor-toolbar-text-style' ),
-	icon: 'text-style',
+	icon: 'textStyle',
 	indicator: 'down',
 	title: OO.ui.deferMsg( 'visualeditor-toolbar-style-tooltip' ),
 	include: [ { group: 'textStyle' }, 'language', 'clear' ],
@@ -21025,7 +21721,7 @@ ve.ui.ClearAnnotationTool.static.name = 'clear';
 
 ve.ui.ClearAnnotationTool.static.group = 'utility';
 
-ve.ui.ClearAnnotationTool.static.icon = 'clear';
+ve.ui.ClearAnnotationTool.static.icon = 'cancel';
 
 ve.ui.ClearAnnotationTool.static.title =
 	OO.ui.deferMsg( 'visualeditor-clearbutton-tooltip' );
@@ -21209,7 +21905,7 @@ ve.ui.SpecialCharacterDialogTool = function VeUiSpecialCharacterDialogTool() {
 OO.inheritClass( ve.ui.SpecialCharacterDialogTool, ve.ui.ToolbarDialogTool );
 ve.ui.SpecialCharacterDialogTool.static.name = 'specialCharacter';
 ve.ui.SpecialCharacterDialogTool.static.group = 'dialog';
-ve.ui.SpecialCharacterDialogTool.static.icon = 'special-character';
+ve.ui.SpecialCharacterDialogTool.static.icon = 'specialCharacter';
 ve.ui.SpecialCharacterDialogTool.static.title =
 	OO.ui.deferMsg( 'visualeditor-specialcharacter-button-tooltip' );
 ve.ui.SpecialCharacterDialogTool.static.autoAddToCatchall = false;
@@ -21667,7 +22363,7 @@ ve.ui.IncreaseIndentationTool = function VeUiIncreaseIndentationTool( toolGroup,
 OO.inheritClass( ve.ui.IncreaseIndentationTool, ve.ui.IndentationTool );
 ve.ui.IncreaseIndentationTool.static.name = 'indent';
 ve.ui.IncreaseIndentationTool.static.group = 'structure';
-ve.ui.IncreaseIndentationTool.static.icon = 'indent-list';
+ve.ui.IncreaseIndentationTool.static.icon = 'indent';
 ve.ui.IncreaseIndentationTool.static.title =
 	OO.ui.deferMsg( 'visualeditor-indentationbutton-indent-tooltip' );
 ve.ui.IncreaseIndentationTool.static.commandName = 'indent';
@@ -21690,7 +22386,7 @@ ve.ui.DecreaseIndentationTool = function VeUiDecreaseIndentationTool( toolGroup,
 OO.inheritClass( ve.ui.DecreaseIndentationTool, ve.ui.IndentationTool );
 ve.ui.DecreaseIndentationTool.static.name = 'outdent';
 ve.ui.DecreaseIndentationTool.static.group = 'structure';
-ve.ui.DecreaseIndentationTool.static.icon = 'outdent-list';
+ve.ui.DecreaseIndentationTool.static.icon = 'outdent';
 ve.ui.DecreaseIndentationTool.static.title =
 	OO.ui.deferMsg( 'visualeditor-indentationbutton-outdent-tooltip' );
 ve.ui.DecreaseIndentationTool.static.commandName = 'outdent';
@@ -21831,7 +22527,7 @@ ve.ui.LanguageInspectorTool = function VeUiLanguageInspectorTool( toolGroup, con
 OO.inheritClass( ve.ui.LanguageInspectorTool, ve.ui.InspectorTool );
 ve.ui.LanguageInspectorTool.static.name = 'language';
 ve.ui.LanguageInspectorTool.static.group = 'meta';
-ve.ui.LanguageInspectorTool.static.icon = 'language';
+ve.ui.LanguageInspectorTool.static.icon = 'textLanguage';
 ve.ui.LanguageInspectorTool.static.title =
 	OO.ui.deferMsg( 'visualeditor-annotationbutton-language-tooltip' );
 ve.ui.LanguageInspectorTool.static.modelClasses = [ ve.dm.LanguageAnnotation ];
@@ -21918,7 +22614,7 @@ ve.ui.BulletListTool = function VeUiBulletListTool( toolGroup, config ) {
 OO.inheritClass( ve.ui.BulletListTool, ve.ui.ListTool );
 ve.ui.BulletListTool.static.name = 'bullet';
 ve.ui.BulletListTool.static.group = 'structure';
-ve.ui.BulletListTool.static.icon = 'bullet-list';
+ve.ui.BulletListTool.static.icon = 'listBullet';
 ve.ui.BulletListTool.static.title =
 	OO.ui.deferMsg( 'visualeditor-listbutton-bullet-tooltip' );
 ve.ui.BulletListTool.static.style = 'bullet';
@@ -21940,7 +22636,7 @@ ve.ui.NumberListTool = function VeUiNumberListTool( toolGroup, config ) {
 OO.inheritClass( ve.ui.NumberListTool, ve.ui.ListTool );
 ve.ui.NumberListTool.static.name = 'number';
 ve.ui.NumberListTool.static.group = 'structure';
-ve.ui.NumberListTool.static.icon = 'number-list';
+ve.ui.NumberListTool.static.icon = 'listNumbered';
 ve.ui.NumberListTool.static.title =
 	OO.ui.deferMsg( 'visualeditor-listbutton-number-tooltip' );
 ve.ui.NumberListTool.static.style = 'number';
@@ -21962,7 +22658,7 @@ ve.ui.InsertTableTool = function VeUiInsertTableTool( toolGroup, config ) {
 OO.inheritClass( ve.ui.InsertTableTool, ve.ui.Tool );
 ve.ui.InsertTableTool.static.name = 'insertTable';
 ve.ui.InsertTableTool.static.group = 'insert';
-ve.ui.InsertTableTool.static.icon = 'table-insert';
+ve.ui.InsertTableTool.static.icon = 'table';
 ve.ui.InsertTableTool.static.title = OO.ui.deferMsg( 'visualeditor-table-insert-table' );
 ve.ui.InsertTableTool.static.commandName = 'insertTable';
 ve.ui.toolFactory.register( ve.ui.InsertTableTool );
@@ -21979,84 +22675,6 @@ ve.ui.DeleteTableTool.static.title = OO.ui.deferMsg( 'visualeditor-table-delete-
 ve.ui.DeleteTableTool.static.commandName = 'deleteTable';
 ve.ui.toolFactory.register( ve.ui.DeleteTableTool );
 
-ve.ui.InsertRowBeforeTool = function VeUiInsertRowBeforeTool( toolGroup, config ) {
-	ve.ui.Tool.call( this, toolGroup, config );
-};
-OO.inheritClass( ve.ui.InsertRowBeforeTool, ve.ui.Tool );
-ve.ui.InsertRowBeforeTool.static.name = 'insertRowBefore';
-ve.ui.InsertRowBeforeTool.static.group = 'table-row';
-ve.ui.InsertRowBeforeTool.static.autoAddToCatchall = false;
-ve.ui.InsertRowBeforeTool.static.icon = 'table-insert-row-before';
-ve.ui.InsertRowBeforeTool.static.title =
-	OO.ui.deferMsg( 'visualeditor-table-insert-row-before' );
-ve.ui.InsertRowBeforeTool.static.commandName = 'insertRowBefore';
-ve.ui.toolFactory.register( ve.ui.InsertRowBeforeTool );
-
-ve.ui.InsertRowAfterTool = function VeUiInsertRowAfterTool( toolGroup, config ) {
-	ve.ui.Tool.call( this, toolGroup, config );
-};
-OO.inheritClass( ve.ui.InsertRowAfterTool, ve.ui.Tool );
-ve.ui.InsertRowAfterTool.static.name = 'insertRowAfter';
-ve.ui.InsertRowAfterTool.static.group = 'table-row';
-ve.ui.InsertRowAfterTool.static.autoAddToCatchall = false;
-ve.ui.InsertRowAfterTool.static.icon = 'table-insert-row-after';
-ve.ui.InsertRowAfterTool.static.title =
-	OO.ui.deferMsg( 'visualeditor-table-insert-row-after' );
-ve.ui.InsertRowAfterTool.static.commandName = 'insertRowAfter';
-ve.ui.toolFactory.register( ve.ui.InsertRowAfterTool );
-
-ve.ui.DeleteRowTool = function VeUiDeleteRowTool( toolGroup, config ) {
-	ve.ui.Tool.call( this, toolGroup, config );
-};
-OO.inheritClass( ve.ui.DeleteRowTool, ve.ui.Tool );
-ve.ui.DeleteRowTool.static.name = 'deleteRow';
-ve.ui.DeleteRowTool.static.group = 'table-row';
-ve.ui.DeleteRowTool.static.autoAddToCatchall = false;
-ve.ui.DeleteRowTool.static.icon = 'remove';
-ve.ui.DeleteRowTool.static.title =
-	OO.ui.deferMsg( 'visualeditor-table-delete-row' );
-ve.ui.DeleteRowTool.static.commandName = 'deleteRow';
-ve.ui.toolFactory.register( ve.ui.DeleteRowTool );
-
-ve.ui.InsertColumnBeforeTool = function VeUiInsertColumnBeforeTool( toolGroup, config ) {
-	ve.ui.Tool.call( this, toolGroup, config );
-};
-OO.inheritClass( ve.ui.InsertColumnBeforeTool, ve.ui.Tool );
-ve.ui.InsertColumnBeforeTool.static.name = 'insertColumnBefore';
-ve.ui.InsertColumnBeforeTool.static.group = 'table-col';
-ve.ui.InsertColumnBeforeTool.static.autoAddToCatchall = false;
-ve.ui.InsertColumnBeforeTool.static.icon = 'table-insert-column-before';
-ve.ui.InsertColumnBeforeTool.static.title =
-	OO.ui.deferMsg( 'visualeditor-table-insert-col-before' );
-ve.ui.InsertColumnBeforeTool.static.commandName = 'insertColumnBefore';
-ve.ui.toolFactory.register( ve.ui.InsertColumnBeforeTool );
-
-ve.ui.InsertColumnAfterTool = function VeUiInsertColumnAfterTool( toolGroup, config ) {
-	ve.ui.Tool.call( this, toolGroup, config );
-};
-OO.inheritClass( ve.ui.InsertColumnAfterTool, ve.ui.Tool );
-ve.ui.InsertColumnAfterTool.static.name = 'insertColumnAfter';
-ve.ui.InsertColumnAfterTool.static.group = 'table-col';
-ve.ui.InsertColumnAfterTool.static.autoAddToCatchall = false;
-ve.ui.InsertColumnAfterTool.static.icon = 'table-insert-column-after';
-ve.ui.InsertColumnAfterTool.static.title =
-	OO.ui.deferMsg( 'visualeditor-table-insert-col-after' );
-ve.ui.InsertColumnAfterTool.static.commandName = 'insertColumnAfter';
-ve.ui.toolFactory.register( ve.ui.InsertColumnAfterTool );
-
-ve.ui.DeleteColumnTool = function VeUiDeleteColumnTool( toolGroup, config ) {
-	ve.ui.Tool.call( this, toolGroup, config );
-};
-OO.inheritClass( ve.ui.DeleteColumnTool, ve.ui.Tool );
-ve.ui.DeleteColumnTool.static.name = 'deleteColumn';
-ve.ui.DeleteColumnTool.static.group = 'table-col';
-ve.ui.DeleteColumnTool.static.autoAddToCatchall = false;
-ve.ui.DeleteColumnTool.static.icon = 'remove';
-ve.ui.DeleteColumnTool.static.title =
-	OO.ui.deferMsg( 'visualeditor-table-delete-col' );
-ve.ui.DeleteColumnTool.static.commandName = 'deleteColumn';
-ve.ui.toolFactory.register( ve.ui.DeleteColumnTool );
-
 ve.ui.MergeCellsTool = function VeUiMergeCellsTool( toolGroup, config ) {
 	ve.ui.Tool.call( this, toolGroup, config );
 };
@@ -22064,7 +22682,7 @@ OO.inheritClass( ve.ui.MergeCellsTool, ve.ui.Tool );
 ve.ui.MergeCellsTool.static.name = 'mergeCells';
 ve.ui.MergeCellsTool.static.group = 'table';
 ve.ui.MergeCellsTool.static.autoAddToCatchall = false;
-ve.ui.MergeCellsTool.static.icon = 'table-merge-cells';
+ve.ui.MergeCellsTool.static.icon = 'tableMergeCells';
 ve.ui.MergeCellsTool.static.title =
 	OO.ui.deferMsg( 'visualeditor-table-merge-cells' );
 ve.ui.MergeCellsTool.static.commandName = 'mergeCells';
@@ -22091,7 +22709,7 @@ OO.inheritClass( ve.ui.TableCaptionTool, ve.ui.Tool );
 ve.ui.TableCaptionTool.static.name = 'tableCaption';
 ve.ui.TableCaptionTool.static.group = 'table';
 ve.ui.TableCaptionTool.static.autoAddToCatchall = false;
-ve.ui.TableCaptionTool.static.icon = 'table-caption';
+ve.ui.TableCaptionTool.static.icon = 'tableCaption';
 ve.ui.TableCaptionTool.static.title =
 	OO.ui.deferMsg( 'visualeditor-table-caption' );
 ve.ui.TableCaptionTool.static.commandName = 'tableCaption';
@@ -22150,6 +22768,11 @@ OO.inheritClass( ve.ui.FragmentInspector, OO.ui.ProcessDialog );
 /* Static Properties */
 
 ve.ui.FragmentInspector.static.actions = ve.ui.FragmentInspector.super.static.actions.concat( [
+	{
+		label: OO.ui.deferMsg( 'visualeditor-dialog-action-cancel' ),
+		flags: 'safe',
+		modes: [ 'edit', 'insert' ]
+	},
 	{
 		action: 'done',
 		label: OO.ui.deferMsg( 'visualeditor-dialog-action-done' ),
@@ -22211,10 +22834,10 @@ ve.ui.FragmentInspector.prototype.initialize = function () {
 
 	// Properties
 	this.container = new OO.ui.PanelLayout( {
-		$: this.$, scrollable: true, classes: [ 've-ui-fragmentInspector-container' ]
+		scrollable: true, classes: [ 've-ui-fragmentInspector-container' ]
 	} );
 	this.form = new OO.ui.FormLayout( {
-		$: this.$, classes: [ 've-ui-fragmentInspector-form' ]
+		classes: [ 've-ui-fragmentInspector-form' ]
 	} );
 
 	// Events
@@ -22325,14 +22948,36 @@ OO.inheritClass( ve.ui.AnnotationInspector, ve.ui.FragmentInspector );
  */
 ve.ui.AnnotationInspector.static.modelClasses = [];
 
+// Override the parent action array to only have a 'cancel' button
+// on insert, since the annotation inspectors immediately apply the
+// action and 'cancel' is meaningless. Instead, they use 'done' to
+// perform the same dismissal after applying action that clicking away
+// from the inspector performs.
 ve.ui.AnnotationInspector.static.actions = [
 	{
 		action: 'remove',
 		label: OO.ui.deferMsg( 'visualeditor-inspector-remove-tooltip' ),
 		flags: 'destructive',
 		modes: 'edit'
+	},
+	{
+		action: 'done',
+		label: OO.ui.deferMsg( 'visualeditor-dialog-action-done' ),
+		flags: [ 'progressive', 'primary' ],
+		modes: 'edit'
+	},
+	{
+		label: OO.ui.deferMsg( 'visualeditor-dialog-action-cancel' ),
+		flags: 'safe',
+		modes: [ 'edit', 'insert' ]
+	},
+	{
+		action: 'done',
+		label: OO.ui.deferMsg( 'visualeditor-dialog-action-insert' ),
+		flags: [ 'constructive', 'primary' ],
+		modes: 'insert'
 	}
-].concat( ve.ui.FragmentInspector.static.actions );
+];
 
 /* Methods */
 
@@ -22376,28 +23021,20 @@ ve.ui.AnnotationInspector.prototype.getInsertionText = function () {
  * but existing annotations won't be removed either.
  *
  * @abstract
+ * @method
  * @returns {ve.dm.Annotation} Annotation to apply
- * @throws {Error} If not overridden in subclass
  */
-ve.ui.AnnotationInspector.prototype.getAnnotation = function () {
-	throw new Error(
-		've.ui.AnnotationInspector.getAnnotation not implemented in subclass'
-	);
-};
+ve.ui.AnnotationInspector.prototype.getAnnotation = null;
 
 /**
  * Get an annotation object from a fragment.
  *
  * @abstract
+ * @method
  * @param {ve.dm.SurfaceFragment} fragment Surface fragment
- * @returns {ve.dm.Annotation} Annotation
- * @throws {Error} If not overridden in a subclass
+ * @returns {ve.dm.Annotation|null} Annotation
  */
-ve.ui.AnnotationInspector.prototype.getAnnotationFromFragment = function () {
-	throw new Error(
-		've.ui.AnnotationInspector.getAnnotationFromFragment not implemented in subclass'
-	);
-};
+ve.ui.AnnotationInspector.prototype.getAnnotationFromFragment = null;
 
 /**
  * Get matching annotations within a fragment.
@@ -22547,7 +23184,7 @@ ve.ui.AnnotationInspector.prototype.getTeardownProcess = function ( data ) {
 				insertText = false,
 				replace = false,
 				annotation = this.getAnnotation(),
-				remove = this.shouldRemoveAnnotation() || data.action === 'remove',
+				remove = data.action === 'remove' || ( data.action === 'done' && this.shouldRemoveAnnotation() ),
 				surfaceModel = this.fragment.getSurface(),
 				fragment = surfaceModel.getFragment( this.initialSelection, false ),
 				selection = this.fragment.getSelection();
@@ -22563,11 +23200,11 @@ ve.ui.AnnotationInspector.prototype.getTeardownProcess = function ( data ) {
 			}
 
 			if ( !remove ) {
+				if ( data.action !== 'done' ) {
+					surfaceModel.popStaging();
+					return;
+				}
 				if ( this.initialSelection.isCollapsed() ) {
-					if ( data.action !== 'done' ) {
-						surfaceModel.popStaging();
-						return;
-					}
 					insertText = true;
 				}
 				if ( annotation ) {
@@ -22729,7 +23366,7 @@ ve.ui.NodeInspector.prototype.getTeardownProcess = function ( data ) {
 };
 
 /*!
- * VisualEditor UserInterface LinkInspector class.
+ * VisualEditor UserInterface LinkAnnotationInspector class.
  *
  * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
  */
@@ -22743,26 +23380,24 @@ ve.ui.NodeInspector.prototype.getTeardownProcess = function ( data ) {
  * @constructor
  * @param {Object} [config] Configuration options
  */
-ve.ui.LinkInspector = function VeUiLinkInspector( config ) {
+ve.ui.LinkAnnotationInspector = function VeUiLinkAnnotationInspector( config ) {
 	// Parent constructor
 	ve.ui.AnnotationInspector.call( this, config );
 };
 
 /* Inheritance */
 
-OO.inheritClass( ve.ui.LinkInspector, ve.ui.AnnotationInspector );
+OO.inheritClass( ve.ui.LinkAnnotationInspector, ve.ui.AnnotationInspector );
 
 /* Static properties */
 
-ve.ui.LinkInspector.static.name = 'link';
+ve.ui.LinkAnnotationInspector.static.name = 'link';
 
-ve.ui.LinkInspector.static.title = OO.ui.deferMsg( 'visualeditor-linkinspector-title' );
+ve.ui.LinkAnnotationInspector.static.title = OO.ui.deferMsg( 'visualeditor-linkinspector-title' );
 
-ve.ui.LinkInspector.static.linkTargetInputWidget = ve.ui.LinkTargetInputWidget;
+ve.ui.LinkAnnotationInspector.static.modelClasses = [ ve.dm.LinkAnnotation ];
 
-ve.ui.LinkInspector.static.modelClasses = [ ve.dm.LinkAnnotation ];
-
-ve.ui.LinkInspector.static.actions = ve.ui.LinkInspector.super.static.actions.concat( [
+ve.ui.LinkAnnotationInspector.static.actions = ve.ui.LinkAnnotationInspector.super.static.actions.concat( [
 	{
 		action: 'open',
 		label: OO.ui.deferMsg( 'visualeditor-linkinspector-open' ),
@@ -22773,129 +23408,150 @@ ve.ui.LinkInspector.static.actions = ve.ui.LinkInspector.super.static.actions.co
 /* Methods */
 
 /**
- * Handle target input change events.
+ * Handle annotation input change events
  *
- * Updates the open button's hyperlink location.
- *
- * @param {string} value New target input value
+ * @param {ve.dm.LinkAnnotation} annotation New link annotation value
  */
-ve.ui.LinkInspector.prototype.onTargetInputChange = function () {
-	var href = this.targetInput.getHref(),
-		inspector = this;
-	this.targetInput.isValid().done( function ( valid ) {
-		inspector.actions.forEach( { actions: 'open' }, function ( action ) {
-			action.setHref( href ).setTarget( '_blank' ).setDisabled( !valid );
-			// HACK: Chrome renders a dark outline around the action when it's a link, but causing it to
-			// re-render makes it magically go away; this is incredibly evil and needs further
-			// investigation
-			action.$element.hide().fadeIn( 0 );
+ve.ui.LinkAnnotationInspector.prototype.onAnnotationInputChange = function () {
+	this.updateActions();
+};
+
+/**
+ * Update the actions based on the annotation state
+ */
+ve.ui.LinkAnnotationInspector.prototype.updateActions = function () {
+	var inspector = this,
+		annotation = this.annotationInput.getAnnotation();
+
+	this.annotationInput.text.isValid().done( function ( isValid ) {
+		isValid = isValid && !!annotation;
+		inspector.actions.forEach( { actions: [ 'open', 'done', 'insert' ] }, function ( action ) {
+			action.setDisabled( !isValid );
 		} );
 	} );
+
 };
 
 /**
  * @inheritdoc
  */
-ve.ui.LinkInspector.prototype.shouldRemoveAnnotation = function () {
-	return !this.targetInput.getValue().length;
+ve.ui.LinkAnnotationInspector.prototype.shouldRemoveAnnotation = function () {
+	return !this.annotationInput.getAnnotation();
 };
 
 /**
  * @inheritdoc
  */
-ve.ui.LinkInspector.prototype.getInsertionText = function () {
-	return this.targetInput.getValue();
+ve.ui.LinkAnnotationInspector.prototype.getInsertionText = function () {
+	return this.annotationInput.getHref();
 };
 
 /**
  * @inheritdoc
  */
-ve.ui.LinkInspector.prototype.getAnnotation = function () {
-	return this.targetInput.getAnnotation();
+ve.ui.LinkAnnotationInspector.prototype.getAnnotation = function () {
+	return this.annotationInput.getAnnotation();
 };
 
 /**
  * @inheritdoc
  */
-ve.ui.LinkInspector.prototype.getAnnotationFromFragment = function ( fragment ) {
-	return new ve.dm.LinkAnnotation( {
+ve.ui.LinkAnnotationInspector.prototype.getAnnotationFromFragment = function ( fragment ) {
+	var text = fragment.getText();
+
+	return text ? new ve.dm.LinkAnnotation( {
 		type: 'link',
 		attributes: { href: fragment.getText() }
-	} );
+	} ) : null;
 };
 
 /**
  * @inheritdoc
  */
-ve.ui.LinkInspector.prototype.initialize = function () {
-	var overlay = this.manager.getOverlay();
-
+ve.ui.LinkAnnotationInspector.prototype.initialize = function () {
 	// Parent method
-	ve.ui.LinkInspector.super.prototype.initialize.call( this );
+	ve.ui.LinkAnnotationInspector.super.prototype.initialize.call( this );
 
 	// Properties
-	this.targetInput = new this.constructor.static.linkTargetInputWidget( {
-		$: this.$,
-		$overlay: overlay ? overlay.$element : this.$frame,
-		disabled: true,
-		classes: [ 've-ui-linkInspector-target' ]
-	} );
+	this.annotationInput = this.createAnnotationInput();
 
 	// Events
-	this.targetInput.connect( this, { change: 'onTargetInputChange' } );
+	this.annotationInput.connect( this, { change: 'onAnnotationInputChange' } );
 
 	// Initialization
-	this.$content.addClass( 've-ui-linkInspector-content' );
-	this.form.$element.append( this.targetInput.$element );
+	this.form.$element.append( this.annotationInput.$element );
+};
+
+/**
+ * Create a link annotation widget
+ *
+ * @return {ve.ui.LinkAnnotationWidget} Link annotation widget
+ */
+ve.ui.LinkAnnotationInspector.prototype.createAnnotationInput = function () {
+	return new ve.ui.LinkAnnotationWidget();
 };
 
 /**
  * @inheritdoc
  */
-ve.ui.LinkInspector.prototype.getSetupProcess = function ( data ) {
-	return ve.ui.LinkInspector.super.prototype.getSetupProcess.call( this, data )
+ve.ui.LinkAnnotationInspector.prototype.getSetupProcess = function ( data ) {
+	return ve.ui.LinkAnnotationInspector.super.prototype.getSetupProcess.call( this, data )
 		.next( function () {
 			// Disable surface until animation is complete; will be reenabled in ready()
 			this.getFragment().getSurface().disable();
-			this.targetInput.setAnnotation( this.initialAnnotation );
+			this.annotationInput.setAnnotation( this.initialAnnotation );
+			this.updateActions();
 		}, this );
 };
 
 /**
  * @inheritdoc
  */
-ve.ui.LinkInspector.prototype.getReadyProcess = function ( data ) {
-	return ve.ui.LinkInspector.super.prototype.getReadyProcess.call( this, data )
+ve.ui.LinkAnnotationInspector.prototype.getReadyProcess = function ( data ) {
+	return ve.ui.LinkAnnotationInspector.super.prototype.getReadyProcess.call( this, data )
 		.next( function () {
-			this.targetInput.setDisabled( false ).focus().select();
+			this.annotationInput.text.focus().select();
 			this.getFragment().getSurface().enable();
-			this.onTargetInputChange();
+
+			// Clear validation state, so that we don't get "invalid" state immediately on focus
+			this.annotationInput.text.setValidityFlag( true );
 		}, this );
 };
 
 /**
  * @inheritdoc
  */
-ve.ui.LinkInspector.prototype.getHoldProcess = function ( data ) {
-	return ve.ui.LinkInspector.super.prototype.getHoldProcess.call( this, data )
+ve.ui.LinkAnnotationInspector.prototype.getHoldProcess = function ( data ) {
+	return ve.ui.LinkAnnotationInspector.super.prototype.getHoldProcess.call( this, data )
 		.next( function () {
-			this.targetInput.setDisabled( true ).blur();
+			this.annotationInput.text.blur();
 		}, this );
 };
 
 /**
  * @inheritdoc
  */
-ve.ui.LinkInspector.prototype.getTeardownProcess = function ( data ) {
-	return ve.ui.LinkInspector.super.prototype.getTeardownProcess.call( this, data )
+ve.ui.LinkAnnotationInspector.prototype.getTeardownProcess = function ( data ) {
+	return ve.ui.LinkAnnotationInspector.super.prototype.getTeardownProcess.call( this, data )
 		.next( function () {
-			this.targetInput.setAnnotation( null );
+			this.annotationInput.setAnnotation( null );
 		}, this );
+};
+
+/**
+ * @inheritdoc
+ */
+ve.ui.LinkAnnotationInspector.prototype.getActionProcess = function ( action ) {
+	if ( action === 'open' ) {
+		window.open( this.annotationInput.getHref() );
+	}
+
+	return ve.ui.LinkAnnotationInspector.super.prototype.getActionProcess.call( this, action );
 };
 
 /* Registration */
 
-ve.ui.windowFactory.register( ve.ui.LinkInspector );
+ve.ui.windowFactory.register( ve.ui.LinkAnnotationInspector );
 
 /*!
  * VisualEditor UserInterface CommentInspector class.
@@ -22953,7 +23609,6 @@ ve.ui.CommentInspector.prototype.initialize = function () {
 	ve.ui.CommentInspector.super.prototype.initialize.call( this );
 
 	this.textWidget = new ve.ui.WhitespacePreservingTextInputWidget( {
-		$: this.$,
 		multiline: true,
 		autosize: true
 	} );
@@ -23132,7 +23787,6 @@ ve.ui.LanguageInspector.prototype.initialize = function () {
 
 	// Properties
 	this.languageInput = new ve.ui.LanguageInputWidget( {
-		$: this.$,
 		dialogManager: this.manager.getSurface().getDialogs()
 	} );
 
@@ -23160,7 +23814,7 @@ ve.ui.windowFactory.register( ve.ui.LanguageInspector );
 /*!
  * VisualEditor user interface SpecialCharacterPage class.
  *
- * @copyright 2011-2014 VisualEditor Team and others; see AUTHORS.txt
+ * @copyright 2011-2015 VisualEditor Team and others; see AUTHORS.txt
  * @license The MIT License (MIT); see LICENSE.txt
  */
 
@@ -23181,22 +23835,27 @@ ve.ui.SpecialCharacterPage = function VeUiSpecialCharacterPage( name, config ) {
 	this.label = config.label;
 	this.icon = config.icon;
 
-	var character,
+	var character, characterNode,
 		characters = config.characters,
-		$characters = this.$( '<div>' ).addClass( 've-ui-specialCharacterPage-characters' );
+		$characters = $( '<div>' ).addClass( 've-ui-specialCharacterPage-characters' ),
+		charactersNode = $characters[0];
 
+	// The body of this loop is executed a few thousand times when opening
+	// ve.ui.SpecialCharacterDialog, avoid jQuery wrappers.
 	for ( character in characters ) {
-		$characters.append(
-			this.$( '<div>' )
-				.addClass( 've-ui-specialCharacterPage-character' )
-				.data( 'character', characters[character] )
-				.text( character )
-		);
+		characterNode = document.createElement( 'div' );
+		characterNode.className = 've-ui-specialCharacterPage-character';
+		if ( characters[character].titleMsg ) {
+			characterNode.setAttribute( 'title', ve.msg( characters[character].titleMsg ) );
+		}
+		characterNode.textContent = character;
+		$.data( characterNode, 'character', characters[character] );
+		charactersNode.appendChild( characterNode );
 	}
 
 	this.$element
-		.addClass( 've-ui-specialCharacterPage')
-		.append( this.$( '<h3>' ).text( name ), $characters );
+		.addClass( 've-ui-specialCharacterPage' )
+		.append( $( '<h3>' ).text( name ), $characters );
 };
 
 /* Inheritance */
@@ -23242,7 +23901,7 @@ OO.inheritClass( ve.ui.DesktopSurface, ve.ui.Surface );
  * @inheritdoc
  */
 ve.ui.DesktopSurface.prototype.createContext = function () {
-	return new ve.ui.DesktopContext( this, { $: this.$ } );
+	return new ve.ui.DesktopContext( this );
 };
 
 /**
@@ -23262,22 +23921,22 @@ ve.ui.DesktopSurface.prototype.createDialogWindowManager = function () {
  * Context menu and inspectors.
  *
  * @class
- * @extends ve.ui.Context
+ * @extends ve.ui.LinearContext
  *
  * @constructor
  * @param {ve.ui.Surface} surface
  * @param {Object} [config] Configuration options
  */
-ve.ui.DesktopContext = function VeUiDesktopContext( surface, config ) {
+ve.ui.DesktopContext = function VeUiDesktopContext() {
 	// Parent constructor
-	ve.ui.DesktopContext.super.call( this, surface, config );
+	ve.ui.DesktopContext.super.apply( this, arguments );
 
 	// Properties
-	this.popup = new OO.ui.PopupWidget( { $: this.$, $container: this.surface.$element } );
+	this.popup = new OO.ui.PopupWidget( { $container: this.surface.$element } );
 	this.transitioning = null;
 	this.suppressed = false;
 	this.onWindowResizeHandler = this.onPosition.bind( this );
-	this.$window = this.$( this.getElementWindow() );
+	this.$window = $( this.getElementWindow() );
 
 	// Events
 	this.surface.getView().connect( this, {
@@ -23300,13 +23959,12 @@ ve.ui.DesktopContext = function VeUiDesktopContext( surface, config ) {
 		.addClass( 've-ui-desktopContext' )
 		.append( this.popup.$element );
 	this.$group.addClass( 've-ui-desktopContext-menu' );
-	this.inspectors.$element.addClass( 've-ui-desktopContext-inspectors' );
 	this.popup.$body.append( this.$group, this.inspectors.$element );
 };
 
 /* Inheritance */
 
-OO.inheritClass( ve.ui.DesktopContext, ve.ui.Context );
+OO.inheritClass( ve.ui.DesktopContext, ve.ui.LinearContext );
 
 /* Methods */
 
@@ -23379,7 +24037,6 @@ ve.ui.DesktopContext.prototype.onPosition = function () {
  */
 ve.ui.DesktopContext.prototype.createInspectorWindowManager = function () {
 	return new ve.ui.DesktopInspectorWindowManager( this.surface, {
-		$: this.$,
 		factory: ve.ui.windowFactory,
 		overlay: this.surface.getLocalOverlay(),
 		modal: false
@@ -23469,7 +24126,7 @@ ve.ui.DesktopContext.prototype.updateDimensions = function () {
 				x: rtl ? boundingRect.left : boundingRect.right,
 				y: boundingRect.top
 			};
-			this.popup.align = rtl ? 'left' : 'right';
+			this.popup.align = 'backwards';
 		} else {
 			// Position the context underneath the center of the node
 			middle = ( boundingRect.left + boundingRect.right ) / 2;
@@ -23515,6 +24172,24 @@ ve.ui.DesktopContext.prototype.updateDimensions = function () {
 	this.setPopupSize();
 
 	return this;
+};
+
+/**
+ * Check if the context menu for current content is embeddable.
+ *
+ * @return {boolean} Context menu is embeddable
+ */
+ve.ui.DesktopContext.prototype.isEmbeddable = function () {
+	var i, len,
+		sources = this.getRelatedSources();
+
+	for ( i = 0, len = sources.length; i < len; i++ ) {
+		if ( !sources[i].embeddable ) {
+			return false;
+		}
+	}
+
+	return true;
 };
 
 /**

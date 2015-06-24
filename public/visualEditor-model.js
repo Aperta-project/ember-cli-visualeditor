@@ -62,6 +62,7 @@ ve.dm.Model.static.matchTagNames = null;
 
 /**
  * Array of RDFa types that this model should be a match candidate for.
+ * Any other types the element might have must be specified in allowedRdfaTypes.
  * Empty array means none, null means any.
  * For more information about element matching, see ve.dm.ModelRegistry.
  * @static
@@ -69,6 +70,17 @@ ve.dm.Model.static.matchTagNames = null;
  * @inheritable
  */
 ve.dm.Model.static.matchRdfaTypes = null;
+
+/**
+ * Extra RDFa types that the element is allowed to have (but don't by
+ * themselves trigger a match).
+ * Empty array means none, null means any.
+ * For more information about element matching, see ve.dm.ModelRegistry.
+ * @static
+ * @property {Array}
+ * @inheritable
+ */
+ve.dm.Model.static.allowedRdfaTypes = [];
 
 /**
  * Optional function to determine whether this model should match a given element.
@@ -234,6 +246,16 @@ ve.dm.Model.static.getHashObject = function ( dataElement ) {
  */
 ve.dm.Model.static.getMatchRdfaTypes = function () {
 	return this.matchRdfaTypes;
+};
+
+/**
+ * Extra RDFa types that the element is allowed to have.
+ *
+ * @static
+ * @returns {Array} Array of strings or regular expressions
+ */
+ve.dm.Model.static.getAllowedRdfaTypes = function () {
+	return this.allowedRdfaTypes;
 };
 
 /* Methods */
@@ -476,31 +498,59 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 	 */
 	function addType( obj ) {
 		var i, len,
+			keys = Array.prototype.slice.call( arguments, 1, -1 ),
+			value = arguments[arguments.length - 1],
 			o = obj;
-		for ( i = 1, len = arguments.length - 2; i < len; i++ ) {
-			if ( o[arguments[i]] === undefined ) {
-				o[arguments[i]] = {};
+
+		for ( i = 0, len = keys.length - 1; i < len; i++ ) {
+			if ( o[keys[i]] === undefined ) {
+				o[keys[i]] = {};
 			}
-			o = o[arguments[i]];
+			o = o[keys[i]];
 		}
-		if ( o[arguments[i]] === undefined ) {
-			o[arguments[i]] = [];
+		o[keys[i]] = o[keys[i]] || [];
+		o[keys[i]].unshift( value );
+	}
+
+	/**
+	 * Helper function for unregister().
+	 *
+	 * Same arguments as addType, except removes the type from the list.
+	 *
+	 * @private
+	 * @param {Object} obj Object the array resides in
+	 * @param {string...} keys
+	 * @param {Mixed} value to remove
+	 */
+	function removeType( obj ) {
+		var index,
+			keys = Array.prototype.slice.call( arguments, 1, -1 ),
+			value = arguments[arguments.length - 1],
+			arr = ve.getProp.apply( obj, [ obj ].concat( keys ) );
+
+		if ( arr ) {
+			index = arr.indexOf( value );
+			if ( index !== -1 ) {
+				arr.splice( index, 1 );
+			}
+			// TODO: Prune empty array and empty containing objects
 		}
-		o[arguments[i]].unshift( arguments[i + 1] );
 	}
 
 	/* Public methods */
 
 	/**
 	 * Register a model type.
-	 * @param {string} name Symbolic name for the model
+	 *
 	 * @param {ve.dm.Model} constructor Subclass of ve.dm.Model
+	 * @throws Model names must be strings and must not be empty
 	 * @throws Models must be subclasses of ve.dm.Model
 	 * @throws No factory associated with this ve.dm.Model subclass
 	 */
 	ve.dm.ModelRegistry.prototype.register = function ( constructor ) {
 		var i, j, tags, types,
 			name = constructor.static && constructor.static.name;
+
 		if ( typeof name !== 'string' || name === '' ) {
 			throw new Error( 'Model names must be strings and must not be empty' );
 		}
@@ -518,8 +568,9 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 		} else {
 			throw new Error( 'No factory associated with this ve.dm.Model subclass' );
 		}
+
 		// Parent method
-		OO.Registry.prototype.register.call( this, name, constructor );
+		ve.dm.ModelRegistry.super.prototype.register.call( this, name, constructor );
 
 		tags = constructor.static.matchTagNames === null ?
 			[ '' ] :
@@ -536,6 +587,8 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 		}
 		for ( i = 0; i < types.length; i++ ) {
 			if ( types[i] instanceof RegExp ) {
+				// TODO: Guard against running this again during subsequent
+				// iterations of the for loop
 				addType( this.modelsWithTypeRegExps, +!!constructor.static.matchFunction, name );
 			} else {
 				for ( j = 0; j < tags.length; j++ ) {
@@ -550,35 +603,66 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 	};
 
 	/**
-	 * Register an extension-specific RDFa type or set of types. Unrecognized extension-specific types
-	 * skip non-type matches and are alienated.
+	 * Unregister a model type.
 	 *
-	 * If a DOM node has RDFa types that are extension-specific, any matches that do not involve one of
-	 * those extension-specific types will be ignored. This means that if 'bar' is an
-	 * extension-specific type, and there are no models specifying 'bar' in their .matchRdfaTypes, then
-	 * `<foo typeof="bar baz">` will not match anything, not even a model with .matchTagNames=['foo']
-	 * or one with .matchRdfaTypes=['baz'] .
-	 *
-	 * @param {string|RegExp} type Type, or regex matching types, to designate as extension-specifics
+	 * @param {ve.dm.Model} constructor Subclass of ve.dm.Model
+	 * @throws Model names must be strings and must not be empty
+	 * @throws Models must be subclasses of ve.dm.Model
+	 * @throws No factory associated with this ve.dm.Model subclass
 	 */
-	ve.dm.ModelRegistry.prototype.registerExtensionSpecificType = function ( type ) {
-		this.extSpecificTypes.push( type );
-	};
+	ve.dm.ModelRegistry.prototype.unregister = function ( constructor ) {
+		var i, j, tags, types,
+			name = constructor.static && constructor.static.name;
 
-	/**
-	 * Checks whether a given type matches one of the registered extension-specific types.
-	 * @param {string} type Type to check
-	 * @returns {boolean} Whether type is extension-specific
-	 */
-	ve.dm.ModelRegistry.prototype.isExtensionSpecificType = function ( type ) {
-		var i, len, t;
-		for ( i = 0, len = this.extSpecificTypes.length; i < len; i++ ) {
-			t = this.extSpecificTypes[i];
-			if ( t === type || ( t instanceof RegExp && type.match( t ) ) ) {
-				return true;
+		if ( typeof name !== 'string' || name === '' ) {
+			throw new Error( 'Model names must be strings and must not be empty' );
+		}
+		if ( !( constructor.prototype instanceof ve.dm.Model ) ) {
+			throw new Error( 'Models must be subclasses of ve.dm.Model' );
+		}
+
+		// Unregister the model from the right factory
+		if ( constructor.prototype instanceof ve.dm.Annotation ) {
+			ve.dm.annotationFactory.unregister( constructor );
+		} else if ( constructor.prototype instanceof ve.dm.Node ) {
+			ve.dm.nodeFactory.unregister( constructor );
+		} else if ( constructor.prototype instanceof ve.dm.MetaItem ) {
+			ve.dm.metaItemFactory.unregister( constructor );
+		} else {
+			throw new Error( 'No factory associated with this ve.dm.Model subclass' );
+		}
+
+		// Parent method
+		ve.dm.ModelRegistry.super.prototype.unregister.call( this, name );
+
+		tags = constructor.static.matchTagNames === null ?
+			[ '' ] :
+			constructor.static.matchTagNames;
+		types = constructor.static.getMatchRdfaTypes() === null ?
+			[ '' ] :
+			constructor.static.getMatchRdfaTypes();
+
+		for ( i = 0; i < tags.length; i++ ) {
+			// +!!foo is a shorter equivalent of Number( Boolean( foo ) ) or foo ? 1 : 0
+			removeType( this.modelsByTag, +!!constructor.static.matchFunction,
+				tags[i], name
+			);
+		}
+		for ( i = 0; i < types.length; i++ ) {
+			if ( types[i] instanceof RegExp ) {
+				// TODO: Guard against running this again during subsequent
+				// iterations of the for loop
+				removeType( this.modelsWithTypeRegExps, +!!constructor.static.matchFunction, name );
+			} else {
+				for ( j = 0; j < tags.length; j++ ) {
+					removeType( this.modelsByTypeAndTag,
+						+!!constructor.static.matchFunction, types[i], tags[j], name
+					);
+				}
 			}
 		}
-		return false;
+
+		delete this.registrationOrder[name];
 	};
 
 	/**
@@ -609,8 +693,7 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 	 * @returns {string|null} Model type, or null if none found
 	 */
 	ve.dm.ModelRegistry.prototype.matchElement = function ( node, forceAboutGrouping, excludeTypes ) {
-		var i, name, model, matches, winner, types, elementExtSpecificTypes, matchTypes,
-			hasExtSpecificTypes,
+		var i, name, model, matches, winner, types,
 			tag = node.nodeName.toLowerCase(),
 			reg = this;
 
@@ -643,31 +726,39 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 			return matches;
 		}
 
-		function matchesAllTypes( types, name ) {
-			var i, j, haveMatch, matchTypes = reg.registry[name].static.getMatchRdfaTypes();
+		function allTypesAllowed( types, name ) {
+			var i, j, typeAllowed,
+				model = reg.lookup( name ),
+				allowedTypes = model.static.getAllowedRdfaTypes(),
+				matchTypes = model.static.getMatchRdfaTypes();
+
+			// All types allowed
+			if ( allowedTypes === null || matchTypes === null ) {
+				return true;
+			}
+
+			allowedTypes = allowedTypes.concat( matchTypes );
+
+			function checkType( rule, type ) {
+				return rule instanceof RegExp ? !!type.match( rule ) : rule === type;
+			}
+
 			for ( i = 0; i < types.length; i++ ) {
-				haveMatch = false;
-				for ( j = 0; j < matchTypes.length; j++ ) {
-					if ( matchTypes[j] instanceof RegExp ) {
-						if ( types[i].match( matchTypes[j] ) ) {
-							haveMatch = true;
-							break;
-						}
-					} else {
-						if ( types[i] === matchTypes[j] ) {
-							haveMatch = true;
-							break;
-						}
+				typeAllowed = false;
+				for ( j = 0; j < allowedTypes.length; j++ ) {
+					if ( checkType( allowedTypes[j], types[i] ) ) {
+						typeAllowed = true;
+						break;
 					}
 				}
-				if ( !haveMatch ) {
+				if ( !typeAllowed ) {
 					return false;
 				}
 			}
 			return true;
 		}
 
-		function matchWithFunc( types, tag, mustMatchAll ) {
+		function matchWithFunc( types, tag ) {
 			var i,
 				queue = [],
 				queue2 = [];
@@ -679,15 +770,13 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 				}
 				queue2 = queue2.concat( matchTypeRegExps( types[i], tag, true ) );
 			}
-			if ( mustMatchAll ) {
-				// Filter out matches that don't match all types
-				queue = queue.filter( function ( name ) {
-					return matchesAllTypes( types, name );
-				} );
-				queue2 = queue2.filter( function ( name ) {
-					return matchesAllTypes( types, name );
-				} );
-			}
+			// Filter out matches which contain types which aren't allowed
+			queue = queue.filter( function ( name ) {
+				return allTypesAllowed( types, name );
+			} );
+			queue2 = queue2.filter( function ( name ) {
+				return allTypesAllowed( types, name );
+			} );
 			if ( forceAboutGrouping ) {
 				// Filter out matches that don't support about grouping
 				queue = queue.filter( function ( name ) {
@@ -709,7 +798,7 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 			return null;
 		}
 
-		function matchWithoutFunc( types, tag, mustMatchAll ) {
+		function matchWithoutFunc( types, tag ) {
 			var i,
 				queue = [],
 				queue2 = [],
@@ -722,15 +811,13 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 				}
 				queue2 = queue2.concat( matchTypeRegExps( types[i], tag, false ) );
 			}
-			if ( mustMatchAll ) {
-				// Filter out matches that don't match all types
-				queue = queue.filter( function ( name ) {
-					return matchesAllTypes( types, name );
-				} );
-				queue2 = queue2.filter( function ( name ) {
-					return matchesAllTypes( types, name );
-				} );
-			}
+			// Filter out matches which contain types which aren't allowed
+			queue = queue.filter( function ( name ) {
+				return allTypesAllowed( types, name );
+			} );
+			queue2 = queue2.filter( function ( name ) {
+				return allTypesAllowed( types, name );
+			} );
 			if ( forceAboutGrouping ) {
 				// Filter out matches that don't support about grouping
 				queue = queue.filter( function ( name ) {
@@ -742,6 +829,7 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 			}
 			// Only try regexp matches if there are no string matches
 			queue = queue.length > 0 ? queue : queue2;
+			// Find most recently registered
 			for ( i = 0; i < queue.length; i++ ) {
 				if (
 					winningName === null ||
@@ -765,14 +853,10 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 				types = types.concat( node.getAttribute( 'property' ).split( ' ' ) );
 			}
 		}
-		elementExtSpecificTypes = types.filter( this.isExtensionSpecificType.bind( this ) );
-		hasExtSpecificTypes = elementExtSpecificTypes.length !== 0;
-		// If the element has extension-specific types, only use those for matching and ignore its
-		// other types. If it has no extension-specific types, use all of its types.
-		matchTypes = hasExtSpecificTypes ? elementExtSpecificTypes : types;
+
 		if ( types.length ) {
 			// func+tag+type match
-			winner = matchWithFunc( matchTypes, tag, hasExtSpecificTypes );
+			winner = matchWithFunc( types, tag );
 			if ( winner !== null ) {
 				return winner;
 			}
@@ -780,45 +864,42 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 			// func+type match
 			// Only look at rules with no tag specified; if a rule does specify a tag, we've
 			// either already processed it above, or the tag doesn't match
-			winner = matchWithFunc( matchTypes, '', hasExtSpecificTypes );
+			winner = matchWithFunc( types, '' );
 			if ( winner !== null ) {
 				return winner;
 			}
 		}
 
-		// Do not check for type-less matches if the element has extension-specific types
-		if ( !hasExtSpecificTypes ) {
-			// func+tag match
-			matches = ve.getProp( this.modelsByTag, 1, tag ) || [];
-			// No need to sort because individual arrays in modelsByTag are already sorted
-			// correctly
-			for ( i = 0; i < matches.length; i++ ) {
-				name = matches[i];
-				model = this.registry[name];
-				// Only process this one if it doesn't specify types
-				// If it does specify types, then we've either already processed it in the
-				// func+tag+type step above, or its type rule doesn't match
-				if ( model.static.getMatchRdfaTypes() === null && model.static.matchFunction( node ) ) {
-					return matches[i];
-				}
+		// func+tag match
+		matches = ve.getProp( this.modelsByTag, 1, tag ) || [];
+		// No need to sort because individual arrays in modelsByTag are already sorted
+		// correctly
+		for ( i = 0; i < matches.length; i++ ) {
+			name = matches[i];
+			model = this.registry[name];
+			// Only process this one if it doesn't specify types
+			// If it does specify types, then we've either already processed it in the
+			// func+tag+type step above, or its type rule doesn't match
+			if ( model.static.getMatchRdfaTypes() === null && model.static.matchFunction( node ) ) {
+				return matches[i];
 			}
+		}
 
-			// func only
-			// We only need to get the [''][''] array because the other arrays were either
-			// already processed during the steps above, or have a type or tag rule that doesn't
-			// match this node.
-			// No need to sort because individual arrays in modelsByTypeAndTag are already sorted
-			// correctly
-			matches = ve.getProp( this.modelsByTypeAndTag, 1, '', '' ) || [];
-			for ( i = 0; i < matches.length; i++ ) {
-				if ( this.registry[matches[i]].static.matchFunction( node ) ) {
-					return matches[i];
-				}
+		// func only
+		// We only need to get the [''][''] array because the other arrays were either
+		// already processed during the steps above, or have a type or tag rule that doesn't
+		// match this node.
+		// No need to sort because individual arrays in modelsByTypeAndTag are already sorted
+		// correctly
+		matches = ve.getProp( this.modelsByTypeAndTag, 1, '', '' ) || [];
+		for ( i = 0; i < matches.length; i++ ) {
+			if ( this.registry[matches[i]].static.matchFunction( node ) ) {
+				return matches[i];
 			}
 		}
 
 		// tag+type
-		winner = matchWithoutFunc( matchTypes, tag, hasExtSpecificTypes );
+		winner = matchWithoutFunc( types, tag );
 		if ( winner !== null ) {
 			return winner;
 		}
@@ -826,15 +907,9 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 		// type only
 		// Only look at rules with no tag specified; if a rule does specify a tag, we've
 		// either already processed it above, or the tag doesn't match
-		winner = matchWithoutFunc( matchTypes, '', hasExtSpecificTypes );
+		winner = matchWithoutFunc( types, '' );
 		if ( winner !== null ) {
 			return winner;
-		}
-
-		if ( elementExtSpecificTypes.length > 0 ) {
-			// There are only type-less matches beyond this point, so if we have any
-			// extension-specific types, we give up now.
-			return null;
 		}
 
 		// tag only
@@ -862,6 +937,16 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 
 		// We didn't find anything, give up
 		return null;
+	};
+
+	/**
+	 * Tests whether a node will be modelled as an annotation
+	 * @param {Node} node The node
+	 * @returns {boolean} Whether the element will be modelled as an annotation
+	 */
+	ve.dm.ModelRegistry.prototype.isAnnotation = function ( node ) {
+		var modelClass = this.lookup( this.matchElement( node ) );
+		return ( modelClass && modelClass.prototype ) instanceof ve.dm.Annotation;
 	};
 
 	/* Initialization */
@@ -2577,10 +2662,10 @@ ve.dm.APIResultsProvider = function VeDmResourceProvider( apiurl, config ) {
 	config = config || {};
 
 	this.setAPIurl( apiurl );
-	this.fetchLimit = config.fetchLimit || 30;
-	this.lang = config.lang;
-	this.offset = config.offset || 0;
-	this.ajaxSettings = config.ajaxSettings || {};
+	this.setDefaultFetchLimit( config.fetchLimit || 30 );
+	this.setLang( config.lang );
+	this.setOffset( config.offset || 0 );
+	this.setAjaxSettings( config.ajaxSettings || {} );
 
 	this.staticParams = config.staticParams || {};
 	this.userParams = config.userParams || {};
@@ -2653,7 +2738,7 @@ ve.dm.APIResultsProvider.prototype.getStaticParams = function () {
 };
 
 /**
- * Get the user-inputted dybamic data parameters sent to the API
+ * Get the user-inputted dynamic data parameters sent to the API
  *
  * @returns {Object} Data parameters
  */
@@ -3017,11 +3102,10 @@ ve.dm.ResizableNode.prototype.getScalable = function () {
  * Create a scalable object based on the current object's width and height.
  *
  * @abstract
+ * @method
  * @returns {ve.dm.Scalable} Scalable object
  */
-ve.dm.ResizableNode.prototype.createScalable = function () {
-	throw new Error( 've.dm.ResizableNode subclass must implement createScalable' );
-};
+ve.dm.ResizableNode.prototype.createScalable = null;
 
 /**
  * Handle attribute change events from the model.
@@ -3681,7 +3765,7 @@ ve.dm.BranchNode = function VeDmBranchNode( element, children ) {
 
 	// TODO: children is only ever used in tests
 	if ( Array.isArray( children ) && children.length ) {
-		this.splice.apply( this, [0, 0].concat( children ) );
+		this.splice.apply( this, [ 0, 0 ].concat( children ) );
 	}
 };
 
@@ -3798,7 +3882,7 @@ ve.dm.BranchNode.prototype.splice = function () {
 
 	this.adjustLength( diff, true );
 	this.setupBlockSlugs();
-	this.emit.apply( this, ['splice'].concat( args ) );
+	this.emit.apply( this, [ 'splice' ].concat( args ) );
 
 	return removals;
 };
@@ -4036,9 +4120,7 @@ ve.dm.Annotation.static.removes = [];
  * @param {Node[]} childDomElements Children that will be appended to the returned element
  * @returns {HTMLElement[]} Array of DOM elements; only the first element is used; may be empty
  */
-ve.dm.Annotation.static.toDomElements = function () {
-	throw new Error( 've.dm.Annotation subclass must implement toDomElements' );
-};
+ve.dm.Annotation.static.toDomElements = null;
 
 /**
  * @inheritdoc
@@ -4057,6 +4139,7 @@ ve.dm.Annotation.static.getHashObject = function ( dataElement ) {
 
 /**
  * Convenience wrapper for .toDomElements() on the current annotation
+ *
  * @method
  * @param {HTMLDocument} [doc] HTML document to use to create elements
  * @see ve.dm.Model#toDomElements
@@ -4384,9 +4467,9 @@ ve.dm.InternalList.prototype.convertToData = function ( converter, doc ) {
 			div.innerHTML = itemHtmlQueue[i];
 			itemData = converter.getDataFromDomSubtree( div );
 			list = list.concat(
-				[{ type: 'internalItem', attributes: { originalHtml: itemHtmlQueue[i] } }],
+				[ { type: 'internalItem', attributes: { originalHtml: itemHtmlQueue[i] } } ],
 				itemData,
-				[{ type: '/internalItem' }]
+				[ { type: '/internalItem' } ]
 			);
 		} else {
 			list = list.concat( [ { type: 'internalItem' }, { type: '/internalItem' } ] );
@@ -4414,7 +4497,7 @@ ve.dm.InternalList.prototype.getItemInsertion = function ( groupName, key, data 
 		index = this.getItemNodeCount();
 		this.keyIndexes[groupName + '/' + key] = index;
 
-		itemData = [{ type: 'internalItem' }].concat( data,  [{ type: '/internalItem' }] );
+		itemData = [ { type: 'internalItem' } ].concat( data,  [ { type: '/internalItem' } ] );
 		tx = ve.dm.Transaction.newFromInsertion(
 			this.getDocument(),
 			this.getListNode().getRange().end,
@@ -5085,28 +5168,13 @@ ve.dm.MetaList.prototype.onTransact = function ( tx ) {
  *  null if not found
  */
 ve.dm.MetaList.prototype.findItem = function ( offset, index, group, forInsertion ) {
-	// Binary search for the item
-	var mid,
-		items = typeof group === 'string' ? ( this.groups[group] || [] ) : this.items,
-		left = 0,
-		right = items.length;
-
-	while ( left < right ) {
-		// Equivalent to Math.floor( ( left + right ) / 2 ) but much faster in V8
-		/*jshint bitwise:false */
-		mid = ( left + right ) >> 1;
-		if ( items[mid].getOffset() === offset && items[mid].getIndex() === index ) {
-			return mid;
-		}
-		if ( items[mid].getOffset() < offset || (
-			items[mid].getOffset() === offset && items[mid].getIndex() < index
-		) ) {
-			left = mid + 1;
-		} else {
-			right = mid;
-		}
-	}
-	return forInsertion ? left : null;
+	var items = typeof group === 'string' ? ( this.groups[group] || [] ) : this.items;
+	return ve.binarySearch( items, function ( item ) {
+		return ve.compareTuples(
+			[ offset, index ],
+			[ item.getOffset(), item.getIndex() ]
+		);
+	}, forInsertion );
 };
 
 /**
@@ -5489,7 +5557,7 @@ ve.dm.TableMatrix.prototype.findClosestCell = function ( cell ) {
 			return rowCells[col];
 		}
 	}
-	for ( col = cell.col + 1, cols = rowCells.length; col < cols; col++) {
+	for ( col = cell.col + 1, cols = rowCells.length; col < cols; col++ ) {
 		if ( !rowCells[col].isPlaceholder() ) {
 			return rowCells[col];
 		}
@@ -7433,7 +7501,7 @@ ve.dm.Transaction.prototype.addSafeRemoveOps = function ( doc, removeStart, remo
  * @param {Array} insertMetadata Metadata to insert.
  */
 ve.dm.Transaction.prototype.pushReplaceInternal = function ( remove, insert, removeMetadata, insertMetadata, insertedDataOffset, insertedDataLength ) {
-	if ( remove.length === 0 && insert.length === 0) {
+	if ( remove.length === 0 && insert.length === 0 ) {
 		return; // no-op
 	}
 	var op = {
@@ -7523,7 +7591,7 @@ ve.dm.Transaction.prototype.pushReplace = function ( doc, offset, removeLength, 
 		penultOp && penultOp.type === 'replace' &&
 		penultOp.insert.length === 0 /* this is always true */
 	) {
-		mergedMetadata = [lastOp.insert];
+		mergedMetadata = [ lastOp.insert ];
 		this.operations.pop();
 		lastOp = penultOp;
 		/* fall through */
@@ -7825,12 +7893,12 @@ ve.dm.Selection.static.type = null;
  * Create a new selection from a JSON serialization
  *
  * @param {ve.dm.Document} doc Document to create the selection on
- * @param {string} json JSON serialization
+ * @param {string|Object} json JSON serialization or hash object
  * @returns {ve.dm.Selection} New selection
  * @throws {Error} Unknown selection type
  */
 ve.dm.Selection.static.newFromJSON = function ( doc, json ) {
-	var hash = JSON.parse( json ),
+	var hash = typeof json === 'string' ? JSON.parse( json ) : json,
 		constructor = ve.dm.selectionFactory.lookup( hash.type );
 
 	if ( !constructor ) {
@@ -7843,98 +7911,98 @@ ve.dm.Selection.static.newFromJSON = function ( doc, json ) {
 /**
  * Create a new selection from a hash object
  *
+ * @abstract
+ * @method
  * @param {ve.dm.Document} doc Document to create the selection on
  * @param {Object} hash Hash object
  * @returns {ve.dm.Selection} New selection
  */
-ve.dm.Selection.static.newFromHash = function () {
-	throw new Error( 've.dm.Selection subclass must implement newFromHash' );
-};
+ve.dm.Selection.static.newFromHash = null;
 
 /* Methods */
 
 /**
  * Get a JSON serialization of this selection
  *
+ * @abstract
+ * @method
  * @returns {Object} Object for JSON serialization
  */
-ve.dm.Selection.prototype.toJSON = function () {
-	throw new Error( 've.dm.Selection subclass must implement toJSON' );
-};
+ve.dm.Selection.prototype.toJSON = null;
 
 /**
  * Get a textual description of this selection, for debugging purposes
  *
+ * @abstract
+ * @method
  * @returns {string} Textual description
  */
-ve.dm.Selection.prototype.getDescription = function () {
-	throw new Error( 've.dm.Selection subclass must implement getDescription' );
-};
+ve.dm.Selection.prototype.getDescription = null;
 
 /**
  * Create a copy of this selection
  *
+ * @abstract
+ * @method
  * @returns {ve.dm.Selection} Cloned selection
  */
-ve.dm.Selection.prototype.clone = function () {
-	throw new Error( 've.dm.Selection subclass must implement clone' );
-};
+ve.dm.Selection.prototype.clone = null;
 
 /**
  * Get a new selection at the start point of this one
  *
+ * @abstract
+ * @method
  * @returns {ve.dm.Selection} Collapsed selection
  */
-ve.dm.Selection.prototype.collapseToStart = function () {
-	throw new Error( 've.dm.Selection subclass must implement collapseToStart' );
-};
+ve.dm.Selection.prototype.collapseToStart = null;
 
 /**
  * Get a new selection at the end point of this one
  *
+ * @abstract
+ * @method
  * @returns {ve.dm.Selection} Collapsed selection
  */
-ve.dm.Selection.prototype.collapseToEnd = function () {
-	throw new Error( 've.dm.Selection subclass must implement collapseToEnd' );
-};
+ve.dm.Selection.prototype.collapseToEnd = null;
 
 /**
  * Get a new selection at the 'from' point of this one
  *
+ * @abstract
+ * @method
  * @returns {ve.dm.Selection} Collapsed selection
  */
-ve.dm.Selection.prototype.collapseToFrom = function () {
-	throw new Error( 've.dm.Selection subclass must implement collapseToFrom' );
-};
+ve.dm.Selection.prototype.collapseToFrom = null;
 
 /**
  * Get a new selection at the 'to' point of this one
  *
+ * @abstract
+ * @method
  * @returns {ve.dm.Selection} Collapsed selection
  */
-ve.dm.Selection.prototype.collapseToTo = function () {
-	throw new Error( 've.dm.Selection subclass must implement collapseToTo' );
-};
+ve.dm.Selection.prototype.collapseToTo = null;
 
 /**
  * Check if a selection is collapsed
  *
+ * @abstract
+ * @method
  * @returns {boolean} Selection is collapsed
  */
-ve.dm.Selection.prototype.isCollapsed = function () {
-	throw new Error( 've.dm.Selection subclass must implement isCollapsed' );
-};
+ve.dm.Selection.prototype.isCollapsed = null;
 
 /**
  * Apply translations from a transaction
  *
+ * @abstract
+ * @method
  * @param {ve.dm.Transaction} tx Transaction
  * @param {boolean} [excludeInsertion] Do not grow to cover insertions at boundaries
  * @return {ve.dm.Selection} A new translated selection
  */
-ve.dm.Selection.prototype.translateByTransaction = function () {
-	throw new Error( 've.dm.Selection subclass must implement translateByTransaction' );
-};
+ve.dm.Selection.prototype.translateByTransaction = null;
 
 /**
  * Apply translations from a set of transactions
@@ -7963,11 +8031,11 @@ ve.dm.Selection.prototype.isNull = function () {
 /**
  * Get the content ranges for this selection
  *
+ * @abstract
+ * @method
  * @returns {ve.Range[]} Ranges
  */
-ve.dm.Selection.prototype.getRanges = function () {
-	throw new Error( 've.dm.Selection subclass must implement getRanges' );
-};
+ve.dm.Selection.prototype.getRanges = null;
 
 /**
  * Get the document model this selection applies to
@@ -7981,12 +8049,12 @@ ve.dm.Selection.prototype.getDocument = function () {
 /**
  * Check if two selections are equal
  *
+ * @abstract
+ * @method
  * @param {ve.dm.Selection} other Other selection
  * @returns {boolean} Selections are equal
  */
-ve.dm.Selection.prototype.equals = function () {
-	throw new Error( 've.dm.Selection subclass must implement equals' );
-};
+ve.dm.Selection.prototype.equals = null;
 
 /* Factory */
 
@@ -8078,7 +8146,6 @@ OO.mixinClass( ve.dm.Surface, OO.EventEmitter );
 /**
  * Disable changes.
  *
- * @method
  * @fires history
  */
 ve.dm.Surface.prototype.disable = function () {
@@ -8090,7 +8157,6 @@ ve.dm.Surface.prototype.disable = function () {
 /**
  * Enable changes.
  *
- * @method
  * @fires history
  */
 ve.dm.Surface.prototype.enable = function () {
@@ -8100,9 +8166,16 @@ ve.dm.Surface.prototype.enable = function () {
 };
 
 /**
+ * Initialize the surface model
+ * @fires contextChange
+ */
+ve.dm.Surface.prototype.initialize = function () {
+	this.startHistoryTracking();
+	this.emit( 'contextChange' );
+};
+
+/**
  * Start tracking state changes in history.
- *
- * @method
  */
 ve.dm.Surface.prototype.startHistoryTracking = function () {
 	if ( !this.enabled ) {
@@ -8115,8 +8188,6 @@ ve.dm.Surface.prototype.startHistoryTracking = function () {
 
 /**
  * Stop tracking state changes in history.
- *
- * @method
  */
 ve.dm.Surface.prototype.stopHistoryTracking = function () {
 	if ( !this.enabled ) {
@@ -8131,12 +8202,11 @@ ve.dm.Surface.prototype.stopHistoryTracking = function () {
 /**
  * Get a list of all history states.
  *
- * @method
- * @returns {Object[]} List of transaction stacks
+ * @return {Object[]} List of transaction stacks
  */
 ve.dm.Surface.prototype.getHistory = function () {
 	if ( this.newTransactions.length > 0 ) {
-		return this.undoStack.slice( 0 ).concat( [{ transactions: this.newTransactions.slice( 0 ) }] );
+		return this.undoStack.slice( 0 ).concat( [ { transactions: this.newTransactions.slice( 0 ) } ] );
 	} else {
 		return this.undoStack.slice( 0 );
 	}
@@ -8145,7 +8215,7 @@ ve.dm.Surface.prototype.getHistory = function () {
 /**
  * If the surface in staging mode.
  *
- * @returns {boolean} The surface in staging mode
+ * @return {boolean} The surface in staging mode
  */
 ve.dm.Surface.prototype.isStaging = function () {
 	return this.stagingStack.length > 0;
@@ -8154,10 +8224,10 @@ ve.dm.Surface.prototype.isStaging = function () {
 /**
  * Get the staging state at the current staging stack depth
  *
- * @returns {Object|undefined} staging Staging state object, or undefined if not staging
- * @returns {ve.dm.Transaction[]} staging.transactions Staging transactions
- * @returns {ve.dm.Selection} staging.selectionBefore Selection before transactions were applied
- * @returns {boolean} staging.allowUndo Allow undo while staging
+ * @return {Object|undefined} staging Staging state object, or undefined if not staging
+ * @return {ve.dm.Transaction[]} staging.transactions Staging transactions
+ * @return {ve.dm.Selection} staging.selectionBefore Selection before transactions were applied
+ * @return {boolean} staging.allowUndo Allow undo while staging
  */
 ve.dm.Surface.prototype.getStaging = function () {
 	return this.stagingStack[this.stagingStack.length - 1];
@@ -8166,7 +8236,7 @@ ve.dm.Surface.prototype.getStaging = function () {
 /**
  * Undo is allowed at the current staging stack depth
  *
- * @returns {boolean|undefined} Undo is allowed, or undefined if not staging
+ * @return {boolean|undefined} Undo is allowed, or undefined if not staging
  */
 ve.dm.Surface.prototype.doesStagingAllowUndo = function () {
 	var staging = this.getStaging();
@@ -8178,7 +8248,7 @@ ve.dm.Surface.prototype.doesStagingAllowUndo = function () {
  *
  * The array is returned by reference so it can be pushed to.
  *
- * @returns {ve.dm.Transaction[]|undefined} Staging transactions, or undefined if not staging
+ * @return {ve.dm.Transaction[]|undefined} Staging transactions, or undefined if not staging
  */
 ve.dm.Surface.prototype.getStagingTransactions = function () {
 	var staging = this.getStaging();
@@ -8210,7 +8280,7 @@ ve.dm.Surface.prototype.pushStaging = function ( allowUndo ) {
  * Pop a level of staging from the staging stack
  *
  * @fires history
- * @returns {ve.dm.Transaction[]|undefined} Staging transactions, or undefined if not staging
+ * @return {ve.dm.Transaction[]|undefined} Staging transactions, or undefined if not staging
  */
 ve.dm.Surface.prototype.popStaging = function () {
 	if ( !this.isStaging() ) {
@@ -8273,7 +8343,7 @@ ve.dm.Surface.prototype.applyStaging = function () {
 /**
  * Pop the staging stack until empty
  *
- * @returns {ve.dm.Transaction[]|undefined} Staging transactions, or undefined if not staging
+ * @return {ve.dm.Transaction[]|undefined} Staging transactions, or undefined if not staging
  */
 ve.dm.Surface.prototype.popAllStaging = function () {
 	if ( !this.isStaging() ) {
@@ -8299,8 +8369,7 @@ ve.dm.Surface.prototype.applyAllStaging = function () {
 /**
  * Get annotations that will be used upon insertion.
  *
- * @method
- * @returns {ve.dm.AnnotationSet} Insertion annotations
+ * @return {ve.dm.AnnotationSet} Insertion annotations
  */
 ve.dm.Surface.prototype.getInsertionAnnotations = function () {
 	return this.insertionAnnotations.clone();
@@ -8309,7 +8378,6 @@ ve.dm.Surface.prototype.getInsertionAnnotations = function () {
 /**
  * Set annotations that will be used upon insertion.
  *
- * @method
  * @param {ve.dm.AnnotationSet|null} Insertion annotations to use or null to disable them
  * @fires insertionAnnotationsChange
  * @fires contextChange
@@ -8329,7 +8397,6 @@ ve.dm.Surface.prototype.setInsertionAnnotations = function ( annotations ) {
 /**
  * Add an annotation to be used upon insertion.
  *
- * @method
  * @param {ve.dm.Annotation|ve.dm.AnnotationSet} annotations Insertion annotation to add
  * @fires insertionAnnotationsChange
  * @fires contextChange
@@ -8353,7 +8420,6 @@ ve.dm.Surface.prototype.addInsertionAnnotations = function ( annotations ) {
 /**
  * Remove an annotation from those that will be used upon insertion.
  *
- * @method
  * @param {ve.dm.Annotation|ve.dm.AnnotationSet} annotations Insertion annotation to remove
  * @fires insertionAnnotationsChange
  * @fires contextChange
@@ -8377,8 +8443,7 @@ ve.dm.Surface.prototype.removeInsertionAnnotations = function ( annotations ) {
 /**
  * Check if redo is allowed in the current state.
  *
- * @method
- * @returns {boolean} Redo is allowed
+ * @return {boolean} Redo is allowed
  */
 ve.dm.Surface.prototype.canRedo = function () {
 	return this.undoIndex > 0 && this.enabled;
@@ -8387,8 +8452,7 @@ ve.dm.Surface.prototype.canRedo = function () {
 /**
  * Check if undo is allowed in the current state.
  *
- * @method
- * @returns {boolean} Undo is allowed
+ * @return {boolean} Undo is allowed
  */
 ve.dm.Surface.prototype.canUndo = function () {
 	return this.hasBeenModified() && this.enabled && ( !this.isStaging() || this.doesStagingAllowUndo() );
@@ -8399,8 +8463,7 @@ ve.dm.Surface.prototype.canUndo = function () {
  *
  * This only checks if there are transactions which haven't been undone.
  *
- * @method
- * @returns {boolean} The surface has been modified
+ * @return {boolean} The surface has been modified
  */
 ve.dm.Surface.prototype.hasBeenModified = function () {
 	return this.undoStack.length - this.undoIndex > 0 || !!this.newTransactions.length;
@@ -8409,8 +8472,7 @@ ve.dm.Surface.prototype.hasBeenModified = function () {
 /**
  * Get the document model.
  *
- * @method
- * @returns {ve.dm.Document} Document model of the surface
+ * @return {ve.dm.Document} Document model of the surface
  */
 ve.dm.Surface.prototype.getDocument = function () {
 	return this.documentModel;
@@ -8419,8 +8481,7 @@ ve.dm.Surface.prototype.getDocument = function () {
 /**
  * Get the meta list.
  *
- * @method
- * @returns {ve.dm.MetaList} Meta list of the surface
+ * @return {ve.dm.MetaList} Meta list of the surface
  */
 ve.dm.Surface.prototype.getMetaList = function () {
 	return this.metaList;
@@ -8429,8 +8490,7 @@ ve.dm.Surface.prototype.getMetaList = function () {
 /**
  * Get the selection.
  *
- * @method
- * @returns {ve.dm.Selection} Current selection
+ * @return {ve.dm.Selection} Current selection
  */
 ve.dm.Surface.prototype.getSelection = function () {
 	return this.selection;
@@ -8439,8 +8499,7 @@ ve.dm.Surface.prototype.getSelection = function () {
 /**
  * Get the selection translated for the transaction that's being committed, if any.
  *
- * @method
- * @returns {ve.dm.Selection} Current selection translated for new transaction
+ * @return {ve.dm.Selection} Current selection translated for new transaction
  */
 ve.dm.Surface.prototype.getTranslatedSelection = function () {
 	return this.translatedSelection || this.selection;
@@ -8449,11 +8508,10 @@ ve.dm.Surface.prototype.getTranslatedSelection = function () {
 /**
  * Get a fragment for a selection.
  *
- * @method
  * @param {ve.dm.Selection} [selection] Selection within target document, current selection used by default
  * @param {boolean} [noAutoSelect] Don't update the surface's selection when making changes
  * @param {boolean} [excludeInsertions] Exclude inserted content at the boundaries when updating range
- * @returns {ve.dm.SurfaceFragment} Surface fragment
+ * @return {ve.dm.SurfaceFragment} Surface fragment
  */
 ve.dm.Surface.prototype.getFragment = function ( selection, noAutoSelect, excludeInsertions ) {
 	return new ve.dm.SurfaceFragment( this, selection || this.selection, noAutoSelect, excludeInsertions );
@@ -8462,11 +8520,10 @@ ve.dm.Surface.prototype.getFragment = function ( selection, noAutoSelect, exclud
 /**
  * Get a fragment for a linear selection's range.
  *
- * @method
  * @param {ve.Range} range Selection's range
  * @param {boolean} [noAutoSelect] Don't update the surface's selection when making changes
  * @param {boolean} [excludeInsertions] Exclude inserted content at the boundaries when updating range
- * @returns {ve.dm.SurfaceFragment} Surface fragment
+ * @return {ve.dm.SurfaceFragment} Surface fragment
  */
 ve.dm.Surface.prototype.getLinearFragment = function ( range, noAutoSelect, excludeInsertions ) {
 	return new ve.dm.SurfaceFragment( this, new ve.dm.LinearSelection( this.getDocument(), range ), noAutoSelect, excludeInsertions );
@@ -8475,7 +8532,6 @@ ve.dm.Surface.prototype.getLinearFragment = function ( range, noAutoSelect, excl
 /**
  * Prevent future states from being redone.
  *
- * @method
  * @fires history
  */
 ve.dm.Surface.prototype.truncateUndoStack = function () {
@@ -8487,18 +8543,16 @@ ve.dm.Surface.prototype.truncateUndoStack = function () {
 };
 
 /**
- * Start queueing up calls to {#emitContextChange} until {#stopQueueingContextChanges} is called.
- * While queueing is active, contextChanges are also collapsed, so if {#emitContextChange} is called
- * multiple times, only one contextChange event will be emitted by {#stopQueueingContextChanges}.
+ * Start queueing up calls to #emitContextChange until #stopQueueingContextChanges is called.
+ * While queueing is active, contextChanges are also collapsed, so if #emitContextChange is called
+ * multiple times, only one contextChange event will be emitted by #stopQueueingContextChanges.
  *
- *     @example
  *     this.emitContextChange(); // emits immediately
  *     this.startQueueingContextChanges();
  *     this.emitContextChange(); // doesn't emit
  *     this.emitContextChange(); // doesn't emit
  *     this.stopQueueingContextChanges(); // emits one contextChange event
  *
- * @method
  * @private
  */
 ve.dm.Surface.prototype.startQueueingContextChanges = function () {
@@ -8509,10 +8563,9 @@ ve.dm.Surface.prototype.startQueueingContextChanges = function () {
 };
 
 /**
- * Emit a contextChange event. If {#startQueueingContextChanges} has been called, then the event
- * is deferred until {#stopQueueingContextChanges} is called.
+ * Emit a contextChange event. If #startQueueingContextChanges has been called, then the event
+ * is deferred until #stopQueueingContextChanges is called.
  *
- * @method
  * @private
  * @fires contextChange
  */
@@ -8525,11 +8578,10 @@ ve.dm.Surface.prototype.emitContextChange = function () {
 };
 
 /**
- * Stop queueing contextChange events. If {#emitContextChange} was called previously, a contextChange
- * event will now be emitted. Any future calls to {#emitContextChange} will once again emit the
+ * Stop queueing contextChange events. If #emitContextChange was called previously, a contextChange
+ * event will now be emitted. Any future calls to #emitContextChange will once again emit the
  * event immediately.
  *
- * @method
  * @private
  * @fires contextChange
  */
@@ -8701,7 +8753,6 @@ ve.dm.Surface.prototype.selectFirstContentOffset = function () {
 /**
  * Apply a transactions and selection changes to the document.
  *
- * @method
  * @param {ve.dm.Transaction|ve.dm.Transaction[]|null} transactions One or more transactions to
  *  process, or null to process none
  * @param {ve.dm.Selection} [selection] Selection to apply
@@ -8715,7 +8766,6 @@ ve.dm.Surface.prototype.change = function ( transactions, selection ) {
  * Internal implementation of change(). Do not use this, use change() instead.
  *
  * @private
- * @method
  * @param {ve.dm.Transaction|ve.dm.Transaction[]|null} transactions
  * @param {ve.dm.Selection} [selection] [selection]
  * @param {boolean} [skipUndoStack=false] If true, do not modify the undo stack. Used by undo/redo
@@ -8736,7 +8786,7 @@ ve.dm.Surface.prototype.changeInternal = function ( transactions, selection, ski
 	// Process transactions
 	if ( transactions ) {
 		if ( transactions instanceof ve.dm.Transaction ) {
-			transactions = [transactions];
+			transactions = [ transactions ];
 		}
 		this.transacting = true;
 		for ( i = 0, len = transactions.length; i < len; i++ ) {
@@ -8794,9 +8844,8 @@ ve.dm.Surface.prototype.changeInternal = function ( transactions, selection, ski
 /**
  * Set a history state breakpoint.
  *
- * @method
  * @fires history
- * @returns {boolean} A breakpoint was added
+ * @return {boolean} A breakpoint was added
  */
 ve.dm.Surface.prototype.breakpoint = function () {
 	if ( !this.enabled ) {
@@ -8820,7 +8869,6 @@ ve.dm.Surface.prototype.breakpoint = function () {
 /**
  * Step backwards in history.
  *
- * @method
  * @fires history
  */
 ve.dm.Surface.prototype.undo = function () {
@@ -8851,7 +8899,6 @@ ve.dm.Surface.prototype.undo = function () {
 /**
  * Step forwards in history.
  *
- * @method
  * @fires history
  */
 ve.dm.Surface.prototype.redo = function () {
@@ -9690,7 +9737,7 @@ ve.dm.SurfaceFragment.prototype.insertContent = function ( content, annotate ) {
  *
  * @method
  * @param {string} html HTML to insert
- * @param {Object} importRules The import rules for the target surface
+ * @param {Object} [importRules] The import rules for the target surface, if importing
  * @chainable
  */
 ve.dm.SurfaceFragment.prototype.insertHtml = function ( html, importRules ) {
@@ -10005,7 +10052,7 @@ ve.dm.SurfaceFragment.prototype.wrapNodes = function ( wrapper ) {
 	}
 
 	if ( !Array.isArray( wrapper ) ) {
-		wrapper = [wrapper];
+		wrapper = [ wrapper ];
 	}
 	this.change(
 		ve.dm.Transaction.newFromWrap( this.document, this.getSelection().getRange(), [], [], [], wrapper )
@@ -10086,7 +10133,7 @@ ve.dm.SurfaceFragment.prototype.rewrapNodes = function ( depth, wrapper ) {
 		unwrapper = [];
 
 	if ( !Array.isArray( wrapper ) ) {
-		wrapper = [wrapper];
+		wrapper = [ wrapper ];
 	}
 
 	if ( range.getLength() < depth * 2 ) {
@@ -10129,7 +10176,7 @@ ve.dm.SurfaceFragment.prototype.wrapAllNodes = function ( wrapper ) {
 	}
 
 	if ( !Array.isArray( wrapper ) ) {
-		wrapper = [wrapper];
+		wrapper = [ wrapper ];
 	}
 
 	this.change(
@@ -10171,7 +10218,7 @@ ve.dm.SurfaceFragment.prototype.rewrapAllNodes = function ( depth, wrapper ) {
 		);
 
 	if ( !Array.isArray( wrapper ) ) {
-		wrapper = [wrapper];
+		wrapper = [ wrapper ];
 	}
 
 	if ( range.getLength() < depth * 2 ) {
@@ -10378,6 +10425,8 @@ ve.dm.Document = function VeDmDocument( data, nodeFactory, htmlDocument, parentD
 	this.dir = dir || 'ltr';
 
 	this.documentNode.setRoot( root );
+	// ve.Document already called setDocument(), but it could be that doc !== this
+	// so call it again
 	this.documentNode.setDocument( doc );
 	this.internalList = internalList ? internalList.clone( this ) : new ve.dm.InternalList( this );
 	this.innerWhitespace = innerWhitespace ? ve.copy( innerWhitespace ) : new Array( 2 );
@@ -10517,7 +10566,7 @@ ve.dm.Document.static.addAnnotationsToData = function ( data, annotationSet ) {
 			continue;
 		} else if ( !Array.isArray( data[i] ) ) {
 			// Wrap in array
-			data[i] = [data[i]];
+			data[i] = [ data[i] ];
 			newAnnotationSet = annotationSet.clone();
 		} else {
 			// Add to existing array
@@ -10554,9 +10603,9 @@ ve.dm.Document.prototype.buildNodeTree = function () {
 	// then from the bottom up add nodes to their potential parents. This avoids massive length
 	// updates being broadcast upstream constantly while building is underway.
 	currentStack = [];
-	parentStack = [this.documentNode];
+	parentStack = [ this.documentNode ];
 	// Stack of stacks
-	nodeStack = [parentStack, currentStack];
+	nodeStack = [ parentStack, currentStack ];
 	currentNode = this.documentNode;
 	doc = this.documentNode.getDocument();
 
@@ -10644,6 +10693,15 @@ ve.dm.Document.prototype.buildNodeTree = function () {
 	ve.batchSplice( this.documentNode, 0, 0, currentStack );
 
 	doc.buildingNodeTree = false;
+};
+
+/**
+ * Get the length of the document. This is also the highest valid offset in the document.
+ *
+ * @return {number} Length of the document
+ */
+ve.dm.Document.prototype.getLength = function () {
+	return this.data.getLength();
 };
 
 /**
@@ -11555,13 +11613,15 @@ ve.dm.Document.prototype.fixupInsertion = function ( data, offset ) {
  *
  * @method
  * @param {string} html HTML to insert
- * @param {Object} importRules The import rules with which to sanitize the HTML
+ * @param {Object} [importRules] The import rules with which to sanitize the HTML, if importing
  * @return {ve.dm.Document} New document
  */
 ve.dm.Document.prototype.newFromHtml = function ( html, importRules ) {
 	var htmlDoc = ve.createDocumentFromHtml( html ),
-		// TODO: what about 'lang' and 'dir'?
-		doc = ve.dm.converter.getModelFromDom( htmlDoc, this.getHtmlDocument(), null, null, this ),
+		doc = ve.dm.converter.getModelFromDom( htmlDoc, {
+			targetDoc: this.getHtmlDocument(),
+			fromClipboard: !!importRules
+		}, this),
 		data = doc.data;
 
 	// FIXME: This is a paste-specific thing and possibly should not be in the generic newFromHtml()
@@ -11593,7 +11653,7 @@ ve.dm.Document.prototype.newFromHtml = function ( html, importRules ) {
  * @return {ve.Range[]} List of ranges where the string was found
  */
 ve.dm.Document.prototype.findText = function ( query, caseSensitive, noOverlaps ) {
-	var len, match, offset,
+	var i, l, len, match, offset, lines,
 		ranges = [],
 		text = this.data.getText(
 			true,
@@ -11601,19 +11661,31 @@ ve.dm.Document.prototype.findText = function ( query, caseSensitive, noOverlaps 
 		);
 
 	if ( query instanceof RegExp ) {
-		if ( !caseSensitive ) {
-			query = new RegExp( query.source, 'i' );
-		}
+		query = new RegExp( query.source, caseSensitive ? 'g' : 'gi' );
 		offset = 0;
-		while ( ( match = query.exec( text.substr( offset ) ) ) !== null ) {
-			offset = offset + match.index;
-			len = match[0].length;
-			// Newlines may match some expressions, but are not allowed
-			// as they represent elements
-			if ( match[0].indexOf( '\n' ) === -1 ) {
-				ranges.push( new ve.Range( offset, offset + len ) );
+		// Avoid multi-line matching by only matching within newlines
+		lines = text.split( '\n' );
+		for ( i = 0, l = lines.length; i < l; i++ ) {
+			while ( lines[i] && ( match = query.exec( lines[i] ) ) !== null ) {
+				// Skip empty string matches (e.g. with .*)
+				if ( match[0].length === 0 ) {
+					// Set lastIndex to the next character to avoid an infinite
+					// loop. Browsers differ in whether they do this for you
+					// for empty matches; see
+					// http://blog.stevenlevithan.com/archives/exec-bugs
+					query.lastIndex = match.index + 1;
+					continue;
+				}
+				ranges.push( new ve.Range(
+					offset + match.index,
+					offset + match.index + match[0].length
+				) );
+				if ( !noOverlaps ) {
+					query.lastIndex = match.index + 1;
+				}
 			}
-			offset += noOverlaps ? len : 1;
+			offset += lines[i].length + 1;
+			query.lastIndex = 0;
 		}
 	} else {
 		if ( !caseSensitive ) {
@@ -12486,6 +12558,7 @@ ve.dm.Converter = function VeDmConverter( modelRegistry, nodeFactory, annotation
 	this.store = null;
 	this.internalList = null;
 	this.forClipboard = null;
+	this.fromClipboard = null;
 	this.contextStack = null;
 };
 
@@ -12517,7 +12590,7 @@ ve.dm.Converter.getDataContentFromText = function ( text, annotations ) {
 	// Apply annotations to characters
 	for ( i = 0, len = characters.length; i < len; i++ ) {
 		// Just store the annotations' indexes from the index-value store
-		characters[i] = [characters[i], annotations.getIndexes().slice()];
+		characters[i] = [ characters[i], annotations.getIndexes().slice() ];
 	}
 	return characters;
 };
@@ -12701,6 +12774,16 @@ ve.dm.Converter.prototype.isForClipboard = function () {
 };
 
 /**
+ * Is the current conversion from the clipboard
+ *
+ * @method
+ * @returns {boolean|null} The conversion is from the clipboard, or null if not converting
+ */
+ve.dm.Converter.prototype.isFromClipboard = function () {
+	return this.fromClipboard;
+};
+
+/**
  * Get the current conversion context. This is the recursion state of getDataFromDomSubtree().
  *
  * @method
@@ -12855,21 +12938,24 @@ ve.dm.Converter.prototype.getDomElementFromDataAnnotation = function ( dataAnnot
 /**
  * Convert an HTML document to a document model.
  * @param {HTMLDocument} doc HTML document to convert
- * @param {HTMLDocument} [targetDoc=doc] Target HTML document we are converting for, if different from doc
- * @param {string} [lang] Document language code
- * @param {string} [dir] Document directionality (ltr/rtl)
+ * @param {Object} options Conversion options
+ * @param {HTMLDocument} [options.targetDoc=doc] Target HTML document we are converting for, if different from doc
+ * @param {boolean} [options.fromClipboard=false] Conversion is from clipboard
+ * @param {string} [options.lang] Document language code
+ * @param {string} [options.dir] Document directionality (ltr/rtl)
  * @returns {ve.dm.Document} Document model
  */
-ve.dm.Converter.prototype.getModelFromDom = function ( doc, targetDoc, lang, dir, documentFactory ) {
+ve.dm.Converter.prototype.getModelFromDom = function ( doc, options, documentFactory ) {
 	var linearData, refData, innerWhitespace,
 		store = new ve.dm.IndexValueStore(),
 		internalList = new ve.dm.InternalList();
 
-	targetDoc = targetDoc || doc;
+	options = options || {};
 
 	// Set up the converter state
 	this.doc = doc;
-	this.targetDoc = targetDoc;
+	this.targetDoc = options.targetDoc || doc;
+	this.fromClipboard = options.fromClipboard;
 	this.store = store;
 	this.internalList = internalList;
 	this.contextStack = [];
@@ -12887,14 +12973,15 @@ ve.dm.Converter.prototype.getModelFromDom = function ( doc, targetDoc, lang, dir
 	// Clear the state
 	this.doc = null;
 	this.targetDoc = null;
+	this.fromClipboard = null;
 	this.store = null;
 	this.internalList = null;
 	this.contextStack = null;
 
 	if (documentFactory) {
-		return documentFactory.createDocument(linearData, this.nodeFactory, doc, undefined, internalList, innerWhitespace, lang, dir);
+		return documentFactory.createDocument(linearData, this.nodeFactory, doc, undefined, internalList, innerWhitespace, options.lang, options.dir);
 	} else {
-		return new ve.dm.Document( linearData, this.nodeFactory, doc, undefined, internalList, innerWhitespace, lang, dir );
+		return new ve.dm.Document( linearData, this.nodeFactory, doc, undefined, internalList, innerWhitespace, options.lang, options.dir );
 	}
 };
 
@@ -13459,52 +13546,6 @@ ve.dm.Converter.prototype.getInnerWhitespace = function ( data ) {
 };
 
 /**
- * Check if all the domElements provided are metadata or whitespace.
- *
- * A list of model names to exclude when matching can optionally be passed.
- *
- * @param {Node[]} domElements DOM elements to check
- * @param {string[]} [excludeTypes] Model names to exclude when matching DOM elements
- * @returns {boolean} All the elements are metadata or whitespace
- */
-ve.dm.Converter.prototype.isDomAllMetaOrWhitespace = function ( domElements, excludeTypes ) {
-	var i, childNode, modelName, modelClass;
-
-	for ( i = 0; i < domElements.length; i++ ) {
-		childNode = domElements[i];
-		switch ( childNode.nodeType ) {
-			case Node.ELEMENT_NODE:
-			case Node.COMMENT_NODE:
-				modelName = this.modelRegistry.matchElement( childNode, false, excludeTypes );
-				modelClass = this.modelRegistry.lookup( modelName ) || ve.dm.AlienNode;
-				if (
-					!( modelClass.prototype instanceof ve.dm.Annotation ) &&
-					!( modelClass.prototype instanceof ve.dm.MetaItem )
-				) {
-					// If the element not meta or an annotation, then we must have content
-					return false;
-				}
-				// Recursively check children
-				if (
-					childNode.childNodes.length &&
-					!this.isDomAllMetaOrWhitespace( childNode.childNodes, excludeTypes )
-				) {
-					return false;
-				}
-				continue;
-			case Node.TEXT_NODE:
-				// Check for whitespace-only
-				if ( !childNode.data.match( /\S/ ) ) {
-					continue;
-				}
-				break;
-		}
-		return false;
-	}
-	return true;
-};
-
-/**
  * Convert document model to an HTML DOM
  *
  * @method
@@ -13579,7 +13620,13 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 	}
 
 	function closeAnnotation( annotation ) {
-		var i, len, annotationElement, annotatedChildDomElements;
+		var i, len, annotationElement, annotatedChildDomElements,
+			matches, first, last,
+			leading = '',
+			trailing = '',
+			origElementText = annotation.getOriginalDomElements()[0] &&
+				annotation.getOriginalDomElements()[0].textContent ||
+				'';
 
 		// Add text if needed
 		if ( text.length > 0 ) {
@@ -13589,9 +13636,53 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 
 		annotatedChildDomElements = annotatedDomElementStack.pop();
 		annotatedDomElements = annotatedDomElementStack[annotatedDomElementStack.length - 1];
-		annotationElement = conv.getDomElementsFromDataElement(
-			annotation.getElement(), doc, annotatedChildDomElements
-		)[0];
+
+		// HACK: Move any leading and trailing whitespace out of the annotation, but only if the
+		// annotation didn't originally have leading/trailing whitespace
+		first = annotatedChildDomElements[0];
+		while (
+			first &&
+			first.nodeType === Node.TEXT_NODE &&
+			( matches = first.data.match( /^\s+/ ) ) &&
+			!origElementText.match( /^\s/ )
+		) {
+			leading += matches[0];
+			first.deleteData( 0, matches[0].length );
+			if ( first.data.length !== 0 ) {
+				break;
+			}
+			// Remove empty text node
+			annotatedChildDomElements.shift();
+			// Process next text node to see if it also has whitespace
+			first = annotatedChildDomElements[0];
+		}
+		last = annotatedChildDomElements[annotatedChildDomElements.length - 1];
+		while (
+			last &&
+			last.nodeType === Node.TEXT_NODE &&
+			( matches = last.data.match( /\s+$/ ) ) &&
+			!origElementText.match( /\s$/ )
+		) {
+			trailing = matches[0] + trailing;
+			last.deleteData( last.data.length - matches[0].length, matches[0].length );
+			if ( last.data.length !== 0 ) {
+				break;
+			}
+			// Remove empty text node
+			annotatedChildDomElements.pop();
+			// Process next text node to see if it also has whitespace
+			last = annotatedChildDomElements[annotatedChildDomElements.length - 1];
+		}
+
+		if ( annotatedChildDomElements.length ) {
+			annotationElement = conv.getDomElementsFromDataElement(
+				annotation.getElement(), doc, annotatedChildDomElements
+			)[0];
+		}
+
+		if ( leading ) {
+			annotatedDomElements.push( doc.createTextNode( leading ) );
+		}
 		if ( annotationElement ) {
 			for ( i = 0, len = annotatedChildDomElements.length; i < len; i++ ) {
 				annotationElement.appendChild( annotatedChildDomElements[i] );
@@ -13601,6 +13692,9 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 			for ( i = 0, len = annotatedChildDomElements.length; i < len; i++ ) {
 				annotatedDomElements.push( annotatedChildDomElements[i] );
 			}
+		}
+		if ( trailing ) {
+			annotatedDomElements.push( doc.createTextNode( trailing ) );
 		}
 	}
 
@@ -14131,7 +14225,7 @@ ve.dm.Selection.prototype.translateByTransaction = function ( tx, excludeInserti
  * @inheritdoc
  */
 ve.dm.LinearSelection.prototype.getRanges = function () {
-	return [this.range];
+	return [ this.range ];
 };
 
 /**
@@ -14626,13 +14720,31 @@ ve.dm.TableSelection.prototype.equals = function ( other ) {
 };
 
 /**
+ * Get the number of rows covered by the selection
+ *
+ * @return {number} Number of rows covered
+ */
+ve.dm.TableSelection.prototype.getRowCount = function () {
+	return this.endRow - this.startRow + 1;
+};
+
+/**
+ * Get the number of columns covered by the selection
+ *
+ * @return {number} Number of columns covered
+ */
+ve.dm.TableSelection.prototype.getColCount = function () {
+	return this.endCol - this.startCol + 1;
+};
+
+/**
  * Check if the table selection covers one or more full rows
  *
  * @return {boolean} The table selection covers one or more full rows
  */
 ve.dm.TableSelection.prototype.isFullRow = function () {
 	var matrix = this.getTableNode().getMatrix();
-	return this.endCol - this.startCol === matrix.getColCount() - 1;
+	return this.getColCount() === matrix.getColCount();
 };
 
 /**
@@ -14642,7 +14754,7 @@ ve.dm.TableSelection.prototype.isFullRow = function () {
  */
 ve.dm.TableSelection.prototype.isFullCol = function () {
 	var matrix = this.getTableNode().getMatrix();
-	return this.endRow - this.startRow === matrix.getRowCount() - 1;
+	return this.getRowCount() === matrix.getRowCount();
 };
 
 ve.dm.TableSelection.prototype.isFullTable = function () {
@@ -15109,7 +15221,7 @@ ve.dm.ElementLinearData.prototype.setAnnotationIndexesAtOffset = function ( offs
 		} else {
 			// New character annotation
 			character = this.getCharacterData( offset );
-			this.setData( offset, [character, indexes] );
+			this.setData( offset, [ character, indexes ] );
 		}
 	} else {
 		if ( isElement ) {
@@ -15228,11 +15340,20 @@ ve.dm.ElementLinearData.prototype.getAnnotatedRangeFromSelection = function ( ra
  * @returns {ve.dm.AnnotationSet} All annotation objects range is covered by
  */
 ve.dm.ElementLinearData.prototype.getAnnotationsFromRange = function ( range, all ) {
-	var i, left, right;
+	var i, left, right, ignoreChildrenDepth = 0;
 	// Iterator over the range, looking for annotations, starting at the 2nd character
 	for ( i = range.start; i < range.end; i++ ) {
-		// Skip non-content data
-		if ( this.isElementData( i ) && !this.nodeFactory.isNodeContent( this.getType( i ) ) ) {
+		if ( this.isElementData( i ) ) {
+			if ( this.nodeFactory.shouldIgnoreChildren( this.getType( i ) ) ) {
+				ignoreChildrenDepth += this.isOpenElementData( i ) ? 1 : -1;
+			}
+			// Skip non-content data
+			if ( !this.nodeFactory.isNodeContent( this.getType( i ) ) ) {
+				continue;
+			}
+		}
+		// Ignore things inside ignoreChildren nodes
+		if ( ignoreChildrenDepth > 0 ) {
 			continue;
 		}
 		if ( !left ) {
@@ -15357,7 +15478,7 @@ ve.dm.ElementLinearData.prototype.getRelativeOffset = function ( offset, distanc
 	// If offset is already a structural offset and distance is zero than no further work is needed,
 	// otherwise distance should be 1 so that we can get out of the invalid starting offset
 	if ( distance === 0 ) {
-		if ( callback.apply( this, [offset].concat( args ) ) ) {
+		if ( callback.apply( this, [ offset ].concat( args ) ) ) {
 			return offset;
 		} else {
 			distance = 1;
@@ -15396,7 +15517,7 @@ ve.dm.ElementLinearData.prototype.getRelativeOffset = function ( offset, distanc
 				}
 			}
 		}
-		if ( callback.apply( this, [i].concat( args ) ) ) {
+		if ( callback.apply( this, [ i ].concat( args ) ) ) {
 			if ( !ignoreChildrenDepth ) {
 				steps++;
 				offset = i;
@@ -15413,7 +15534,7 @@ ve.dm.ElementLinearData.prototype.getRelativeOffset = function ( offset, distanc
 			( ( direction < 0 && i === 0 ) || ( direction > 0 && i === this.getLength() ) )
 		) {
 			// Before we turn around, let's see if we are at a valid position
-			if ( callback.apply( this, [start].concat( args ) ) ) {
+			if ( callback.apply( this, [ start ].concat( args ) ) ) {
 				// Stay where we are
 				return start;
 			}
@@ -17679,60 +17800,6 @@ ve.dm.InlineImageNode.static.toDomElements = function ( dataElement, doc ) {
 ve.dm.modelRegistry.register( ve.dm.InlineImageNode );
 
 /*!
- * VisualEditor DataModel SectionNode class.
- *
- * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
- */
-
-/**
- * DataModel list node.
- *
- * @class
- * @extends ve.dm.BranchNode
- *
- * @constructor
- * @param {Object} [element] Reference to element in linear model
- * @param {ve.dm.Node[]} [children]
- */
-ve.dm.SectionNode = function VeDmSectionNode() {
-	// Parent constructor
-	ve.dm.SectionNode.super.apply( this, arguments );
-};
-
-/* Inheritance */
-
-OO.inheritClass( ve.dm.SectionNode, ve.dm.BranchNode );
-
-/* Static Properties */
-
-ve.dm.SectionNode.static.name = 'section';
-
-ve.dm.SectionNode.static.matchTagNames = [ 'section' ];
-
-ve.dm.SectionNode.static.toDataElement = function ( ) {
-	return { type: this.name, attributes: { } };
-};
-
-ve.dm.SectionNode.static.toDomElements = function ( dataElement, doc ) {
-	var element = doc.createElement( 'section' );
-	return [ element ];
-};
-
-/* Methods */
-
-ve.dm.SectionNode.prototype.canHaveSlugAfter = function () {
-	return false;
-};
-
-ve.dm.SectionNode.prototype.canHaveSlugBefore = function () {
-	return false;
-};
-
-/* Registration */
-
-ve.dm.modelRegistry.register( ve.dm.SectionNode );
-
-/*!
  * VisualEditor DataModel LanguageAnnotation class.
  *
  * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
@@ -17765,7 +17832,7 @@ ve.dm.LanguageAnnotation.static.matchTagNames = [ 'span' ];
 
 ve.dm.LanguageAnnotation.static.matchFunction = function ( domElement ) {
 	var lang = domElement.getAttribute( 'lang' ),
-		dir = domElement.getAttribute( 'dir' );
+		dir = ( domElement.getAttribute( 'dir' ) || '' ).toLowerCase();
 	return lang || dir === 'ltr' || dir === 'rtl';
 };
 
@@ -17839,7 +17906,7 @@ OO.inheritClass( ve.dm.LinkAnnotation, ve.dm.Annotation );
 
 ve.dm.LinkAnnotation.static.name = 'link';
 
-ve.dm.LinkAnnotation.static.matchTagNames = ['a'];
+ve.dm.LinkAnnotation.static.matchTagNames = [ 'a' ];
 
 ve.dm.LinkAnnotation.static.splitOnWordbreak = true;
 
@@ -17937,11 +18004,12 @@ ve.dm.TextStyleAnnotation.static.name = 'textStyle';
 
 ve.dm.TextStyleAnnotation.static.matchTagNames = [];
 
-ve.dm.TextStyleAnnotation.static.toDataElement = function ( domElements ) {
+ve.dm.TextStyleAnnotation.static.toDataElement = function ( domElements, converter ) {
+	var nodeName = converter.isFromClipboard() ? this.matchTagNames[0] : domElements[0].nodeName.toLowerCase();
 	return {
 		type: this.name,
 		attributes: {
-			nodeName: domElements[0].nodeName.toLowerCase()
+			nodeName: nodeName
 		}
 	};
 };
@@ -18486,7 +18554,7 @@ ve.dm.SubscriptAnnotation.static.name = 'textStyle/subscript';
 
 ve.dm.SubscriptAnnotation.static.matchTagNames = [ 'sub' ];
 
-ve.dm.SubscriptAnnotation.static.removes = ['textStyle/superscript'];
+ve.dm.SubscriptAnnotation.static.removes = [ 'textStyle/superscript' ];
 
 /* Registration */
 
@@ -18523,7 +18591,7 @@ ve.dm.SuperscriptAnnotation.static.name = 'textStyle/superscript';
 
 ve.dm.SuperscriptAnnotation.static.matchTagNames = [ 'sup' ];
 
-ve.dm.SuperscriptAnnotation.static.removes = ['textStyle/subscript'];
+ve.dm.SuperscriptAnnotation.static.removes = [ 'textStyle/subscript' ];
 
 /* Registration */
 
@@ -18747,9 +18815,13 @@ ve.dm.CommentNode.static.isContent = true;
 ve.dm.CommentNode.static.preserveHtmlAttributes = false;
 
 ve.dm.CommentNode.static.toDataElement = function ( domElements, converter ) {
-	var text = domElements[0].nodeType === Node.COMMENT_NODE ?
-		domElements[0].data :
-		domElements[0].getAttribute( 'data-ve-comment' );
+	var text;
+	if ( domElements[0].nodeType === Node.COMMENT_NODE ) {
+		// Decode HTML entities, safely (no elements permitted inside textarea)
+		text = $( '<textarea/>' ).html( domElements[0].data ).text();
+	} else {
+		text = domElements[0].getAttribute( 'data-ve-comment' );
+	}
 	return {
 		// Disallows comment nodes between table rows and such
 		type: converter.isValidChildNodeType( 'comment' ) && text !== '' ? 'comment' : 'commentMeta',
@@ -18760,15 +18832,21 @@ ve.dm.CommentNode.static.toDataElement = function ( domElements, converter ) {
 };
 
 ve.dm.CommentNode.static.toDomElements = function ( dataElement, doc, converter ) {
+	var span, data;
 	if ( converter.isForClipboard() ) {
 		// Fake comment node
-		var span = doc.createElement( 'span' );
+		span = doc.createElement( 'span' );
 		span.setAttribute( 'rel', 've:Comment' );
 		span.setAttribute( 'data-ve-comment', dataElement.attributes.text );
 		return [ span ];
 	} else {
 		// Real comment node
-		return [ doc.createComment( dataElement.attributes.text ) ];
+		// Encode '&', and certain '-' and '>' characters (see T95040)
+		data = dataElement.attributes.text.replace( /^[->]|--|-$|&/g, function ( m ) {
+			return m.slice( 0, m.length - 1 ) +
+				'&#' + m.charCodeAt( m.length - 1 ) + ';';
+		} );
+		return [ doc.createComment( data ) ];
 	}
 };
 
