@@ -78,14 +78,7 @@ VisualEditor.prototype.disposeView = function() {
 VisualEditor.prototype.newDocumentFromHtml = function(html) {
   var htmlDoc = window.document.implementation.createHTMLDocument(window.document);
   var body = htmlDoc.body || htmlDoc.getElementsByTagName('body')[0];
-  try {
-    body.innerHTML = html;
-  } catch (error) {
-    console.error(error);
-    var $pre = $('<pre class="corrupted-document">').text(html);
-    body.innerHTML = "";
-    body.appendChild($pre[0]);
-  }
+  body.innerHTML = html;
   // Create a dm.Document instance from the input html in the #sample element
   // Note: from the interface we would expect that dm.Converter does not use singletons -- but unfortunately it still does
   var converter = this.getConverter();
@@ -103,24 +96,17 @@ VisualEditor.prototype.fromHtml = function(html) {
   }
   var surface = this.getSurface();
   var doc = surface.getDocument();
-  var all = new ve.dm.LinearSelection(doc, doc.getDocumentNode().getRange());
-  var fragment = new ve.dm.SurfaceFragment(surface, all);
-  fragment.removeContent();
-  // create a new document and insert it into the fragment
-  // Note: we can't use ve.dm.Document.newFromHtml() as we need to
-  //   notify the extensions before doc.buildNodeTree() is called
+  // delete the whole content
+  var tx = ve.dm.Transaction.newFromRemoval(doc, doc.getDocumentNode().getRange());
+  doc.commit(tx);
+  // parse html into a new document
   var newDoc = this.newDocumentFromHtml(html);
   // add a flag to indicate that we are loading now
   doc.isLoading = true;
-  try {
-    fragment.insertDocument(newDoc);
-  } catch (error) {
-    console.error('Document corrupt!');
-    console.error(error);
-    fragment = new ve.dm.SurfaceFragment(surface, new ve.dm.LinearSelection(doc, new ve.Range(0)));
-    var $el = $('<div>').append($('<pre class="corrupted-document">').text(html));
-    fragment.insertHtml($el.html());
-  }
+  // insert the document into the current
+  tx = ve.dm.Transaction.newFromDocumentInsertion(doc, 0, newDoc);
+  doc.commit(tx);
+  // remove flag
   doc.isLoading = false;
   // let extensions do things after loading
   this._notifyExtensions('afterDocumentLoaded', doc);
@@ -317,7 +303,7 @@ VisualEditor.prototype.breakpoint = function() {
 };
 
 VisualEditor.prototype.removeSelection = function() {
-  this.getSurface().setNullSelection()
+  this.getSurface().setNullSelection();
 };
 
 VisualEditor.prototype._notifyExtensions = function(method) {
