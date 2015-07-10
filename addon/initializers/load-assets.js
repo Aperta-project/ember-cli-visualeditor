@@ -3,9 +3,9 @@
 import LazyLoader from 'ember-cli-lazyloader/lib/lazy-loader';
 
 var _scripts = [
-  'visualEditor-base.min.js',
-  'visualEditor-model.min.js',
-  'visualEditor-ui.min.js'
+  'visualEditor-base.js',
+  'visualEditor-model.js',
+  'visualEditor-ui.js'
 ];
 
 function initPlatform(assetsRoot) {
