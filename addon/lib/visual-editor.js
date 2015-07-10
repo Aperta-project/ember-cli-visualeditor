@@ -238,8 +238,10 @@ VisualEditor.prototype.afterInserted = function() {
 };
 
 VisualEditor.prototype.enable = function() {
+  var surface = this.getSurface();
   var surfaceUI = this.getSurfaceView();
   surfaceUI.enable();
+  surface.enable();
 };
 
 VisualEditor.prototype.disable = function() {
@@ -247,6 +249,7 @@ VisualEditor.prototype.disable = function() {
   var surfaceUI = this.getSurfaceView();
   surface.setNullSelection();
   surfaceUI.disable();
+  surface.disable();
 };
 
 VisualEditor.prototype.isEnabled = function() {
