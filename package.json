@@ -18,6 +18,7 @@
     "grunt-contrib-copy": "^0.7.0",
     "grunt-contrib-uglify": "^0.7.0",
     "grunt-subgrunt": "^0.4.3",
+    "lodash": "^3.10.0",
     "visualeditor": "substance/VisualEditor.git#tahi"
   },
   "description": "Ember addon that provides VisualEditor.",
