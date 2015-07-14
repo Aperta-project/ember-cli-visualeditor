@@ -9,7 +9,7 @@
   "license": "MIT",
   "dependencies": {
     "merge": "^1.2.0",
-    "ember-cli-lazyloader": "substance/ember-cli-lazyloader.git#master"
+    "ember-cli-lazyloader": "substance/ember-cli-lazyloader.git#303eb2b68b4cf2eedd6dd7c00b19148211973bdc"
   },
   "devDependencies": {
     "grunt": "^0.4.5",
