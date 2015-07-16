@@ -1,7 +1,7 @@
 {
   "name": "ember-cli-visualeditor",
   "version": "0.0.0",
-  "repository": "https://github.com/substance/ember-cli-visualeditor.git",
+  "repository": "https://github.com/Tahi-project/ember-cli-visualeditor.git",
   "engines": {
     "node": ">= 0.10.0"
   },
@@ -9,7 +9,7 @@
   "license": "MIT",
   "dependencies": {
     "merge": "^1.2.0",
-    "ember-cli-lazyloader": "substance/ember-cli-lazyloader.git#303eb2b68b4cf2eedd6dd7c00b19148211973bdc"
+    "ember-cli-lazyloader": "Tahi-project/ember-cli-lazyloader.git#06c55594e352c936c4ea072cbfecdeea2f5157de"
   },
   "devDependencies": {
     "grunt": "^0.4.5",
