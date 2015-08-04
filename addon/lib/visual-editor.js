@@ -10,7 +10,7 @@ function VisualEditor() {
   // and get rid of the singletons.
   // For now we just use it as if it was so.
   this.registry = new VeRegistry(ve.dm.modelRegistry, ve.dm.nodeFactory, ve.dm.annotationFactory,
-    ve.dm.metaItemFactory, ve.ce.nodeFactory, ve.ui.windowFactory, ve.ui.actionFactory,
+    ve.dm.metaItemFactory, ve.ce.nodeFactory, ve.ce.annotationFactory, ve.ui.windowFactory, ve.ui.actionFactory,
     ve.ui.commandRegistry, ve.ui.toolFactory);
 
   this.document = null;

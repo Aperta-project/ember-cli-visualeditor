@@ -1,13 +1,14 @@
 /* global OO, ve */
 
 var VeRegistry = function (modelRegistry, nodeFactory, annotationFactory, metaItemFactory,
-    nodeViewFactory, windowFactory, actionFactory, commandRegistry, toolFactory) {
+    nodeViewFactory, annotationViewFactory, windowFactory, actionFactory, commandRegistry, toolFactory) {
 
   this.modelRegistry = modelRegistry;
   this.nodeFactory = nodeFactory;
   this.annotationFactory = annotationFactory;
   this.metaItemFactory = metaItemFactory;
   this.nodeViewFactory = nodeViewFactory;
+  this.annotationViewFactory = annotationViewFactory;
   this.windowFactory = windowFactory;
   this.actionFactory = actionFactory;
   this.commandRegistry = commandRegistry;
@@ -32,6 +33,8 @@ VeRegistry.prototype.register = function(clazzOrInstance) {
     this.registerModel(clazzOrInstance);
   } else if (isSubclassOf(clazzOrInstance, ve.ce.Node)) {
     this.registerNodeView(clazzOrInstance);
+  } else if (isSubclassOf(clazzOrInstance, ve.ce.Annotation)) {
+    this.registerAnnotationView(clazzOrInstance);
   } else if (isSubclassOf(clazzOrInstance, OO.ui.Window)) {
     this.registerWindow(clazzOrInstance);
   } else if (isSubclassOf(clazzOrInstance, ve.ui.Action)) {
@@ -51,6 +54,10 @@ VeRegistry.prototype.registerModel = function(modelClass) {
 
 VeRegistry.prototype.registerNodeView = function(viewClass) {
   this.nodeViewFactory.register(viewClass);
+};
+
+VeRegistry.prototype.registerAnnotationView = function(viewClass) {
+  this.annotationViewFactory.register(viewClass);
 };
 
 VeRegistry.prototype.registerWindow = function(windowClass) {
