@@ -5,8 +5,8 @@
 var VeToolProxy = function(tool, veTool) {
 
   this.tool = tool;
-  this.veTool = veTool;
-  this.veCommand = ve.ui.commandRegistry.lookup(tool.get('command'));
+  this.veTool = null;
+  this.veCommand = null;
   this.toolbar = {
     getSurface: function() {
       return tool.getSurface();
@@ -21,6 +21,15 @@ VeToolProxy.prototype.toggle = function(val) {
     this.tool.set('isVisible', val);
   }
 };
+
+VeToolProxy.prototype._init = function() {
+  var command = this.tool.get('command');
+  this.veCommand = ve.ui.commandRegistry.lookup(command);
+  this.veTool = ve.ui.toolFactory.lookup(command);
+  // HACK: very evil, pretending to be the real tool,
+  // VE code uses this to access static class properties.
+  this.constructor = this.veTool;
+}
 
 VeToolProxy.prototype.setActive = function(val) {
   this.tool.set('isActive', val);
@@ -39,12 +48,18 @@ VeToolProxy.prototype.getCommand = function() {
 };
 
 VeToolProxy.prototype.updateState = function(veState) {
+  if (!this.veTool) {
+    this._init();
+  }
   if (this.veTool) {
     this.veTool.prototype.onUpdateState.call(this, veState.fragment);
   }
 };
 
 VeToolProxy.prototype.execute = function() {
+  if (!this.veTool) {
+    this._init();
+  }
   if (this.veTool) {
     this.veTool.prototype.onSelect.call(this);
   }
