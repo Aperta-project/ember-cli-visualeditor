@@ -44,7 +44,7 @@ VeRegistry.prototype.register = function(clazzOrInstance) {
   } else if (isSubclassOf(clazzOrInstance, ve.ui.Tool)) {
     this.registerTool(clazzOrInstance);
   } else {
-    throw new Error("Don't know how to register a class of type" + clazz);
+    throw new Error("Don't know how to register a class of type" + clazzOrInstance);
   }
 };
 
