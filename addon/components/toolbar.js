@@ -1,7 +1,6 @@
 /* global $ */
 
 import Ember from 'ember';
-import Tool from './tool';
 
 var Toolbar = Ember.Component.extend({
 
@@ -47,17 +46,30 @@ var Toolbar = Ember.Component.extend({
     return this.extractTools(this);
   }.property('childViews.@each'),
 
-  updateState: function(newState) {
+  updateState: function(newState, selectedTools) {
     this.set('editorState', newState);
     if (newState.selection.isNull()) {
       $(this.element).addClass('disabled');
     } else {
       $(this.element).removeClass('disabled');
     }
+    var toolMask = null;
+    if (selectedTools) {
+      toolMask = {};
+      for (var i = 0; i < selectedTools.length; i++) {
+        toolMask[selectedTools[i]] = true;
+      }
+    }
     var tools = this.get('tools');
     window.setTimeout(function() {
       tools.forEach(function(tool) {
-        tool.updateState(newState);
+        // when a tool mask is given only update specified tools
+        // and disable the others
+        if (!toolMask || toolMask[tool.get('command')]) {
+          tool.updateState(newState);
+        } else {
+          tool.set('isEnabled', false);
+        }
       });
     }, 0);
   },
