@@ -16,12 +16,13 @@ var Toolbar = Ember.Component.extend({
     }
   }.on('willDestroyElement'),
 
-  // recursive function to collect all Tool instances from this view tree
-  extractTools: function() {
+  // recursive function to collect all Tool and ToolGroup instances from this view tree
+  extractToolbarComponents: function() {
     var tools = [];
+    var toolGroups = [];
     var toolbar = this;
-    var _extractTools = function(view) {
-      // HACK: ducktyping check if the view is an Ember.Component
+    var _extractToolbarComponents = function(view) {
+      // HACK: duck-typed check if the view is an Ember.Component
       if (!view.get) {
         return;
       }
@@ -29,21 +30,28 @@ var Toolbar = Ember.Component.extend({
         view.set('toolbar', toolbar);
       }
       if (view.get('needsSurfaceUpdate')) {
-        tools.push(view);
+        if (view.get('isTool')) {
+          tools.push(view);
+        } else if (view.get('isToolGroup')) {
+          toolGroups.push(view);
+        }
       }
       var childViews = view.get('childViews');
       if (childViews) {
         childViews.forEach(function(childView) {
-          _extractTools(childView);
+          _extractToolbarComponents(childView);
         });
       }
     };
-    _extractTools(this);
-    return tools;
+    _extractToolbarComponents(this);
+    return {
+      tools: tools,
+      toolGroups: toolGroups
+    };
   },
 
-  tools: function() {
-    return this.extractTools(this);
+  toolbarComponents: function() {
+    return this.extractToolbarComponents(this);
   }.property('childViews.@each'),
 
   updateState: function(newState, selectedTools) {
@@ -60,18 +68,19 @@ var Toolbar = Ember.Component.extend({
         toolMask[selectedTools[i]] = true;
       }
     }
-    var tools = this.get('tools');
-    window.setTimeout(function() {
-      tools.forEach(function(tool) {
-        // when a tool mask is given only update specified tools
-        // and disable the others
-        if (!toolMask || toolMask[tool.get('command')]) {
-          tool.updateState(newState);
-        } else {
-          tool.set('isEnabled', false);
-        }
-      });
-    }, 0);
+    var toolbarComponents = this.get('toolbarComponents');
+    toolbarComponents.tools.forEach(function(tool) {
+      // when a tool mask is given only update specified tools
+      // and disable the others
+      if (!toolMask || toolMask[tool.get('command')]) {
+        tool.updateState(newState);
+      } else {
+        tool.set('isEnabled', false);
+      }
+    });
+    toolbarComponents.toolGroups.forEach(function(toolGroup) {
+      toolGroup.updateState(newState);
+    });
   },
 
   getEditor: function() {

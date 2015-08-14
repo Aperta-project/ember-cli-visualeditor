@@ -4,7 +4,7 @@ import Ember from 'ember';
 import VeToolProxy from '../lib/ve-tool-proxy';
 
 var Tool = Ember.Component.extend(Ember.Evented, {
-
+  isTool: true,
   classNames: ["ve-tool"],
   command: null,
 
