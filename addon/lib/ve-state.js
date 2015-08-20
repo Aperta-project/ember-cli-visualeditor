@@ -37,4 +37,8 @@ VeState.prototype.hasSelection = function() {
   return this.selection && !this.selection.isNull();
 };
 
+VeState.prototype.getSelection = function() {
+  return this.selection;
+};
+
 export default VeState;
