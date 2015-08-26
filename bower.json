@@ -1,0 +1,30 @@
+{
+  "name": "ember-cli-visualeditor",
+  "version": "0.0.1",
+  "homepage": "https://github.com/Tahi-project/ember-cli-visualeditor",
+  "authors": [
+    "Oliver Buchtala <oliver.buchtala@gmail.com>"
+  ],
+  "description": "Assets for the ember-cli-visualeditor addon. The addon itself is installed using npm.",
+  "keywords": [
+    "ember-cli",
+    "addon",
+    "VisualEditor"
+  ],
+  "license": "MIT",
+  "ignore": [
+    "addon",
+    "app",
+    "config",
+    "node_modules",
+    "bower_components",
+    "tmp",
+    ".gitattributes",
+    ".gitignore",
+    ".jshintrc",
+    "Gruntfile.js",
+    "index.js",
+    "package.json",
+    "README.md"
+  ]
+}
