@@ -15,9 +15,12 @@ var VisualEditorComponent = Ember.Component.extend({
 
   // initialized via template
   initializerContext: null,
-  initializer: function(model, data) {},
 
-  onInit: function() {
+  initializer: function(model, data) {
+    // jshint unused:false
+  },
+
+  onInit: Ember.on('init', function() {
     var model = this.get('model');
     if (!model) {
       model = new VisualEditor();
@@ -28,21 +31,21 @@ var VisualEditorComponent = Ember.Component.extend({
     initializer.call(initializerContext, model, this.get('data'));
 
     model.connect(this, { 'state-changed': this.onStateChanged });
-  }.on('init'),
+  }),
 
-  beforeInsertElement: function() {
+  beforeInsertElement: Ember.on('willInsertElement', function() {
     var $element = $(this.element).empty();
     this.model.appendTo($element);
-  }.on('willInsertElement'),
+  }),
 
-  afterInsertElement: function() {
+  afterInsertElement: Ember.on('didInsertElement', function() {
     this.model.afterInserted();
-  }.on('didInsertElement'),
+  }),
 
-  beforeDestroyElement: function() {
+  beforeDestroyElement: Ember.on('willDestroyElement', function() {
     this.model.disconnect(this);
     this.model.dispose();
-  }.on('willDestroyElement'),
+  }),
 
   enable: function() {
     this.set('isEnabled', true);
@@ -52,13 +55,13 @@ var VisualEditorComponent = Ember.Component.extend({
     this.set('isEnabled', false);
   },
 
-  onEnabled: function() {
+  onEnabled: Ember.observer('isEnabled', function() {
     if (this.get('isEnabled')) {
       this.model.enable();
     } else {
       this.model.disable();
     }
-  }.observes('isEnabled'),
+  }),
 
   focus: function() {
     this.model.focus();

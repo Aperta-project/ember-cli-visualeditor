@@ -9,12 +9,12 @@ var Toolbar = Ember.Component.extend({
 
   editorState: null,
 
-  onDestroy: function() {
+  onDestroy: Ember.on('willDestroyElement', function() {
     var visualEditor = this.get('visualEditor');
     if(visualEditor) {
       visualEditor.off('state-changed', this, this.onVeStateChanged);
     }
-  }.on('willDestroyElement'),
+  }),
 
   // recursive function to collect all Tool and ToolGroup instances from this view tree
   extractToolbarComponents: function() {
@@ -50,9 +50,9 @@ var Toolbar = Ember.Component.extend({
     };
   },
 
-  toolbarComponents: function() {
+  toolbarComponents: Ember.computed('childViews.@each', function() {
     return this.extractToolbarComponents(this);
-  }.property('childViews.@each'),
+  }),
 
   updateState: function(newState, selectedTools) {
     this.set('editorState', newState);

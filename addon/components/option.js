@@ -9,13 +9,13 @@ var SelectOption = Tool.extend({
     this.element.value = this.get('command');
   },
 
-  onIsActive: function() {
+  onIsActive: Ember.observer('isActive', function() {
     if (this.get('isActive')) {
       this.element.selected = true;
     } else {
       this.element.selected = false;
     }
-  }.observes('isActive'),
+  }),
 });
 
 export default SelectOption;
