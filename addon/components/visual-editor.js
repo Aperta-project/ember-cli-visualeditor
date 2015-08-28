@@ -24,7 +24,10 @@ var VisualEditorComponent = Ember.Component.extend({
     var initializer = this.get('initializer');
     initializer.call(initializerContext, this, this.get('data'));
 
-    visualEditor.connect(this, { 'state-changed': this.onStateChanged });
+    visualEditor.connect(this, {
+      'state-changed': this.onStateChange,
+      'document-change': this.onDocumentChange
+    });
   }),
 
   beforeInsertElement: Ember.on('willInsertElement', function() {
@@ -104,8 +107,13 @@ var VisualEditorComponent = Ember.Component.extend({
     this.visualEditor.write(text);
   },
 
-  onStateChanged: function(veState) {
-    this.trigger('state-changed', veState);
+  onStateChange: function(veState) {
+    /* jshint unused: false */
+    this.trigger('state-change', veState);
+  },
+
+  onDocumentChange: function(veTransaction) {
+    this.trigger('document-change', veTransaction)
   },
 
 });
