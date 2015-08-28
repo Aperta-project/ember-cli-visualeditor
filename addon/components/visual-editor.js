@@ -81,6 +81,43 @@ var VisualEditorComponent = Ember.Component.extend({
     this.set('isFocused', true);
   },
 
+  focusAndSelect: function() {
+    // HACK: this brutal hack is necessary, as VE's API for setting
+    // a selection programmatically does not work.
+    // Though, we observed that the selection can be done via mouse.
+    // This hack is simulating such a click by setting the DOM selection directly.
+    // What does that mean? VE seems to be able to map DOM selection to model in such
+    // cases, but not model to DOM.
+
+    var self = this;
+    this.focus();
+    if (this.isEmpty()) {
+      setTimeout(function() {
+        var domSelection = window.getSelection();
+        var domRange = document.createRange();
+        // when we use the mouse to set the cursor
+        // the DOM selection will be in the slug-node of the paragraph, at offset 0.
+        var $slug = $(self.element).find('.ve-ce-surface .ve-ce-documentNode > .ve-ce-paragraphNode .ve-ce-branchNode-slug');
+        // console.log($slug[0]);
+        domRange.setStart($slug[0], 0);
+        domSelection.removeAllRanges();
+        domSelection.addRange(domRange);
+      });
+    } else {
+      setTimeout(function() {
+        var domSelection = window.getSelection();
+        var domRange = document.createRange();
+        // when we use the mouse to set the cursor
+        // the DOM selection will be in the first text-node of the paragraph, at offset 0.
+        var $p = $(self.element).find('.ve-ce-surface .ve-ce-documentNode > .ve-ce-paragraphNode');
+        // console.log($slug[0]);
+        domRange.setStart($p[0].firstChild, 0);
+        domSelection.removeAllRanges();
+        domSelection.addRange(domRange);
+      });
+    }
+  },
+
   /* VisualEditor API delegation */
 
   registerExtension: function(extension) {
