@@ -148,6 +148,10 @@ var VisualEditorComponent = Ember.Component.extend({
     return this.get('visualEditor').toHtml();
   },
 
+  isEmpty: function() {
+    return this.get('visualEditor').isEmpty();
+  },
+
   breakpoint: function() {
     return this.get('visualEditor').breakpoint();
   },
@@ -158,6 +162,10 @@ var VisualEditorComponent = Ember.Component.extend({
 
   setCursor: function(charPosition, offset) {
     this.get('visualEditor').setCursor(charPosition, offset);
+  },
+
+  selectAll: function() {
+    this.get('visualEditor').selectAll();
   },
 
   write: function(text) {

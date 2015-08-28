@@ -295,6 +295,10 @@ VisualEditor.prototype.isModelEnabled = function() {
   return surface.enabled;
 };
 
+VisualEditor.prototype.isEmpty = function() {
+  return this.getDocumentNode().getLength() <= 4;
+};
+
 VisualEditor.prototype.focus = function() {
   var surfaceUI = this.getSurfaceView();
   surfaceUI.getView().focus();
