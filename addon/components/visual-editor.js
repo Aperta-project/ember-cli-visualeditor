@@ -11,37 +11,48 @@ var VisualEditorComponent = Ember.Component.extend({
 
   classNameBindings: ['isEnabled:enabled:disabled'],
 
-  // A VisualEditor instance
+  // a VisualEditor instance
   visualEditor: null,
 
-  onInit: Ember.on('init', function() {
+  init: function() {
+    this._super();
+
     var visualEditor = this.get('visualEditor');
     if (!visualEditor) {
       visualEditor = new VisualEditor();
       this.set('visualEditor', visualEditor);
     }
-    var initializerContext = this.get('initializerContext');
-    var initializer = this.get('initializer');
-    initializer.call(initializerContext, this, this.get('data'));
+    this.set('visualEditor', visualEditor);
 
-    visualEditor.connect(this, {
+    if (this.setupEditor) {
+      this.setupEditor();
+      this.start();
+    }
+  },
+
+  start: function() {
+    this.get('visualEditor').connect(this, {
       'state-changed': this.onStateChange,
       'document-change': this.onDocumentChange
     });
-  }),
+  },
+
+  stop: function() {
+    this.get('visualEditor').disconnect(this);
+  },
 
   beforeInsertElement: Ember.on('willInsertElement', function() {
     var $element = $(this.element).empty();
-    this.visualEditor.appendTo($element);
+    this.get('visualEditor').appendTo($element);
   }),
 
   afterInsertElement: Ember.on('didInsertElement', function() {
-    this.visualEditor.afterInserted();
+    this.get('visualEditor').afterInserted();
   }),
 
   beforeDestroyElement: Ember.on('willDestroyElement', function() {
-    this.visualEditor.disconnect(this);
-    this.visualEditor.dispose();
+    this.stop();
+    this.get('visualEditor').dispose();
   }),
 
   enable: function() {
@@ -54,57 +65,61 @@ var VisualEditorComponent = Ember.Component.extend({
 
   onEnabled: Ember.observer('isEnabled', function() {
     if (this.get('isEnabled')) {
-      this.visualEditor.enable();
+      this.get('visualEditor').enable();
     } else {
-      this.visualEditor.disable();
+      this.get('visualEditor').disable();
     }
   }),
 
   focus: function() {
-    this.visualEditor.focus();
+    this.get('visualEditor').focus();
     this.set('isFocused', true);
   },
 
   /* VisualEditor API delegation */
 
+  registerExtension: function(extension) {
+    this.get('visualEditor').registerExtension(extension);
+  },
+
   registerExtensions: function(extensions) {
-    this.visualEditor.registerExtensions(extensions);
+    this.get('visualEditor').registerExtensions(extensions);
   },
 
   getDocument: function() {
-    return this.visualEditor.getDocument();
+    return this.get('visualEditor').getDocument();
   },
 
   getSurface: function() {
-    return this.visualEditor.getSurface();
+    return this.get('visualEditor').getSurface();
   },
 
   getSurfaceView: function() {
-    return this.visualEditor.getSurfaceView();
+    return this.get('visualEditor').getSurfaceView();
   },
 
   fromHtml: function(html) {
-    this.visualEditor.fromHtml(html);
+    this.get('visualEditor').fromHtml(html);
   },
 
   toHtml: function() {
-    return this.visualEditor.toHtml();
+    return this.get('visualEditor').toHtml();
   },
 
   breakpoint: function() {
-    return this.visualEditor.breakpoint();
+    return this.get('visualEditor').breakpoint();
   },
 
   toText: function() {
-    return this.visualEditor.toText();
+    return this.get('visualEditor').toText();
   },
 
   setCursor: function(charPosition, offset) {
-    this.visualEditor.setCursor(charPosition, offset);
+    this.get('visualEditor').setCursor(charPosition, offset);
   },
 
   write: function(text) {
-    this.visualEditor.write(text);
+    this.get('visualEditor').write(text);
   },
 
   onStateChange: function(veState) {
@@ -113,7 +128,7 @@ var VisualEditorComponent = Ember.Component.extend({
   },
 
   onDocumentChange: function(veTransaction) {
-    this.trigger('document-change', veTransaction)
+    this.trigger('document-change', veTransaction);
   },
 
 });
