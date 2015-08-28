@@ -42,7 +42,11 @@ var VisualEditorComponent = Ember.Component.extend({
   },
 
   beforeInsertElement: Ember.on('willInsertElement', function() {
-    var $element = $(this.element).empty();
+    var $element = $(this.element);
+    if(this.get('editorSelector')) {
+      $element = $element.find(this.get('editorSelector'))
+    }
+    $element.empty();
     this.get('visualEditor').appendTo($element);
   }),
 
