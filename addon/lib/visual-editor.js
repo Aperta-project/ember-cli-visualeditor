@@ -230,6 +230,10 @@ VisualEditor.prototype.getSurfaceView = function() {
     });
     this.$element.append($('<input type="file" id="ve-file-upload">'));
     this._notifyExtensions('afterSurfaceUICreated', this.surface);
+    this.surfaceUI.getView().connect(this, {
+      'focus': this._onFocus,
+      'blur': this._onBlur
+    });
     this.emit('view', this.surfaceUI);
   }
   return this.surfaceUI;
@@ -362,6 +366,7 @@ function _uiSurfaceDestroy() {
 VisualEditor.prototype._disposeView = function() {
   this._notifyExtensions('beforeViewDisposed', this.surfaceUI);
   this.surfaceUI.disconnect(this);
+  this.surfaceUI.getView().disconnect(this);
   // HACK: need to use a cusom destroy implementation :(
   _uiSurfaceDestroy.call(this.surfaceUI);
   this.surfaceUI = null;
@@ -376,9 +381,17 @@ VisualEditor.prototype._onContextChange = function() {
   this._updateState();
 };
 
+VisualEditor.prototype._onFocus = function() {
+  this.emit('focus-change', true);
+};
+
+VisualEditor.prototype._onBlur = function() {
+  this.emit('focus-change', false);
+};
+
 VisualEditor.prototype._updateState = function() {
   if (this.state.update(this.surface)) {
-    this.emit('state-changed', this.state);
+    this.emit('state-change', this.state);
   }
 };
 

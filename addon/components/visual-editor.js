@@ -32,8 +32,9 @@ var VisualEditorComponent = Ember.Component.extend({
 
   start: function() {
     this.get('visualEditor').connect(this, {
-      'state-changed': this.onStateChange,
-      'document-change': this.onDocumentChange
+      'state-change': this._onStateChange,
+      'document-change': this._onDocumentChange,
+      'focus-change': this._onFocusChange
     });
   },
 
@@ -41,20 +42,20 @@ var VisualEditorComponent = Ember.Component.extend({
     this.get('visualEditor').disconnect(this);
   },
 
-  beforeInsertElement: Ember.on('willInsertElement', function() {
+  _beforeInsertElement: Ember.on('willInsertElement', function() {
     var $element = $(this.element);
     if(this.get('editorSelector')) {
-      $element = $element.find(this.get('editorSelector'))
+      $element = $element.find(this.get('editorSelector'));
     }
     $element.empty();
     this.get('visualEditor').appendTo($element);
   }),
 
-  afterInsertElement: Ember.on('didInsertElement', function() {
+  _afterInsertElement: Ember.on('didInsertElement', function() {
     this.get('visualEditor').afterInserted();
   }),
 
-  beforeDestroyElement: Ember.on('willDestroyElement', function() {
+  _beforeDestroyElement: Ember.on('willDestroyElement', function() {
     this.stop();
     this.get('visualEditor').dispose();
   }),
@@ -67,7 +68,7 @@ var VisualEditorComponent = Ember.Component.extend({
     this.set('isEnabled', false);
   },
 
-  onEnabled: Ember.observer('isEnabled', function() {
+  _propagateEnabled: Ember.observer('isEnabled', function() {
     if (this.get('isEnabled')) {
       this.get('visualEditor').enable();
     } else {
@@ -126,14 +127,18 @@ var VisualEditorComponent = Ember.Component.extend({
     this.get('visualEditor').write(text);
   },
 
-  onStateChange: function(veState) {
+  _onStateChange: function(veState) {
     /* jshint unused: false */
     this.trigger('state-change', veState);
   },
 
-  onDocumentChange: function(veTransaction) {
+  _onDocumentChange: function(veTransaction) {
     this.trigger('document-change', veTransaction);
   },
+
+  _onFocusChange: function(focused) {
+    this.set('isFocused', focused);
+  }
 
 });
 
