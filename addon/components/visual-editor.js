@@ -14,33 +14,22 @@ var VisualEditorComponent = Ember.Component.extend({
   // a VisualEditor instance
   visualEditor: null,
 
-  init: function() {
-    this._super();
-
+  onInit: Ember.on('init', function() {
     var visualEditor = this.get('visualEditor');
     if (!visualEditor) {
       visualEditor = new VisualEditor();
       this.set('visualEditor', visualEditor);
     }
-    this.set('visualEditor', visualEditor);
+    var initializerContext = this.get('initializerContext');
+    var initializer = this.get('initializer');
+    initializer.call(initializerContext, this, this.get('data'));
 
-    if (this.setupEditor) {
-      this.setupEditor();
-      this.start();
-    }
-  },
-
-  start: function() {
-    this.get('visualEditor').connect(this, {
+    visualEditor.connect(this, {
       'state-change': this._onStateChange,
       'document-change': this._onDocumentChange,
       'focus-change': this._onFocusChange
     });
-  },
-
-  stop: function() {
-    this.get('visualEditor').disconnect(this);
-  },
+  }),
 
   _beforeInsertElement: Ember.on('willInsertElement', function() {
     var $element = $(this.element);
@@ -56,7 +45,7 @@ var VisualEditorComponent = Ember.Component.extend({
   }),
 
   _beforeDestroyElement: Ember.on('willDestroyElement', function() {
-    this.stop();
+    this.get('visualEditor').disconnect(this);
     this.get('visualEditor').dispose();
   }),
 

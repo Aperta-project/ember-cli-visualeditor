@@ -12,7 +12,7 @@ var Toolbar = Ember.Component.extend({
   onDestroy: Ember.on('willDestroyElement', function() {
     var visualEditor = this.get('visualEditor');
     if(visualEditor) {
-      visualEditor.off('state-changed', this, this.onVeStateChanged);
+      visualEditor.off('state-change', this, this.onVeStateChanged);
     }
   }),
 
