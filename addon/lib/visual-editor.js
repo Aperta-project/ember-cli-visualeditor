@@ -13,9 +13,13 @@ function VisualEditor() {
     ve.dm.metaItemFactory, ve.ce.nodeFactory, ve.ce.annotationFactory, ve.ui.windowFactory, ve.ui.actionFactory,
     ve.ui.commandRegistry, ve.ui.toolFactory);
 
+  // ve.dm.Document instance
   this.document = null;
+  // ve.dm.Surface instance
   this.surface = null;
+  // ve.ui.Surface instance
   this.surfaceUI = null;
+
   this.state = new VeState(this);
 
   this.element = window.document.createElement('div');
@@ -182,8 +186,9 @@ VisualEditor.prototype.write = function(string) {
 VisualEditor.prototype.getDocument = function() {
   if (!this.document) {
     // Note: we need to be careful with that data.
-    // VE is not very robust, e.g., if we leave out internalList
-    var doc = new this._documentConstructor([
+    // VE is not very robust, e.g., if we leave out internalList it will crash
+    var VeDocument = this._documentConstructor;
+    var doc = new VeDocument([
       { type: 'paragraph', internal: { generated: 'empty' } },
       { type: '/paragraph' },
       { type: 'internalList' },
@@ -383,13 +388,9 @@ VisualEditor.prototype._onDocumentTransaction = function() {
 };
 
 VisualEditor.prototype.createDocument = function() {
-  // HACK: this is a bit awkward. It happens that a new Document is already
-  // spawned during construction of the document itself.
-  // So we are using a 'dynamic inner' class to have access to this
-  // as document factory.
-  var DocumentClass = this._documentConstructor;
-  var doc = Object.create(DocumentClass.prototype);
-  DocumentClass.apply(doc, arguments);
+  var VeDocument = this._documentConstructor;
+  var doc = Object.create(VeDocument.prototype);
+  VeDocument.apply(doc, arguments);
   this._notifyExtensions('afterDocumentCreated', doc);
   return doc;
 };

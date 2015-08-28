@@ -11,40 +11,34 @@ var VisualEditorComponent = Ember.Component.extend({
 
   classNameBindings: ['isEnabled:enabled:disabled'],
 
-  model: null,
-
-  // initialized via template
-  initializerContext: null,
-
-  initializer: function(model, data) {
-    // jshint unused:false
-  },
+  // A VisualEditor instance
+  visualEditor: null,
 
   onInit: Ember.on('init', function() {
-    var model = this.get('model');
-    if (!model) {
-      model = new VisualEditor();
-      this.set('model', model);
+    var visualEditor = this.get('visualEditor');
+    if (!visualEditor) {
+      visualEditor = new VisualEditor();
+      this.set('visualEditor', visualEditor);
     }
     var initializerContext = this.get('initializerContext');
     var initializer = this.get('initializer');
-    initializer.call(initializerContext, model, this.get('data'));
+    initializer.call(initializerContext, this, this.get('data'));
 
-    model.connect(this, { 'state-changed': this.onStateChanged });
+    visualEditor.connect(this, { 'state-changed': this.onStateChanged });
   }),
 
   beforeInsertElement: Ember.on('willInsertElement', function() {
     var $element = $(this.element).empty();
-    this.model.appendTo($element);
+    this.visualEditor.appendTo($element);
   }),
 
   afterInsertElement: Ember.on('didInsertElement', function() {
-    this.model.afterInserted();
+    this.visualEditor.afterInserted();
   }),
 
   beforeDestroyElement: Ember.on('willDestroyElement', function() {
-    this.model.disconnect(this);
-    this.model.dispose();
+    this.visualEditor.disconnect(this);
+    this.visualEditor.dispose();
   }),
 
   enable: function() {
@@ -57,53 +51,57 @@ var VisualEditorComponent = Ember.Component.extend({
 
   onEnabled: Ember.observer('isEnabled', function() {
     if (this.get('isEnabled')) {
-      this.model.enable();
+      this.visualEditor.enable();
     } else {
-      this.model.disable();
+      this.visualEditor.disable();
     }
   }),
 
   focus: function() {
-    this.model.focus();
+    this.visualEditor.focus();
     this.set('isFocused', true);
   },
 
   /* VisualEditor API delegation */
 
   registerExtensions: function(extensions) {
-    this.model.registerExtensions(extensions);
+    this.visualEditor.registerExtensions(extensions);
   },
 
   getDocument: function() {
-    return this.model.getDocument();
+    return this.visualEditor.getDocument();
   },
 
   getSurface: function() {
-    return this.model.getSurface();
+    return this.visualEditor.getSurface();
   },
 
   getSurfaceView: function() {
-    return this.model.getSurfaceView();
+    return this.visualEditor.getSurfaceView();
   },
 
   fromHtml: function(html) {
-    this.model.fromHtml(html);
+    this.visualEditor.fromHtml(html);
   },
 
   toHtml: function() {
-    return this.model.toHtml();
+    return this.visualEditor.toHtml();
+  },
+
+  breakpoint: function() {
+    return this.visualEditor.breakpoint();
   },
 
   toText: function() {
-    return this.model.toText();
+    return this.visualEditor.toText();
   },
 
   setCursor: function(charPosition, offset) {
-    this.model.setCursor(charPosition, offset);
+    this.visualEditor.setCursor(charPosition, offset);
   },
 
   write: function(text) {
-    this.model.write(text);
+    this.visualEditor.write(text);
   },
 
   onStateChanged: function(veState) {
