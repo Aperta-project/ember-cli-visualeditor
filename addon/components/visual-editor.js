@@ -57,6 +57,14 @@ var VisualEditorComponent = Ember.Component.extend({
     this.set('isEnabled', false);
   },
 
+  freeze: function() {
+    return this.get('visualEditor').freeze();
+  },
+
+  unfreeze: function() {
+    return this.get('visualEditor').unfreeze();
+  },
+
   _propagateEnabled: Ember.observer('isEnabled', function() {
     if (this.get('isEnabled')) {
       this.get('visualEditor').enable();
