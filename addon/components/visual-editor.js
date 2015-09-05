@@ -96,7 +96,7 @@ var VisualEditorComponent = Ember.Component.extend({
     var self = this;
     this.focus();
     if (this.isEmpty()) {
-      setTimeout(function() {
+      Ember.run(function() {
         var domSelection = window.getSelection();
         var domRange = document.createRange();
         // when we use the mouse to set the cursor
@@ -108,7 +108,7 @@ var VisualEditorComponent = Ember.Component.extend({
         domSelection.addRange(domRange);
       });
     } else {
-      setTimeout(function() {
+      Ember.run(function() {
         var domSelection = window.getSelection();
         var domRange = document.createRange();
         // when we use the mouse to set the cursor
