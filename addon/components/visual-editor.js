@@ -51,10 +51,12 @@ var VisualEditorComponent = Ember.Component.extend({
 
   enable: function() {
     this.set('isEnabled', true);
+    this.get('visualEditor').enable();
   },
 
   disable: function() {
     this.set('isEnabled', false);
+    this.get('visualEditor').disable();
   },
 
   connect: function() {
@@ -72,14 +74,6 @@ var VisualEditorComponent = Ember.Component.extend({
   unfreeze: function() {
     return this.get('visualEditor').unfreeze();
   },
-
-  _propagateEnabled: Ember.observer('isEnabled', function() {
-    if (this.get('isEnabled')) {
-      this.get('visualEditor').enable();
-    } else {
-      this.get('visualEditor').disable();
-    }
-  }),
 
   focus: function() {
     this.get('visualEditor').focus();
