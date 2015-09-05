@@ -162,6 +162,18 @@ VisualEditor.prototype.setCursor = function(charPosition, offset) {
   }
 };
 
+VisualEditor.prototype.select = function(startChar, endChar) {
+  if (this.surface) {
+    var documentNode = this.document.getDocumentNode();
+    var offset = documentNode.getRange().start;
+    var relativeStart = this.document.data.getRelativeContentOffset(offset, startChar);
+    var relativeEnd = this.document.data.getRelativeContentOffset(offset, endChar);
+    this.surface.setLinearSelection(new ve.Range(relativeStart, relativeEnd));
+  } else {
+    console.error('No surface.');
+  }
+};
+
 VisualEditor.prototype.selectAll = function() {
   if (this.surface) {
     var documentNode = this.document.getDocumentNode();
