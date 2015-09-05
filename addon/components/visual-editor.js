@@ -80,6 +80,11 @@ var VisualEditorComponent = Ember.Component.extend({
     this.set('isFocused', true);
   },
 
+  blur: function() {
+    this.get('visualEditor').blur();
+    this.set('isFocused', false);
+  },
+
   focusAndSelect: function() {
     // HACK: this brutal hack is necessary, as VE's API for setting
     // a selection programmatically does not work.

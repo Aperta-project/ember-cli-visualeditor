@@ -304,6 +304,11 @@ VisualEditor.prototype.focus = function() {
   surfaceUI.getView().focus();
 };
 
+VisualEditor.prototype.blur = function() {
+  var surfaceUI = this.getSurfaceView();
+  surfaceUI.getView().onDocumentBlur();
+};
+
 VisualEditor.prototype.freeze = function() {
   var surfaceUI = this.getSurfaceView();
   surfaceUI.getView().deactivate();
