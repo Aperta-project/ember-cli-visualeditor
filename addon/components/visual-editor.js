@@ -57,6 +57,14 @@ var VisualEditorComponent = Ember.Component.extend({
     this.set('isEnabled', false);
   },
 
+  connect: function() {
+    return this.get('visualEditor').connect();
+  },
+
+  disconnect: function() {
+    return this.get('visualEditor').disconnect();
+  },
+
   freeze: function() {
     return this.get('visualEditor').freeze();
   },
@@ -167,6 +175,12 @@ var VisualEditorComponent = Ember.Component.extend({
 
   write: function(text) {
     this.get('visualEditor').write(text);
+  },
+
+  // TODO: instead of asking the low-level editor for its state
+  // we should use an Ember property which we update _onStateChange.
+  getState: function() {
+    return this.get('visualEditor').getState();
   },
 
   _onStateChange: function(veState) {
