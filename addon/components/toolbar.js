@@ -5,9 +5,12 @@ import Ember from 'ember';
 var Toolbar = Ember.Component.extend({
 
   // disable per default
-  classNames: ["ve-toolbar", "disabled"],
+  classNames: ["ve-toolbar"],
+  classNameBindings: ['isEnabled::disabled'],
 
   editorState: null,
+
+  isEnabled: true,
 
   onDestroy: Ember.on('willDestroyElement', function() {
     var visualEditor = this.get('visualEditor');
@@ -57,9 +60,9 @@ var Toolbar = Ember.Component.extend({
   updateState: function(newState, selectedTools) {
     this.set('editorState', newState);
     if (newState.selection.isNull()) {
-      $(this.element).addClass('disabled');
+      this.set('isEnabled', false);
     } else {
-      $(this.element).removeClass('disabled');
+      this.set('isEnabled', true);
     }
     var toolMask = null;
     if (selectedTools) {
