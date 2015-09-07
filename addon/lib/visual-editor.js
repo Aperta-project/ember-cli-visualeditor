@@ -162,13 +162,17 @@ VisualEditor.prototype.setCursor = function(charPosition, offset) {
   }
 };
 
-VisualEditor.prototype.select = function(startChar, endChar) {
+VisualEditor.prototype.select = function(startChar, endChar, autoOffset) {
   if (this.surface) {
-    var documentNode = this.document.getDocumentNode();
-    var offset = documentNode.getRange().start;
-    var relativeStart = this.document.data.getRelativeContentOffset(offset, startChar);
-    var relativeEnd = this.document.data.getRelativeContentOffset(offset, endChar);
-    this.surface.setLinearSelection(new ve.Range(relativeStart, relativeEnd));
+    if (autoOffset) {
+      var documentNode = this.document.getDocumentNode();
+      var offset = documentNode.getRange().start;
+      var relativeStart = this.document.data.getRelativeContentOffset(offset, startChar);
+      var relativeEnd = this.document.data.getRelativeContentOffset(offset, endChar);
+      this.surface.setLinearSelection(new ve.Range(relativeStart, relativeEnd));
+    } else {
+      this.surface.setLinearSelection(new ve.Range(startChar, endChar));
+    }
   } else {
     console.error('No surface.');
   }

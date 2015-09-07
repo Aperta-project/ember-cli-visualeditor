@@ -168,8 +168,8 @@ var VisualEditorComponent = Ember.Component.extend({
     this.get('visualEditor').setCursor(charPosition, offset);
   },
 
-  select: function(startChar, endChar) {
-    this.get('visualEditor').select(startChar, endChar);
+  select: function(startChar, endChar, autoOffset) {
+    this.get('visualEditor').select(startChar, endChar, autoOffset);
   },
 
   selectAll: function() {
