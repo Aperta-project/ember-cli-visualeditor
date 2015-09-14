@@ -16,7 +16,7 @@ var VeDropdownComponent = ToolGroup.extend({
     return false;
   },
 
-  onDisabledChange: function() {
+  onDisabledChange: Ember.observer('isDisabled', function() {
     var isDisabled = this.get('isDisabled');
     var $toggle = $(this.element).find('*[data-toggle=dropdown]');
     if (isDisabled) {
@@ -24,7 +24,7 @@ var VeDropdownComponent = ToolGroup.extend({
     } else {
       $toggle.removeClass('disabled');
     }
-  }.observes('isDisabled'),
+  }),
 
 });
 

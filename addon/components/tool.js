@@ -12,7 +12,7 @@ var Tool = Ember.Component.extend(Ember.Evented, {
   isEnabled: false,
   isActive: false,
 
-  classNameBindings: ['isVisible::hidden', 'isEnabled:enabled:disabled', 'isActive:active:'],
+  classNameBindings: ['isVisible::hidden', 'isEnabled:enabled:disabled', 'isActive:active:', 'command'],
 
   toolbar: null,
   proxy: null,

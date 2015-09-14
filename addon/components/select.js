@@ -33,14 +33,14 @@ export default ToolGroup.extend({
     });
   },
 
-  onDisabled: function() {
+  onDisabled: Ember.observer('isDisabled', function() {
     if (this.get('isDisabled')) {
       this.element.disabled = true;
       this.element.value = " ";
     } else {
       this.element.disabled = false;
     }
-  }.observes('isDisabled'),
+  }),
 
   onChange: function(ev) {
     var options = this.get('_options');

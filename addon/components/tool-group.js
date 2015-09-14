@@ -9,7 +9,14 @@ var ToolGroup = Ember.Component.extend({
     this._super();
     var name = this.get('name');
     if (name) {
-      this.get('classNames').push(name);
+      // HACK: since deactivating prototype extensions
+      // classNames are not provided as strings anymore
+      var classNames = this.get('classNames');
+      if (!Ember.isArray(classNames)) {
+        this.set('classNames', classNames + " " + name);
+      } else {
+        this.get('classNames').push(name);
+      }
     }
   },
 

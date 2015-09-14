@@ -5,16 +5,19 @@ import Ember from 'ember';
 var Toolbar = Ember.Component.extend({
 
   // disable per default
-  classNames: ["ve-toolbar", "disabled"],
+  classNames: ["ve-toolbar"],
+  classNameBindings: ['isEnabled::disabled'],
 
   editorState: null,
 
-  onDestroy: function() {
+  isEnabled: true,
+
+  onDestroy: Ember.on('willDestroyElement', function() {
     var visualEditor = this.get('visualEditor');
     if(visualEditor) {
-      visualEditor.off('state-changed', this, this.onVeStateChanged);
+      visualEditor.off('state-change', this, this.onVeStateChanged);
     }
-  }.on('willDestroyElement'),
+  }),
 
   // recursive function to collect all Tool and ToolGroup instances from this view tree
   extractToolbarComponents: function() {
@@ -50,16 +53,16 @@ var Toolbar = Ember.Component.extend({
     };
   },
 
-  toolbarComponents: function() {
+  toolbarComponents: Ember.computed('childViews.@each', function() {
     return this.extractToolbarComponents(this);
-  }.property('childViews.@each'),
+  }),
 
   updateState: function(newState, selectedTools) {
     this.set('editorState', newState);
     if (newState.selection.isNull()) {
-      $(this.element).addClass('disabled');
+      this.set('isEnabled', false);
     } else {
-      $(this.element).removeClass('disabled');
+      this.set('isEnabled', true);
     }
     var toolMask = null;
     if (selectedTools) {

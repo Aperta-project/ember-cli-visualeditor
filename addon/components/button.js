@@ -8,7 +8,7 @@ var Button = Tool.extend({
 
   href: '#',
 
-  mouseDown: function() {
+  click: function() {
     if (this.get('isEnabled')) {
       this.executeCommand();
     }

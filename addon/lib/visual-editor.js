@@ -11,11 +11,15 @@ function VisualEditor() {
   // For now we just use it as if it was so.
   this.registry = new VeRegistry(ve.dm.modelRegistry, ve.dm.nodeFactory, ve.dm.annotationFactory,
     ve.dm.metaItemFactory, ve.ce.nodeFactory, ve.ce.annotationFactory, ve.ui.windowFactory, ve.ui.actionFactory,
-    ve.ui.commandRegistry, ve.ui.toolFactory);
+    ve.ui.commandRegistry, ve.ui.toolFactory, ve.ui.sequenceRegistry);
 
+  // ve.dm.Document instance
   this.document = null;
+  // ve.dm.Surface instance
   this.surface = null;
+  // ve.ui.Surface instance
   this.surfaceUI = null;
+
   this.state = new VeState(this);
 
   this.element = window.document.createElement('div');
@@ -158,6 +162,22 @@ VisualEditor.prototype.setCursor = function(charPosition, offset) {
   }
 };
 
+VisualEditor.prototype.select = function(startChar, endChar, autoOffset) {
+  if (this.surface) {
+    if (autoOffset) {
+      var documentNode = this.document.getDocumentNode();
+      var offset = documentNode.getRange().start;
+      var relativeStart = this.document.data.getRelativeContentOffset(offset, startChar);
+      var relativeEnd = this.document.data.getRelativeContentOffset(offset, endChar);
+      this.surface.setLinearSelection(new ve.Range(relativeStart, relativeEnd));
+    } else {
+      this.surface.setLinearSelection(new ve.Range(startChar, endChar));
+    }
+  } else {
+    console.error('No surface.');
+  }
+};
+
 VisualEditor.prototype.selectAll = function() {
   if (this.surface) {
     var documentNode = this.document.getDocumentNode();
@@ -182,8 +202,9 @@ VisualEditor.prototype.write = function(string) {
 VisualEditor.prototype.getDocument = function() {
   if (!this.document) {
     // Note: we need to be careful with that data.
-    // VE is not very robust, e.g., if we leave out internalList
-    var doc = new this._documentConstructor([
+    // VE is not very robust, e.g., if we leave out internalList it will crash
+    var VeDocument = this._documentConstructor;
+    var doc = new VeDocument([
       { type: 'paragraph', internal: { generated: 'empty' } },
       { type: '/paragraph' },
       { type: 'internalList' },
@@ -219,12 +240,17 @@ VisualEditor.prototype.getSurface = function() {
 VisualEditor.prototype.getSurfaceView = function() {
   if (!this.surfaceUI) {
     var surface = this.getSurface();
-    this.surfaceUI = new ve.ui.DesktopSurface(surface, {
+    this.surfaceUI = new ve.ui.DesktopSurface(surface,
+      this.registry.commandRegistry, this.registry.sequenceRegistry, {
       $element: this.$element,
       importRules: ve.init.Target.static.importRules
     });
     this.$element.append($('<input type="file" id="ve-file-upload">'));
     this._notifyExtensions('afterSurfaceUICreated', this.surface);
+    this.surfaceUI.getView().connect(this, {
+      'focus': this._onFocus,
+      'blur': this._onBlur
+    });
     this.emit('view', this.surfaceUI);
   }
   return this.surfaceUI;
@@ -286,9 +312,18 @@ VisualEditor.prototype.isModelEnabled = function() {
   return surface.enabled;
 };
 
+VisualEditor.prototype.isEmpty = function() {
+  return this.getDocumentNode().getLength() <= 4;
+};
+
 VisualEditor.prototype.focus = function() {
   var surfaceUI = this.getSurfaceView();
   surfaceUI.getView().focus();
+};
+
+VisualEditor.prototype.blur = function() {
+  var surfaceUI = this.getSurfaceView();
+  surfaceUI.getView().onDocumentBlur();
 };
 
 VisualEditor.prototype.freeze = function() {
@@ -357,6 +392,7 @@ function _uiSurfaceDestroy() {
 VisualEditor.prototype._disposeView = function() {
   this._notifyExtensions('beforeViewDisposed', this.surfaceUI);
   this.surfaceUI.disconnect(this);
+  this.surfaceUI.getView().disconnect(this);
   // HACK: need to use a cusom destroy implementation :(
   _uiSurfaceDestroy.call(this.surfaceUI);
   this.surfaceUI = null;
@@ -371,9 +407,17 @@ VisualEditor.prototype._onContextChange = function() {
   this._updateState();
 };
 
+VisualEditor.prototype._onFocus = function() {
+  this.emit('focus-change', true);
+};
+
+VisualEditor.prototype._onBlur = function() {
+  this.emit('focus-change', false);
+};
+
 VisualEditor.prototype._updateState = function() {
   if (this.state.update(this.surface)) {
-    this.emit('state-changed', this.state);
+    this.emit('state-change', this.state);
   }
 };
 
@@ -383,13 +427,9 @@ VisualEditor.prototype._onDocumentTransaction = function() {
 };
 
 VisualEditor.prototype.createDocument = function() {
-  // HACK: this is a bit awkward. It happens that a new Document is already
-  // spawned during construction of the document itself.
-  // So we are using a 'dynamic inner' class to have access to this
-  // as document factory.
-  var DocumentClass = this._documentConstructor;
-  var doc = Object.create(DocumentClass.prototype);
-  DocumentClass.apply(doc, arguments);
+  var VeDocument = this._documentConstructor;
+  var doc = Object.create(VeDocument.prototype);
+  VeDocument.apply(doc, arguments);
   this._notifyExtensions('afterDocumentCreated', doc);
   return doc;
 };
