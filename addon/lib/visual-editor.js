@@ -11,7 +11,7 @@ function VisualEditor() {
   // For now we just use it as if it was so.
   this.registry = new VeRegistry(ve.dm.modelRegistry, ve.dm.nodeFactory, ve.dm.annotationFactory,
     ve.dm.metaItemFactory, ve.ce.nodeFactory, ve.ce.annotationFactory, ve.ui.windowFactory, ve.ui.actionFactory,
-    ve.ui.commandRegistry, ve.ui.toolFactory);
+    ve.ui.commandRegistry, ve.ui.toolFactory, ve.ui.sequenceRegistry);
 
   // ve.dm.Document instance
   this.document = null;
@@ -240,7 +240,8 @@ VisualEditor.prototype.getSurface = function() {
 VisualEditor.prototype.getSurfaceView = function() {
   if (!this.surfaceUI) {
     var surface = this.getSurface();
-    this.surfaceUI = new ve.ui.DesktopSurface(surface, {
+    this.surfaceUI = new ve.ui.DesktopSurface(surface,
+      this.registry.commandRegistry, this.registry.sequenceRegistry, {
       $element: this.$element,
       importRules: ve.init.Target.static.importRules
     });

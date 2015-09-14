@@ -19,7 +19,7 @@
     "grunt-contrib-uglify": "^0.7.0",
     "grunt-subgrunt": "^0.4.3",
     "lodash": "^3.10.0",
-    "visualeditor": "substance/VisualEditor.git#e9b85c6dc886401b2379b8d53de84fa90b26c0ea"
+    "visualeditor": "substance/VisualEditor.git#a769f960cb371f08d829b103aa12b3281ca12338"
   },
   "description": "Ember addon that provides VisualEditor.",
   "keywords": [

@@ -1,7 +1,8 @@
 /* global OO, ve */
 
 var VeRegistry = function (modelRegistry, nodeFactory, annotationFactory, metaItemFactory,
-    nodeViewFactory, annotationViewFactory, windowFactory, actionFactory, commandRegistry, toolFactory) {
+    nodeViewFactory, annotationViewFactory, windowFactory, actionFactory,
+    commandRegistry, toolFactory, sequenceRegistry) {
 
   this.modelRegistry = modelRegistry;
   this.nodeFactory = nodeFactory;
@@ -13,6 +14,7 @@ var VeRegistry = function (modelRegistry, nodeFactory, annotationFactory, metaIt
   this.actionFactory = actionFactory;
   this.commandRegistry = commandRegistry;
   this.toolFactory = toolFactory;
+  this.sequenceRegistry = sequenceRegistry;
 
   var self = this;
   this.extensions = Object.create({
