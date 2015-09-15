@@ -13,6 +13,14 @@ var VeDropdownComponent = ToolGroup.extend({
 
   needsSurfaceUpdate: true,
 
+  hasLabel: Ember.computed('label', function() {
+    return !!this.get('label');
+  }),
+
+  hasIcon: Ember.computed('icon', function() {
+    return !!this.get('icon');
+  }),
+
   // Note: this is important to prevent the event default which would blur VisualEditor
   mouseDown: function() {
     return false;
