@@ -68,3 +68,7 @@
 .ve-ui-context .oo-ui-window-head .oo-ui-processDialog-location {
   height: 100%;
 }
+
+.dropdown ul li {
+  width: 100%;
+}
