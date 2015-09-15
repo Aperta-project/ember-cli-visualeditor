@@ -1,8 +1,10 @@
 /* global $ */
 
-import ToolGroup from 'ember-cli-visualeditor/components/tool-group';
+import ToolGroup from './tool-group';
+import layout from '../templates/components/ve-dropdown';
 
 var VeDropdownComponent = ToolGroup.extend({
+  layout: layout,
   classNames: ["ve-tool-group", "dropdown"],
 
   isDisabled: true,

@@ -9,6 +9,7 @@
   "license": "MIT",
   "dependencies": {
     "merge": "^1.2.0",
+    "ember-cli-htmlbars": "^0.7.9",
     "ember-cli-lazyloader": "Tahi-project/ember-cli-lazyloader.git#06c55594e352c936c4ea072cbfecdeea2f5157de"
   },
   "devDependencies": {
