@@ -69,6 +69,14 @@
   height: 100%;
 }
 
+.dropdown .dropdown-toggle {
+  display: inline-block;
+}
+
 .dropdown ul li {
   width: 100%;
+}
+
+.ve-tool-group .ve-tool-group {
+  display: inline;
 }
