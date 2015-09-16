@@ -15,7 +15,8 @@
 			"Tel'et",
 			"Tifinaghes",
 			"Ата",
-			"Piramidion"
+			"Piramidion",
+			"Dars"
 		]
 	},
 	"visualeditor": "Візуальний редактор",
@@ -24,6 +25,7 @@
 	"visualeditor-align-widget-left": "Ліворуч",
 	"visualeditor-align-widget-right": "Праворуч",
 	"visualeditor-alignablecontextitem-title": "Вирівнювання",
+	"visualeditor-aliencontextitem-title": "Елемент",
 	"visualeditor-annotationbutton-bold-tooltip": "Жирний",
 	"visualeditor-annotationbutton-code-tooltip": "Комп'ютерний код",
 	"visualeditor-annotationbutton-italic-tooltip": "Курсив",
@@ -43,6 +45,7 @@
 	"visualeditor-commentinspector-tooltip": "Коментар",
 	"visualeditor-content-select-all": "Виділити все",
 	"visualeditor-contextitemwidget-label-secondary": "Редагувати",
+	"visualeditor-contextitemwidget-label-remove": "Вилучити",
 	"visualeditor-dialog-action-apply": "Застосувати зміни",
 	"visualeditor-dialog-action-cancel": "Скасувати",
 	"visualeditor-dialog-action-done": "Готово",
@@ -122,6 +125,7 @@
 	"visualeditor-table-insert-table": "Таблиця",
 	"visualeditor-table-merge-cells": "Об'єднати комірки",
 	"visualeditor-tablecell-tooltip": "Клацніть двічі, аби редагувати комірку таблиці",
+	"visualeditor-tablecell-contextitem": "Комірки таблиці",
 	"visualeditor-toolbar-format-tooltip": "Формат абзацу",
 	"visualeditor-toolbar-history": "Історія",
 	"visualeditor-toolbar-insert": "Вставити",

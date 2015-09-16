@@ -3,7 +3,8 @@
 		"authors": [
 			"Avjoska",
 			"Pikne",
-			"Tormi"
+			"Tormi",
+			"Suwa"
 		]
 	},
 	"visualeditor": "Visuaaltoimetaja",
@@ -12,6 +13,7 @@
 	"visualeditor-align-widget-left": "Vasakul",
 	"visualeditor-align-widget-right": "Paremal",
 	"visualeditor-alignablecontextitem-title": "Joondus",
+	"visualeditor-aliencontextitem-title": "Üksus",
 	"visualeditor-annotationbutton-bold-tooltip": "Rasvane kiri",
 	"visualeditor-annotationbutton-code-tooltip": "Arvutikood",
 	"visualeditor-annotationbutton-italic-tooltip": "Kaldkiri",
@@ -31,6 +33,7 @@
 	"visualeditor-commentinspector-tooltip": "Kommentaar",
 	"visualeditor-content-select-all": "Vali kõik",
 	"visualeditor-contextitemwidget-label-secondary": "Muuda",
+	"visualeditor-contextitemwidget-label-remove": "Kustuta",
 	"visualeditor-dialog-action-apply": "Rakenda muudatused",
 	"visualeditor-dialog-action-cancel": "Loobu",
 	"visualeditor-dialog-action-done": "Valmis",
@@ -39,6 +42,7 @@
 	"visualeditor-dialog-command-help-title": "Kiirklahvid",
 	"visualeditor-dialog-error": "Midagi läks valesti...",
 	"visualeditor-dialog-error-dismiss": "Mine tagasi",
+	"visualeditor-dialog-language-auto-direction": "Automaatne",
 	"visualeditor-dialog-language-search-title": "Keele valimine",
 	"visualeditor-find-and-replace-done": "Valmis",
 	"visualeditor-find-and-replace-find-text": "Otsitav",
@@ -108,6 +112,7 @@
 	"visualeditor-table-insert-table": "Tabel",
 	"visualeditor-table-merge-cells": "Ühenda lahtrid",
 	"visualeditor-tablecell-tooltip": "Lahtri redigeerimiseks tee topeltklõps",
+	"visualeditor-tablecell-contextitem": "Tabelilahter",
 	"visualeditor-toolbar-format-tooltip": "Lõigu vorming",
 	"visualeditor-toolbar-history": "Ajalugu",
 	"visualeditor-toolbar-insert": "Lisa",

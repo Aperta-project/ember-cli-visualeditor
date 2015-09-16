@@ -152,7 +152,7 @@ ve.dm.Model.static.matchFunction = null;
  * @method
  * @param {Node[]} domElements DOM elements to convert. Usually only one element
  * @param {ve.dm.Converter} converter Converter object
- * @returns {Object|Array|null} Linear model element, or array with linear model data, or null to alienate
+ * @return {Object|Array|null} Linear model element, or array with linear model data, or null to alienate
  */
 ve.dm.Model.static.toDataElement = function () {
 	return { type: this.name };
@@ -177,11 +177,11 @@ ve.dm.Model.static.toDataElement = function () {
  * @param {Object|Array} dataElement Linear model element or array of linear model data
  * @param {HTMLDocument} doc HTML document for creating elements
  * @param {ve.dm.Converter} converter Converter object to optionally call `getDomSubtreeFromData` on
- * @returns {Node[]} DOM elements
+ * @return {Node[]} DOM elements
  */
 ve.dm.Model.static.toDomElements = function ( dataElement, doc ) {
 	if ( this.matchTagNames && this.matchTagNames.length === 1 ) {
-		return [ doc.createElement( this.matchTagNames[0] ) ];
+		return [ doc.createElement( this.matchTagNames[ 0 ] ) ];
 	}
 	throw new Error( 've.dm.Model subclass must match a single tag name or implement toDomElements' );
 };
@@ -225,16 +225,15 @@ ve.dm.Model.static.preserveHtmlAttributes = true;
  *
  * @static
  * @param {Object} dataElement Data element
- * @returns {Object} Hash object
+ * @return {Object} Hash object
  */
 ve.dm.Model.static.getHashObject = function ( dataElement ) {
 	return {
 		type: dataElement.type,
 		attributes: dataElement.attributes,
+		// For uniqueness we are only concerned with the first node
 		originalDomElements: dataElement.originalDomElements &&
-			dataElement.originalDomElements.map( function ( el ) {
-				return el.outerHTML;
-			} ).join( '' )
+			dataElement.originalDomElements[ 0 ].cloneNode( false ).outerHTML
 	};
 };
 
@@ -242,7 +241,7 @@ ve.dm.Model.static.getHashObject = function ( dataElement ) {
  * Array of RDFa types that this model should be a match candidate for.
  *
  * @static
- * @returns {Array} Array of strings or regular expressions
+ * @return {Array} Array of strings or regular expressions
  */
 ve.dm.Model.static.getMatchRdfaTypes = function () {
 	return this.matchRdfaTypes;
@@ -252,7 +251,7 @@ ve.dm.Model.static.getMatchRdfaTypes = function () {
  * Extra RDFa types that the element is allowed to have.
  *
  * @static
- * @returns {Array} Array of strings or regular expressions
+ * @return {Array} Array of strings or regular expressions
  */
 ve.dm.Model.static.getAllowedRdfaTypes = function () {
 	return this.allowedRdfaTypes;
@@ -261,14 +260,26 @@ ve.dm.Model.static.getAllowedRdfaTypes = function () {
 /* Methods */
 
 /**
- * Check whether this node can be inspected by a tool.
+ * Check whether this node can be inspected by a context item.
  *
  * The default implementation always returns true. If your node type is uninspectable in certain
  * cases, you should override this function.
  *
- * @returns {boolean} Whether this node is inspectable
+ * @return {boolean} Whether this node is inspectable
  */
 ve.dm.Model.prototype.isInspectable = function () {
+	return true;
+};
+
+/**
+ * Check whether this node can be edited by a context item
+ *
+ * The default implementation always returns true. If your node type is uneditable in certain
+ * cases, you should override this function.
+ *
+ * @return {boolean} Whether this node is editable
+ */
+ve.dm.Model.prototype.isEditable = function () {
 	return true;
 };
 
@@ -276,7 +287,7 @@ ve.dm.Model.prototype.isInspectable = function () {
  * Get a reference to the linear model element.
  *
  * @method
- * @returns {Object} Linear model element passed to the constructor, by reference
+ * @return {Object} Linear model element passed to the constructor, by reference
  */
 ve.dm.Model.prototype.getElement = function () {
 	return this.element;
@@ -286,7 +297,7 @@ ve.dm.Model.prototype.getElement = function () {
  * Get the symbolic name of this model's type.
  *
  * @method
- * @returns {string} Type name
+ * @return {string} Type name
  */
 ve.dm.Model.prototype.getType = function () {
 	return this.constructor.static.name;
@@ -299,10 +310,10 @@ ve.dm.Model.prototype.getType = function () {
  *
  * @method
  * @param {string} key Name of attribute to get
- * @returns {Mixed} Value of attribute, or undefined if no such attribute exists
+ * @return {Mixed} Value of attribute, or undefined if no such attribute exists
  */
 ve.dm.Model.prototype.getAttribute = function ( key ) {
-	return this.element && this.element.attributes ? this.element.attributes[key] : undefined;
+	return this.element && this.element.attributes ? this.element.attributes[ key ] : undefined;
 };
 
 /**
@@ -312,7 +323,7 @@ ve.dm.Model.prototype.getAttribute = function ( key ) {
  *
  * @method
  * @param {string} [prefix] Only return attributes with this prefix, and remove the prefix from them
- * @returns {Object} Attributes
+ * @return {Object} Attributes
  */
 ve.dm.Model.prototype.getAttributes = function ( prefix ) {
 	var key, filtered,
@@ -321,7 +332,7 @@ ve.dm.Model.prototype.getAttributes = function ( prefix ) {
 		filtered = {};
 		for ( key in attributes ) {
 			if ( key.indexOf( prefix ) === 0 ) {
-				filtered[key.slice( prefix.length )] = attributes[key];
+				filtered[ key.slice( prefix.length ) ] = attributes[ key ];
 			}
 		}
 		return filtered;
@@ -331,6 +342,7 @@ ve.dm.Model.prototype.getAttributes = function ( prefix ) {
 
 /**
  * Get the DOM element(s) this model was originally converted from, if any.
+ *
  * @return {HTMLElement[]} DOM elements this model was converted from, empty if not applicable
  */
 ve.dm.Model.prototype.getOriginalDomElements = function () {
@@ -347,7 +359,7 @@ ve.dm.Model.prototype.getOriginalDomElements = function () {
  * @method
  * @param {string[]|Object} attributes Array of keys or object of keys and values
  * @param {boolean} strict Use strict comparison when checking if values match
- * @returns {boolean} Model has attributes
+ * @return {boolean} Model has attributes
  */
 ve.dm.Model.prototype.hasAttributes = function ( attributes, strict ) {
 	var key, i, len,
@@ -358,8 +370,8 @@ ve.dm.Model.prototype.hasAttributes = function ( attributes, strict ) {
 			if (
 				!( key in ourAttributes ) ||
 				( strict ?
-					attributes[key] !== ourAttributes[key] :
-					String( attributes[key] ) !== String( ourAttributes[key] )
+					attributes[ key ] !== ourAttributes[ key ] :
+					String( attributes[ key ] ) !== String( ourAttributes[ key ] )
 				)
 			) {
 				return false;
@@ -367,7 +379,7 @@ ve.dm.Model.prototype.hasAttributes = function ( attributes, strict ) {
 		}
 	} else if ( Array.isArray( attributes ) ) {
 		for ( i = 0, len = attributes.length; i < len; i++ ) {
-			if ( !( attributes[i] in ourAttributes ) ) {
+			if ( !( attributes[ i ] in ourAttributes ) ) {
 				return false;
 			}
 		}
@@ -380,7 +392,7 @@ ve.dm.Model.prototype.hasAttributes = function ( attributes, strict ) {
  *
  * The attributes object will be deep-copied.
  *
- * @returns {Object} Cloned element object
+ * @return {Object} Cloned element object
  */
 ve.dm.Model.prototype.getClonedElement = function () {
 	return ve.copy( this.element );
@@ -395,7 +407,7 @@ ve.dm.Model.prototype.getClonedElement = function () {
  * This is a custom hash function for OO#getHash.
  *
  * @method
- * @returns {Object} Hash object
+ * @return {Object} Hash object
  */
 ve.dm.Model.prototype.getHashObject = function () {
 	return this.constructor.static.getHashObject( this.element );
@@ -430,7 +442,7 @@ OO.inheritClass( ve.dm.ModelFactory, OO.Factory );
  * Create a new item from a model element
  *
  * @param {Object} element Model element
- * @returns {ve.dm.Model} Model constructed from element
+ * @return {ve.dm.Model} Model constructed from element
  * @throws {Error} Element must have a .type property
  */
 ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
@@ -493,23 +505,23 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 	 *
 	 * @private
 	 * @param {Object} obj Object the array resides in
-	 * @param {string...} keys
+	 * @param {...string} keys
 	 * @param {Mixed} value
 	 */
 	function addType( obj ) {
 		var i, len,
 			keys = Array.prototype.slice.call( arguments, 1, -1 ),
-			value = arguments[arguments.length - 1],
+			value = arguments[ arguments.length - 1 ],
 			o = obj;
 
 		for ( i = 0, len = keys.length - 1; i < len; i++ ) {
-			if ( o[keys[i]] === undefined ) {
-				o[keys[i]] = {};
+			if ( o[ keys[ i ] ] === undefined ) {
+				o[ keys[ i ] ] = {};
 			}
-			o = o[keys[i]];
+			o = o[ keys[ i ] ];
 		}
-		o[keys[i]] = o[keys[i]] || [];
-		o[keys[i]].unshift( value );
+		o[ keys[ i ] ] = o[ keys[ i ] ] || [];
+		o[ keys[ i ] ].unshift( value );
 	}
 
 	/**
@@ -519,13 +531,13 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 	 *
 	 * @private
 	 * @param {Object} obj Object the array resides in
-	 * @param {string...} keys
+	 * @param {...string} keys
 	 * @param {Mixed} value to remove
 	 */
 	function removeType( obj ) {
 		var index,
 			keys = Array.prototype.slice.call( arguments, 1, -1 ),
-			value = arguments[arguments.length - 1],
+			value = arguments[ arguments.length - 1 ],
 			arr = ve.getProp.apply( obj, [ obj ].concat( keys ) );
 
 		if ( arr ) {
@@ -582,24 +594,24 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 		for ( i = 0; i < tags.length; i++ ) {
 			// +!!foo is a shorter equivalent of Number( Boolean( foo ) ) or foo ? 1 : 0
 			addType( this.modelsByTag, +!!constructor.static.matchFunction,
-				tags[i], name
+				tags[ i ], name
 			);
 		}
 		for ( i = 0; i < types.length; i++ ) {
-			if ( types[i] instanceof RegExp ) {
+			if ( types[ i ] instanceof RegExp ) {
 				// TODO: Guard against running this again during subsequent
 				// iterations of the for loop
 				addType( this.modelsWithTypeRegExps, +!!constructor.static.matchFunction, name );
 			} else {
 				for ( j = 0; j < tags.length; j++ ) {
 					addType( this.modelsByTypeAndTag,
-						+!!constructor.static.matchFunction, types[i], tags[j], name
+						+!!constructor.static.matchFunction, types[ i ], tags[ j ], name
 					);
 				}
 			}
 		}
 
-		this.registrationOrder[name] = this.nextNumber++;
+		this.registrationOrder[ name ] = this.nextNumber++;
 	};
 
 	/**
@@ -645,24 +657,24 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 		for ( i = 0; i < tags.length; i++ ) {
 			// +!!foo is a shorter equivalent of Number( Boolean( foo ) ) or foo ? 1 : 0
 			removeType( this.modelsByTag, +!!constructor.static.matchFunction,
-				tags[i], name
+				tags[ i ], name
 			);
 		}
 		for ( i = 0; i < types.length; i++ ) {
-			if ( types[i] instanceof RegExp ) {
+			if ( types[ i ] instanceof RegExp ) {
 				// TODO: Guard against running this again during subsequent
 				// iterations of the for loop
 				removeType( this.modelsWithTypeRegExps, +!!constructor.static.matchFunction, name );
 			} else {
 				for ( j = 0; j < tags.length; j++ ) {
 					removeType( this.modelsByTypeAndTag,
-						+!!constructor.static.matchFunction, types[i], tags[j], name
+						+!!constructor.static.matchFunction, types[ i ], tags[ j ], name
 					);
 				}
 			}
 		}
 
-		delete this.registrationOrder[name];
+		delete this.registrationOrder[ name ];
 	};
 
 	/**
@@ -690,7 +702,7 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 	 * @param {Node} node Node to match (usually an HTMLElement but can also be a Comment node)
 	 * @param {boolean} [forceAboutGrouping] If true, only match models with about grouping enabled
 	 * @param {string[]} [excludeTypes] Model names to exclude when matching
-	 * @returns {string|null} Model type, or null if none found
+	 * @return {string|null} Model type, or null if none found
 	 */
 	ve.dm.ModelRegistry.prototype.matchElement = function ( node, forceAboutGrouping, excludeTypes ) {
 		var i, name, model, matches, winner, types,
@@ -698,7 +710,7 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 			reg = this;
 
 		function byRegistrationOrderDesc( a, b ) {
-			return reg.registrationOrder[b] - reg.registrationOrder[a];
+			return reg.registrationOrder[ b ] - reg.registrationOrder[ a ];
 		}
 
 		function matchTypeRegExps( type, tag, withFunc ) {
@@ -706,20 +718,20 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 				matches = [],
 				models = reg.modelsWithTypeRegExps[ +withFunc ];
 			for ( i = 0; i < models.length; i++ ) {
-				if ( excludeTypes && excludeTypes.indexOf( models[i] ) !== -1 ) {
+				if ( excludeTypes && excludeTypes.indexOf( models[ i ] ) !== -1 ) {
 					continue;
 				}
-				types = reg.registry[models[i]].static.getMatchRdfaTypes();
+				types = reg.registry[ models[ i ] ].static.getMatchRdfaTypes();
 				for ( j = 0; j < types.length; j++ ) {
 					if (
-						types[j] instanceof RegExp &&
-						type.match( types[j] ) &&
+						types[ j ] instanceof RegExp &&
+						type.match( types[ j ] ) &&
 						(
-							( tag === '' && reg.registry[models[i]].static.matchTagNames === null ) ||
-							( reg.registry[models[i]].static.matchTagNames || [] ).indexOf( tag ) !== -1
+							( tag === '' && reg.registry[ models[ i ] ].static.matchTagNames === null ) ||
+							( reg.registry[ models[ i ] ].static.matchTagNames || [] ).indexOf( tag ) !== -1
 						)
 					) {
-						matches.push( models[i] );
+						matches.push( models[ i ] );
 					}
 				}
 			}
@@ -746,7 +758,7 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 			for ( i = 0; i < types.length; i++ ) {
 				typeAllowed = false;
 				for ( j = 0; j < allowedTypes.length; j++ ) {
-					if ( checkType( allowedTypes[j], types[i] ) ) {
+					if ( checkType( allowedTypes[ j ], types[ i ] ) ) {
 						typeAllowed = true;
 						break;
 					}
@@ -764,11 +776,11 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 				queue2 = [];
 			for ( i = 0; i < types.length; i++ ) {
 				// Queue string matches and regexp matches separately
-				queue = queue.concat( ve.getProp( reg.modelsByTypeAndTag, 1, types[i], tag ) || [] );
+				queue = queue.concat( ve.getProp( reg.modelsByTypeAndTag, 1, types[ i ], tag ) || [] );
 				if ( excludeTypes ) {
 					queue = OO.simpleArrayDifference( queue, excludeTypes );
 				}
-				queue2 = queue2.concat( matchTypeRegExps( types[i], tag, true ) );
+				queue2 = queue2.concat( matchTypeRegExps( types[ i ], tag, true ) );
 			}
 			// Filter out matches which contain types which aren't allowed
 			queue = queue.filter( function ( name ) {
@@ -780,10 +792,10 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 			if ( forceAboutGrouping ) {
 				// Filter out matches that don't support about grouping
 				queue = queue.filter( function ( name ) {
-					return reg.registry[name].static.enableAboutGrouping;
+					return reg.registry[ name ].static.enableAboutGrouping;
 				} );
 				queue2 = queue2.filter( function ( name ) {
-					return reg.registry[name].static.enableAboutGrouping;
+					return reg.registry[ name ].static.enableAboutGrouping;
 				} );
 			}
 			// Try string matches first, then regexp matches
@@ -791,8 +803,8 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 			queue2.sort( byRegistrationOrderDesc );
 			queue = queue.concat( queue2 );
 			for ( i = 0; i < queue.length; i++ ) {
-				if ( reg.registry[queue[i]].static.matchFunction( node ) ) {
-					return queue[i];
+				if ( reg.registry[ queue[ i ] ].static.matchFunction( node ) ) {
+					return queue[ i ];
 				}
 			}
 			return null;
@@ -805,11 +817,11 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 				winningName = null;
 			for ( i = 0; i < types.length; i++ ) {
 				// Queue string and regexp matches separately
-				queue = queue.concat( ve.getProp( reg.modelsByTypeAndTag, 0, types[i], tag ) || [] );
+				queue = queue.concat( ve.getProp( reg.modelsByTypeAndTag, 0, types[ i ], tag ) || [] );
 				if ( excludeTypes ) {
 					queue = OO.simpleArrayDifference( queue, excludeTypes );
 				}
-				queue2 = queue2.concat( matchTypeRegExps( types[i], tag, false ) );
+				queue2 = queue2.concat( matchTypeRegExps( types[ i ], tag, false ) );
 			}
 			// Filter out matches which contain types which aren't allowed
 			queue = queue.filter( function ( name ) {
@@ -821,10 +833,10 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 			if ( forceAboutGrouping ) {
 				// Filter out matches that don't support about grouping
 				queue = queue.filter( function ( name ) {
-					return reg.registry[name].static.enableAboutGrouping;
+					return reg.registry[ name ].static.enableAboutGrouping;
 				} );
 				queue2 = queue2.filter( function ( name ) {
-					return reg.registry[name].static.enableAboutGrouping;
+					return reg.registry[ name ].static.enableAboutGrouping;
 				} );
 			}
 			// Only try regexp matches if there are no string matches
@@ -833,9 +845,9 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 			for ( i = 0; i < queue.length; i++ ) {
 				if (
 					winningName === null ||
-					reg.registrationOrder[winningName] < reg.registrationOrder[queue[i]]
+					reg.registrationOrder[ winningName ] < reg.registrationOrder[ queue[ i ] ]
 				) {
-					winningName = queue[i];
+					winningName = queue[ i ];
 				}
 			}
 			return winningName;
@@ -875,13 +887,13 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 		// No need to sort because individual arrays in modelsByTag are already sorted
 		// correctly
 		for ( i = 0; i < matches.length; i++ ) {
-			name = matches[i];
-			model = this.registry[name];
+			name = matches[ i ];
+			model = this.registry[ name ];
 			// Only process this one if it doesn't specify types
 			// If it does specify types, then we've either already processed it in the
 			// func+tag+type step above, or its type rule doesn't match
 			if ( model.static.getMatchRdfaTypes() === null && model.static.matchFunction( node ) ) {
-				return matches[i];
+				return matches[ i ];
 			}
 		}
 
@@ -893,8 +905,8 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 		// correctly
 		matches = ve.getProp( this.modelsByTypeAndTag, 1, '', '' ) || [];
 		for ( i = 0; i < matches.length; i++ ) {
-			if ( this.registry[matches[i]].static.matchFunction( node ) ) {
-				return matches[i];
+			if ( this.registry[ matches[ i ] ].static.matchFunction( node ) ) {
+				return matches[ i ];
 			}
 		}
 
@@ -917,13 +929,13 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 		// No need to track winningName because the individual arrays in modelsByTag are
 		// already sorted correctly
 		for ( i = 0; i < matches.length; i++ ) {
-			name = matches[i];
-			model = this.registry[name];
+			name = matches[ i ];
+			model = this.registry[ name ];
 			// Only process this one if it doesn't specify types
 			// If it does specify types, then we've either already processed it in the
 			// tag+type step above, or its type rule doesn't match
 			if ( model.static.getMatchRdfaTypes() === null ) {
-				return matches[i];
+				return matches[ i ];
 			}
 		}
 
@@ -932,7 +944,7 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 		// already processed or have a type or tag rule that disqualifies them
 		matches = ve.getProp( this.modelsByTypeAndTag, 0, '', '' ) || [];
 		if ( matches.length > 0 ) {
-			return matches[0];
+			return matches[ 0 ];
 		}
 
 		// We didn't find anything, give up
@@ -941,8 +953,9 @@ ve.dm.ModelFactory.prototype.createFromElement = function ( element ) {
 
 	/**
 	 * Tests whether a node will be modelled as an annotation
+	 *
 	 * @param {Node} node The node
-	 * @returns {boolean} Whether the element will be modelled as an annotation
+	 * @return {boolean} Whether the element will be modelled as an annotation
 	 */
 	ve.dm.ModelRegistry.prototype.isAnnotation = function ( node ) {
 		var modelClass = this.lookup( this.matchElement( node ) );
@@ -985,13 +998,13 @@ OO.inheritClass( ve.dm.NodeFactory, ve.dm.ModelFactory );
  * @method
  * @param {string} type Node type
  * @param {Object} attributes Node attributes, defaults will be used where needed
- * @returns {Object} Data element
+ * @return {Object} Data element
  * @throws {Error} Unknown node type
  */
 ve.dm.NodeFactory.prototype.getDataElement = function ( type, attributes ) {
 	var element = { type: type };
 	if ( Object.prototype.hasOwnProperty.call( this.registry, type ) ) {
-		attributes = ve.extendObject( {}, this.registry[type].static.defaultAttributes, attributes );
+		attributes = ve.extendObject( {}, this.registry[ type ].static.defaultAttributes, attributes );
 		if ( !ve.isEmptyObject( attributes ) ) {
 			element.attributes = ve.copy( attributes );
 		}
@@ -1005,12 +1018,12 @@ ve.dm.NodeFactory.prototype.getDataElement = function ( type, attributes ) {
  *
  * @method
  * @param {string} type Node type
- * @returns {string[]|null} List of node types allowed as children or null if any type is allowed
+ * @return {string[]|null} List of node types allowed as children or null if any type is allowed
  * @throws {Error} Unknown node type
  */
 ve.dm.NodeFactory.prototype.getChildNodeTypes = function ( type ) {
 	if ( Object.prototype.hasOwnProperty.call( this.registry, type ) ) {
-		return this.registry[type].static.childNodeTypes;
+		return this.registry[ type ].static.childNodeTypes;
 	}
 	throw new Error( 'Unknown node type: ' + type );
 };
@@ -1020,12 +1033,12 @@ ve.dm.NodeFactory.prototype.getChildNodeTypes = function ( type ) {
  *
  * @method
  * @param {string} type Node type
- * @returns {string[]|null} List of node types allowed as parents or null if any type is allowed
+ * @return {string[]|null} List of node types allowed as parents or null if any type is allowed
  * @throws {Error} Unknown node type
  */
 ve.dm.NodeFactory.prototype.getParentNodeTypes = function ( type ) {
 	if ( Object.prototype.hasOwnProperty.call( this.registry, type ) ) {
-		return this.registry[type].static.parentNodeTypes;
+		return this.registry[ type ].static.parentNodeTypes;
 	}
 	throw new Error( 'Unknown node type: ' + type );
 };
@@ -1035,12 +1048,12 @@ ve.dm.NodeFactory.prototype.getParentNodeTypes = function ( type ) {
  *
  * @method
  * @param {string} type Node type
- * @returns {string[]|null} List of node types suggested as parents or null if any type is suggested
+ * @return {string[]|null} List of node types suggested as parents or null if any type is suggested
  * @throws {Error} Unknown node type
  */
 ve.dm.NodeFactory.prototype.getSuggestedParentNodeTypes = function ( type ) {
 	if ( Object.prototype.hasOwnProperty.call( this.registry, type ) ) {
-		return this.registry[type].static.suggestedParentNodeTypes;
+		return this.registry[ type ].static.suggestedParentNodeTypes;
 	}
 	throw new Error( 'Unknown node type: ' + type );
 };
@@ -1050,14 +1063,15 @@ ve.dm.NodeFactory.prototype.getSuggestedParentNodeTypes = function ( type ) {
  *
  * @method
  * @param {string} type Node type
- * @returns {boolean} The node can have children
+ * @return {boolean} The node can have children
  * @throws {Error} Unknown node type
  */
 ve.dm.NodeFactory.prototype.canNodeHaveChildren = function ( type ) {
+	var types;
 	if ( Object.prototype.hasOwnProperty.call( this.registry, type ) ) {
 		// If childNodeTypes is null any child is allowed, if it's an array of at least one element
 		// than at least one kind of node is allowed
-		var types = this.registry[type].static.childNodeTypes;
+		types = this.registry[ type ].static.childNodeTypes;
 		return types === null || ( Array.isArray( types ) && types.length > 0 );
 	}
 	throw new Error( 'Unknown node type: ' + type );
@@ -1068,14 +1082,14 @@ ve.dm.NodeFactory.prototype.canNodeHaveChildren = function ( type ) {
  *
  * @method
  * @param {string} type Node type
- * @returns {boolean} The node can have children but not content nor be content
+ * @return {boolean} The node can have children but not content nor be content
  * @throws {Error} Unknown node type
  */
 ve.dm.NodeFactory.prototype.canNodeHaveChildrenNotContent = function ( type ) {
 	if ( Object.prototype.hasOwnProperty.call( this.registry, type ) ) {
 		return this.canNodeHaveChildren( type ) &&
-			!this.registry[type].static.canContainContent &&
-			!this.registry[type].static.isContent;
+			!this.registry[ type ].static.canContainContent &&
+			!this.registry[ type ].static.isContent;
 	}
 	throw new Error( 'Unknown node type: ' + type );
 };
@@ -1085,12 +1099,12 @@ ve.dm.NodeFactory.prototype.canNodeHaveChildrenNotContent = function ( type ) {
  *
  * @method
  * @param {string} type Node type
- * @returns {boolean} Whether the node has a wrapping element
+ * @return {boolean} Whether the node has a wrapping element
  * @throws {Error} Unknown node type
  */
 ve.dm.NodeFactory.prototype.isNodeWrapped = function ( type ) {
 	if ( Object.prototype.hasOwnProperty.call( this.registry, type ) ) {
-		return this.registry[type].static.isWrapped;
+		return this.registry[ type ].static.isWrapped;
 	}
 	throw new Error( 'Unknown node type: ' + type );
 };
@@ -1100,12 +1114,12 @@ ve.dm.NodeFactory.prototype.isNodeWrapped = function ( type ) {
  *
  * @method
  * @param {string} type Node type
- * @returns {boolean} The node contains content
+ * @return {boolean} The node contains content
  * @throws {Error} Unknown node type
  */
 ve.dm.NodeFactory.prototype.canNodeContainContent = function ( type ) {
 	if ( Object.prototype.hasOwnProperty.call( this.registry, type ) ) {
-		return this.registry[type].static.canContainContent;
+		return this.registry[ type ].static.canContainContent;
 	}
 	throw new Error( 'Unknown node type: ' + type );
 };
@@ -1116,18 +1130,18 @@ ve.dm.NodeFactory.prototype.canNodeContainContent = function ( type ) {
  * @method
  * @param {string} type Node type
  * @param {ve.dm.Annotation} annotation Annotation to test
- * @returns {boolean} Node can take annotations of this type
+ * @return {boolean} Node can take annotations of this type
  * @throws {Error} Unknown node type
  */
 ve.dm.NodeFactory.prototype.canNodeTakeAnnotationType = function ( type, annotation ) {
+	var i, len, blacklist;
 	if ( !Object.prototype.hasOwnProperty.call( this.registry, type ) ) {
 		throw new Error( 'Unknown node type: ' + type );
 	}
-	var i, len,
-		blacklist = this.registry[type].static.blacklistedAnnotationTypes;
+	blacklist = this.registry[ type ].static.blacklistedAnnotationTypes;
 
 	for ( i = 0, len = blacklist.length; i < len; i++ ) {
-		if ( annotation instanceof ve.dm.annotationFactory.lookup( blacklist[i] ) ) {
+		if ( annotation instanceof ve.dm.annotationFactory.lookup( blacklist[ i ] ) ) {
 			return false;
 		}
 	}
@@ -1139,12 +1153,12 @@ ve.dm.NodeFactory.prototype.canNodeTakeAnnotationType = function ( type, annotat
  *
  * @method
  * @param {string} type Node type
- * @returns {boolean} The node is content
+ * @return {boolean} The node is content
  * @throws {Error} Unknown node type
  */
 ve.dm.NodeFactory.prototype.isNodeContent = function ( type ) {
 	if ( Object.prototype.hasOwnProperty.call( this.registry, type ) ) {
-		return this.registry[type].static.isContent;
+		return this.registry[ type ].static.isContent;
 	}
 	throw new Error( 'Unknown node type: ' + type );
 };
@@ -1154,12 +1168,12 @@ ve.dm.NodeFactory.prototype.isNodeContent = function ( type ) {
  *
  * @method
  * @param {string} type Node type
- * @returns {boolean} Whether the node is focusable
+ * @return {boolean} Whether the node is focusable
  * @throws {Error} Unknown node type
  */
 ve.dm.NodeFactory.prototype.isNodeFocusable = function ( type ) {
 	if ( Object.prototype.hasOwnProperty.call( this.registry, type ) ) {
-		return this.registry[type].static.isFocusable;
+		return this.registry[ type ].static.isFocusable;
 	}
 	throw new Error( 'Unknown node type: ' + type );
 };
@@ -1171,12 +1185,12 @@ ve.dm.NodeFactory.prototype.isNodeFocusable = function ( type ) {
  *
  * @method
  * @param {string} type Node type
- * @returns {boolean} The node has significant whitespace
+ * @return {boolean} The node has significant whitespace
  * @throws {Error} Unknown node type
  */
 ve.dm.NodeFactory.prototype.doesNodeHaveSignificantWhitespace = function ( type ) {
 	if ( Object.prototype.hasOwnProperty.call( this.registry, type ) ) {
-		return this.registry[type].static.hasSignificantWhitespace;
+		return this.registry[ type ].static.hasSignificantWhitespace;
 	}
 	throw new Error( 'Unknown node type: ' + type );
 };
@@ -1186,12 +1200,12 @@ ve.dm.NodeFactory.prototype.doesNodeHaveSignificantWhitespace = function ( type 
  *
  * @method
  * @param {string} type Node type
- * @returns {boolean} Whether the node handles its own children
+ * @return {boolean} Whether the node handles its own children
  * @throws {Error} Unknown node type
  */
 ve.dm.NodeFactory.prototype.doesNodeHandleOwnChildren = function ( type ) {
 	if ( Object.prototype.hasOwnProperty.call( this.registry, type ) ) {
-		return this.registry[type].static.handlesOwnChildren;
+		return this.registry[ type ].static.handlesOwnChildren;
 	}
 	throw new Error( 'Unknown node type: ' + type );
 };
@@ -1201,12 +1215,12 @@ ve.dm.NodeFactory.prototype.doesNodeHandleOwnChildren = function ( type ) {
  *
  * @method
  * @param {string} type Node type
- * @returns {boolean} Whether the node's children should be ignored
+ * @return {boolean} Whether the node's children should be ignored
  * @throws {Error} Unknown node type
  */
 ve.dm.NodeFactory.prototype.shouldIgnoreChildren = function ( type ) {
 	if ( Object.prototype.hasOwnProperty.call( this.registry, type ) ) {
-		return this.registry[type].static.ignoreChildren;
+		return this.registry[ type ].static.ignoreChildren;
 	}
 	throw new Error( 'Unknown node type: ' + type );
 };
@@ -1216,12 +1230,12 @@ ve.dm.NodeFactory.prototype.shouldIgnoreChildren = function ( type ) {
  *
  * @method
  * @param {string} type Node type
- * @returns {boolean} Whether the node is internal
+ * @return {boolean} Whether the node is internal
  * @throws {Error} Unknown node type
  */
 ve.dm.NodeFactory.prototype.isNodeInternal = function ( type ) {
 	if ( Object.prototype.hasOwnProperty.call( this.registry, type ) ) {
-		return this.registry[type].static.isInternal;
+		return this.registry[ type ].static.isInternal;
 	}
 	throw new Error( 'Unknown node type: ' + type );
 };
@@ -1267,7 +1281,7 @@ ve.dm.annotationFactory = new ve.dm.AnnotationFactory();
  *
  * @constructor
  * @param {ve.dm.IndexValueStore} store Index-value store
- * @param {number[]} [indexes] Array of store indexes
+ * @param {number[]} [storeIndexes] Array of store indexes
  */
 ve.dm.AnnotationSet = function VeDmAnnotationSet( store, storeIndexes ) {
 	// Parent constructor
@@ -1281,7 +1295,7 @@ ve.dm.AnnotationSet = function VeDmAnnotationSet( store, storeIndexes ) {
  * Get the index-value store.
  *
  * @method
- * @returns {ve.dm.IndexValueStore} Index-value store
+ * @return {ve.dm.IndexValueStore} Index-value store
  */
 ve.dm.AnnotationSet.prototype.getStore = function () {
 	return this.store;
@@ -1291,7 +1305,7 @@ ve.dm.AnnotationSet.prototype.getStore = function () {
  * Get a clone.
  *
  * @method
- * @returns {ve.dm.AnnotationSet} Copy of annotation set
+ * @return {ve.dm.AnnotationSet} Copy of annotation set
  */
 ve.dm.AnnotationSet.prototype.clone = function () {
 	return new ve.dm.AnnotationSet( this.getStore(), this.storeIndexes.slice( 0 ) );
@@ -1302,7 +1316,7 @@ ve.dm.AnnotationSet.prototype.clone = function () {
  *
  * @method
  * @param {string} name Type name
- * @returns {ve.dm.AnnotationSet} Copy of annotation set
+ * @return {ve.dm.AnnotationSet} Copy of annotation set
  */
 ve.dm.AnnotationSet.prototype.getAnnotationsByName = function ( name ) {
 	return this.filter( function ( annotation ) { return annotation.name === name; } );
@@ -1314,7 +1328,7 @@ ve.dm.AnnotationSet.prototype.getAnnotationsByName = function ( name ) {
  *
  * @method
  * @param {ve.dm.Annotation} annotation Annotation to compare to
- * @returns {ve.dm.AnnotationSet} Copy of annotation set
+ * @return {ve.dm.AnnotationSet} Copy of annotation set
  */
 ve.dm.AnnotationSet.prototype.getComparableAnnotations = function ( annotation ) {
 	return this.filter( function ( a ) {
@@ -1331,7 +1345,7 @@ ve.dm.AnnotationSet.prototype.getComparableAnnotations = function ( annotation )
  *
  * @method
  * @param {ve.dm.AnnotationSet} annotations Annotation set to compare to
- * @returns {ve.dm.AnnotationSet} Copy of annotation set
+ * @return {ve.dm.AnnotationSet} Copy of annotation set
  */
 ve.dm.AnnotationSet.prototype.getComparableAnnotationsFromSet = function ( annotations ) {
 	return this.filter( function ( a ) {
@@ -1344,7 +1358,7 @@ ve.dm.AnnotationSet.prototype.getComparableAnnotationsFromSet = function ( annot
  *
  * @method
  * @param {string} name Type name
- * @returns {boolean} Annotation of given type exists in the set
+ * @return {boolean} Annotation of given type exists in the set
  */
 ve.dm.AnnotationSet.prototype.hasAnnotationWithName = function ( name ) {
 	return this.containsMatching( function ( annotation ) { return annotation.name === name; } );
@@ -1358,7 +1372,7 @@ ve.dm.AnnotationSet.prototype.hasAnnotationWithName = function ( name ) {
  *
  * @method
  * @param {number} [offset] If set, only get the annotation at the offset
- * @returns {ve.dm.Annotation[]|ve.dm.Annotation|undefined} The annotation at offset, or an array of all
+ * @return {ve.dm.Annotation[]|ve.dm.Annotation|undefined} The annotation at offset, or an array of all
  *  annotations in the set
  */
 ve.dm.AnnotationSet.prototype.get = function ( offset ) {
@@ -1371,16 +1385,18 @@ ve.dm.AnnotationSet.prototype.get = function ( offset ) {
 
 /**
  * Get store index from offset within annotation set.
+ *
  * @param {number} offset Offset within annotation set
- * @returns {number} Store index at specified offset
+ * @return {number} Store index at specified offset
  */
 ve.dm.AnnotationSet.prototype.getIndex = function ( offset ) {
-	return this.storeIndexes[offset];
+	return this.storeIndexes[ offset ];
 };
 
 /**
  * Get all store indexes.
- * @returns {Array} Store indexes
+ *
+ * @return {Array} Store indexes
  */
 ve.dm.AnnotationSet.prototype.getIndexes = function () {
 	return this.storeIndexes;
@@ -1390,7 +1406,7 @@ ve.dm.AnnotationSet.prototype.getIndexes = function () {
  * Get the length of the set.
  *
  * @method
- * @returns {number} The number of annotations in the set
+ * @return {number} The number of annotations in the set
  */
 ve.dm.AnnotationSet.prototype.getLength = function () {
 	return this.storeIndexes.length;
@@ -1400,7 +1416,7 @@ ve.dm.AnnotationSet.prototype.getLength = function () {
  * Check if the set is empty.
  *
  * @method
- * @returns {boolean} The set is empty
+ * @return {boolean} The set is empty
  */
 ve.dm.AnnotationSet.prototype.isEmpty = function () {
 	return this.getLength() === 0;
@@ -1413,7 +1429,7 @@ ve.dm.AnnotationSet.prototype.isEmpty = function () {
  *
  * @method
  * @param {ve.dm.Annotation} annotation Annotation
- * @returns {boolean} There is an annotation in the set with the same hash as annotation
+ * @return {boolean} There is an annotation in the set with the same hash as annotation
  */
 ve.dm.AnnotationSet.prototype.contains = function ( annotation ) {
 	return this.offsetOf( annotation ) !== -1;
@@ -1424,7 +1440,7 @@ ve.dm.AnnotationSet.prototype.contains = function ( annotation ) {
  *
  * @method
  * @param {number} storeIndex Store index of annotation
- * @returns {boolean} There is an annotation in the set with this store index
+ * @return {boolean} There is an annotation in the set with this store index
  */
 ve.dm.AnnotationSet.prototype.containsIndex = function ( storeIndex ) {
 	return this.getIndexes().indexOf( storeIndex ) !== -1;
@@ -1435,14 +1451,14 @@ ve.dm.AnnotationSet.prototype.containsIndex = function ( storeIndex ) {
  *
  * @method
  * @param {ve.dm.AnnotationSet} set Set to compare the set with
- * @returns {boolean} There is at least one annotation in set that is also in the set
+ * @return {boolean} There is at least one annotation in set that is also in the set
  */
 ve.dm.AnnotationSet.prototype.containsAnyOf = function ( set ) {
 	var i, length,
 		setIndexes = set.getIndexes(),
 		thisIndexes = this.getIndexes();
 	for ( i = 0, length = setIndexes.length; i < length; i++ ) {
-		if ( thisIndexes.indexOf( setIndexes[i] ) !== -1 ) {
+		if ( thisIndexes.indexOf( setIndexes[ i ] ) !== -1 ) {
 			return true;
 		}
 	}
@@ -1454,14 +1470,14 @@ ve.dm.AnnotationSet.prototype.containsAnyOf = function ( set ) {
  *
  * @method
  * @param {ve.dm.AnnotationSet} set Set to compare the set with
- * @returns {boolean} All annotations in set are also in the set
+ * @return {boolean} All annotations in set are also in the set
  */
 ve.dm.AnnotationSet.prototype.containsAllOf = function ( set ) {
 	var i, length,
 		setIndexes = set.getIndexes(),
 		thisIndexes = this.getIndexes();
 	for ( i = 0, length = setIndexes.length; i < length; i++ ) {
-		if ( thisIndexes.indexOf( setIndexes[i] ) === -1 ) {
+		if ( thisIndexes.indexOf( setIndexes[ i ] ) === -1 ) {
 			return false;
 		}
 	}
@@ -1473,7 +1489,7 @@ ve.dm.AnnotationSet.prototype.containsAllOf = function ( set ) {
  *
  * @method
  * @param {ve.dm.Annotation} annotation Annotation to search for
- * @returns {number} Offset of annotation in the set, or -1 if annotation is not in the set.
+ * @return {number} Offset of annotation in the set, or -1 if annotation is not in the set.
  */
 ve.dm.AnnotationSet.prototype.offsetOf = function ( annotation ) {
 	return this.offsetOfIndex( this.store.indexOfHash( OO.getHash( annotation ) ) );
@@ -1484,7 +1500,7 @@ ve.dm.AnnotationSet.prototype.offsetOf = function ( annotation ) {
  *
  * @method
  * @param {number} storeIndex Store index of annotation to search for
- * @returns {number} Offset of annotation in the set, or -1 if annotation is not in the set.
+ * @return {number} Offset of annotation in the set, or -1 if annotation is not in the set.
  */
 ve.dm.AnnotationSet.prototype.offsetOfIndex = function ( storeIndex ) {
 	return this.getIndexes().indexOf( storeIndex );
@@ -1498,7 +1514,7 @@ ve.dm.AnnotationSet.prototype.offsetOfIndex = function ( storeIndex ) {
  * @method
  * @param {Function} callback Function that takes an annotation and returns boolean true to include
  * @param {boolean} [returnBool] For internal use only
- * @returns {ve.dm.AnnotationSet} New set containing only the matching annotations
+ * @return {ve.dm.AnnotationSet|boolean} New set containing only the matching annotations
  */
 ve.dm.AnnotationSet.prototype.filter = function ( callback, returnBool ) {
 	var i, length, result, storeIndex, annotation;
@@ -1531,7 +1547,7 @@ ve.dm.AnnotationSet.prototype.filter = function ( callback, returnBool ) {
  * true if an annotation is found which is mergeable with the specified one.
  *
  * @param {ve.dm.Annotation} annotation Annotation to compare to
- * @returns {boolean} At least one comparable annotation found
+ * @return {boolean} At least one comparable annotation found
  */
 ve.dm.AnnotationSet.prototype.containsComparable = function ( annotation ) {
 	return this.filter( function ( a ) {
@@ -1547,7 +1563,7 @@ ve.dm.AnnotationSet.prototype.containsComparable = function ( annotation ) {
  * HTML attributes.
  *
  * @param {ve.dm.Annotation} annotation Annotation to compare to
- * @returns {boolean} At least one comparable annotation found
+ * @return {boolean} At least one comparable annotation found
  */
 ve.dm.AnnotationSet.prototype.containsComparableForSerialization = function ( annotation ) {
 	return this.filter( function ( a ) {
@@ -1564,7 +1580,7 @@ ve.dm.AnnotationSet.prototype.containsComparableForSerialization = function ( an
  *
  * @method
  * @param {Function} callback Function that takes an annotation and returns boolean true to include
- * @returns {boolean} At least one matching annotation found
+ * @return {boolean} At least one matching annotation found
  */
 ve.dm.AnnotationSet.prototype.containsMatching = function ( callback ) {
 	return this.filter( callback, true );
@@ -1577,7 +1593,7 @@ ve.dm.AnnotationSet.prototype.containsMatching = function ( callback ) {
  *
  * @method
  * @param {ve.dm.AnnotationSet} annotationSet The annotationSet to compare this one to
- * @returns {boolean} The annotations are the same
+ * @return {boolean} The annotations are the same
  */
 ve.dm.AnnotationSet.prototype.compareTo = function ( annotationSet ) {
 	var i, length = this.getIndexes().length;
@@ -1602,7 +1618,7 @@ ve.dm.AnnotationSet.prototype.compareTo = function ( annotationSet ) {
  * in exactly the same order.
  *
  * @param {ve.dm.AnnotationSet} set The annotation set to compare this one to
- * @returns {boolean} The annotation sets are equal
+ * @return {boolean} The annotation sets are equal
  */
 ve.dm.AnnotationSet.prototype.equalsInOrder = function ( set ) {
 	var i, len,
@@ -1612,7 +1628,7 @@ ve.dm.AnnotationSet.prototype.equalsInOrder = function ( set ) {
 		return false;
 	}
 	for ( i = 0, len = ourIndexes.length; i < len; i++ ) {
-		if ( ourIndexes[i] !== theirIndexes[i] ) {
+		if ( ourIndexes[ i ] !== theirIndexes[ i ] ) {
 			return false;
 		}
 	}
@@ -1765,7 +1781,7 @@ ve.dm.AnnotationSet.prototype.removeNotInSet = function ( set ) {
  * This returns a copy, the original set is not modified.
  *
  * @method
- * @returns {ve.dm.AnnotationSet} Copy of the set with the order reversed.
+ * @return {ve.dm.AnnotationSet} Copy of the set with the order reversed.
  */
 ve.dm.AnnotationSet.prototype.reversed = function () {
 	var newSet = this.clone();
@@ -1780,7 +1796,7 @@ ve.dm.AnnotationSet.prototype.reversed = function () {
  *
  * @method
  * @param {ve.dm.AnnotationSet} set Other set
- * @returns {ve.dm.AnnotationSet} Set containing all annotations in the set as well as all annotations in set
+ * @return {ve.dm.AnnotationSet} Set containing all annotations in the set as well as all annotations in set
  */
 ve.dm.AnnotationSet.prototype.mergeWith = function ( set ) {
 	var newSet = this.clone();
@@ -1793,7 +1809,7 @@ ve.dm.AnnotationSet.prototype.mergeWith = function ( set ) {
  *
  * @method
  * @param {ve.dm.AnnotationSet} set Other set
- * @returns {ve.dm.AnnotationSet} New set containing all annotations that are in the set but not in set
+ * @return {ve.dm.AnnotationSet} New set containing all annotations that are in the set but not in set
  */
 ve.dm.AnnotationSet.prototype.diffWith = function ( set ) {
 	var newSet = this.clone();
@@ -1806,7 +1822,7 @@ ve.dm.AnnotationSet.prototype.diffWith = function ( set ) {
  *
  * @method
  * @param {ve.dm.AnnotationSet} set Other set
- * @returns {ve.dm.AnnotationSet} New set containing all annotations that are both in the set and in set
+ * @return {ve.dm.AnnotationSet} New set containing all annotations that are both in the set and in set
  */
 ve.dm.AnnotationSet.prototype.intersectWith = function ( set ) {
 	var newSet = this.clone();
@@ -1843,12 +1859,12 @@ OO.inheritClass( ve.dm.MetaItemFactory, ve.dm.ModelFactory );
  *
  * @method
  * @param {string} type Meta item type
- * @returns {string} Group
+ * @return {string} Group
  * @throws {Error} Unknown item type
  */
 ve.dm.MetaItemFactory.prototype.getGroup = function ( type ) {
 	if ( Object.prototype.hasOwnProperty.call( this.registry, type ) ) {
-		return this.registry[type].static.group;
+		return this.registry[ type ].static.group;
 	}
 	throw new Error( 'Unknown item type: ' + type );
 };
@@ -1909,9 +1925,9 @@ ve.dm.ClassAttributeNode.static.setClassAttributes = function ( attributes, clas
 	}
 
 	for ( i = 0, l = classNames.length; i < l; i++ ) {
-		className = classNames[i];
+		className = classNames[ i ];
 		if ( Object.prototype.hasOwnProperty.call( this.classAttributes, className ) ) {
-			attributes = ve.extendObject( attributes, this.classAttributes[className] );
+			attributes = ve.extendObject( attributes, this.classAttributes[ className ] );
 		} else {
 			unrecognizedClasses.push( className );
 		}
@@ -1924,7 +1940,7 @@ ve.dm.ClassAttributeNode.static.setClassAttributes = function ( attributes, clas
 /**
  * Get class attribute from element attributes
  *
- * @param {Object} elementAttributes Element attributes
+ * @param {Object} attributes Element attributes
  * @return {string|null} Class name, or null if no classes to set
  */
 ve.dm.ClassAttributeNode.static.getClassAttrFromAttributes = function ( attributes ) {
@@ -1932,10 +1948,10 @@ ve.dm.ClassAttributeNode.static.getClassAttrFromAttributes = function ( attribut
 		classNames = [];
 
 	for ( className in this.classAttributes ) {
-		classAttributeSet = this.classAttributes[className];
+		classAttributeSet = this.classAttributes[ className ];
 		hasClass = true;
 		for ( key in classAttributeSet ) {
-			if ( attributes[key] !== classAttributeSet[key] ) {
+			if ( attributes[ key ] !== classAttributeSet[ key ] ) {
 				hasClass = false;
 				break;
 			}
@@ -2018,6 +2034,205 @@ OO.initClass( ve.dm.FocusableNode );
 /* Static Properties */
 
 ve.dm.FocusableNode.static.isFocusable = true;
+
+/*!
+ * VisualEditor DataModel Resizable node.
+ *
+ * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
+ */
+
+/**
+ * A mixin class for resizable nodes. This class is mostly a base
+ * interface for resizable nodes to be able to produce scalable
+ * objects for further calculation.
+ *
+ * @class
+ * @abstract
+ * @constructor
+ */
+ve.dm.ResizableNode = function VeDmResizableNode() {
+	this.scalable = null;
+
+	this.connect( this, { attributeChange: 'onResizableAttributeChange' } );
+};
+
+/* Inheritance */
+
+OO.initClass( ve.dm.ResizableNode );
+
+/**
+ * Get a scalable object for this node.
+ *
+ * #createScalable is called if one doesn't already exist.
+ *
+ * @return {ve.dm.Scalable} Scalable object
+ */
+ve.dm.ResizableNode.prototype.getScalable = function () {
+	if ( !this.scalable ) {
+		this.scalable = this.createScalable();
+	}
+	return this.scalable;
+};
+
+/**
+ * Create a scalable object based on the current object's width and height.
+ *
+ * @abstract
+ * @method
+ * @return {ve.dm.Scalable} Scalable object
+ */
+ve.dm.ResizableNode.prototype.createScalable = null;
+
+/**
+ * Handle attribute change events from the model.
+ *
+ * @method
+ * @param {string} key Attribute key
+ * @param {string} from Old value
+ * @param {string} to New value
+ */
+ve.dm.ResizableNode.prototype.onResizableAttributeChange = function ( key ) {
+	if ( key === 'width' || key === 'height' ) {
+		this.getScalable().setCurrentDimensions( {
+			width: this.getAttribute( 'width' ),
+			height: this.getAttribute( 'height' )
+		} );
+	}
+};
+
+/*!
+ * VisualEditor DataModel TableCellableNode class.
+ *
+ * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
+ */
+
+/**
+ * DataModel node which can behave as a table cell
+ *
+ * @class
+ *
+ * @abstract
+ * @constructor
+ */
+ve.dm.TableCellableNode = function VeDmTableCellableNode() {
+};
+
+/* Inheritance */
+
+OO.initClass( ve.dm.TableCellableNode );
+
+/* Static Properties */
+
+ve.dm.TableCellableNode.static.isCellable = true;
+
+/* Static Methods */
+
+ve.dm.TableCellableNode.static.setAttributes = function ( attributes, domElements ) {
+	var style = domElements[ 0 ].nodeName.toLowerCase() === 'th' ? 'header' : 'data',
+		colspan = domElements[ 0 ].getAttribute( 'colspan' ),
+		rowspan = domElements[ 0 ].getAttribute( 'rowspan' );
+
+	attributes.style = style;
+
+	if ( colspan !== null ) {
+		attributes.originalColspan = colspan;
+		if ( colspan !== '' && !isNaN( Number( colspan ) ) ) {
+			attributes.colspan = Number( colspan );
+		}
+	}
+
+	if ( rowspan !== null ) {
+		attributes.originalRowspan = rowspan;
+		if ( rowspan !== '' && !isNaN( Number( rowspan ) ) ) {
+			attributes.rowspan = Number( rowspan );
+		}
+	}
+};
+
+ve.dm.TableCellableNode.static.applyAttributes = function ( attributes, domElement ) {
+	var spans = {
+			colspan: attributes.colspan,
+			rowspan: attributes.rowspan
+		};
+
+	// Ignore spans of 1 unless they were in the original HTML
+	if ( attributes.colspan === 1 && Number( attributes.originalColspan ) !== 1 ) {
+		spans.colspan = null;
+	}
+
+	if ( attributes.rowspan === 1 && Number( attributes.originalRowspan ) !== 1 ) {
+		spans.rowspan = null;
+	}
+
+	// Use original value if the numerical value didn't change, or if we didn't set one
+	if ( attributes.colspan === undefined || attributes.colspan === Number( attributes.originalColspan ) ) {
+		spans.colspan = attributes.originalColspan;
+	}
+
+	if ( attributes.rowspan === undefined || attributes.rowspan === Number( attributes.originalRowspan ) ) {
+		spans.rowspan = attributes.originalRowspan;
+	}
+
+	ve.setDomAttributes( domElement, spans );
+};
+
+/* Methods */
+
+/**
+ * Get the number of rows the cell spans
+ *
+ * @return {number} Rows spanned
+ */
+ve.dm.TableCellableNode.prototype.getRowspan = function () {
+	return this.element.attributes.rowspan || 1;
+};
+
+/**
+ * Get the number of columns the cell spans
+ *
+ * @return {number} Columns spanned
+ */
+ve.dm.TableCellableNode.prototype.getColspan = function () {
+	return this.element.attributes.colspan || 1;
+};
+
+/**
+ * Get number of columns and rows the cell spans
+ *
+ * @return {Object} Object containing 'col' and 'row'
+ */
+ve.dm.TableCellableNode.prototype.getSpans = function () {
+	return {
+		col: this.getColspan(),
+		row: this.getRowspan()
+	};
+};
+
+/**
+ * Get the style of the cell
+ *
+ * @return {string} Style, 'header' or 'data'
+ */
+ve.dm.TableCellableNode.prototype.getStyle = function () {
+	return this.element.attributes.style || 'data';
+};
+
+/**
+ * Handle attributes changes
+ *
+ * @param {string} key Attribute key
+ * @param {string} from Old value
+ * @param {string} to New value
+ */
+ve.dm.TableCellableNode.prototype.onAttributeChange = function ( key ) {
+	if ( this.getParent() && ( key === 'colspan' || key === 'rowspan' ) ) {
+		// In practice the matrix should already be invalidated as you
+		// shouldn't change a span without adding/removing other cells,
+		// but it is possible to just change spans if you don't mind a
+		// non-rectangular table.
+		this.getParent().getParent().getParent().getMatrix().invalidate();
+	}
+};
 
 /*!
  * VisualEditor DataModel Scalable class.
@@ -2146,7 +2361,7 @@ OO.mixinClass( ve.dm.Scalable, OO.EventEmitter );
  * @param {number} [dimensions.width] The width of the image
  * @param {number} [dimensions.height] The height of the image
  * @param {number} [ratio] The image width/height ratio, if it exists
- * @returns {Object} Dimensions object with width and height
+ * @return {Object} Dimensions object with width and height
  */
 ve.dm.Scalable.static.getDimensionsFromValue = function ( dimensions, ratio ) {
 	dimensions = ve.copy( dimensions );
@@ -2175,7 +2390,8 @@ ve.dm.Scalable.static.getDimensionsFromValue = function ( dimensions, ratio ) {
 
 /**
  * Clone the current scalable object
- * @returns {ve.dm.Scalable} Cloned scalable object
+ *
+ * @return {ve.dm.Scalable} Cloned scalable object
  */
 ve.dm.Scalable.prototype.clone = function () {
 	var currentDimensions = this.getCurrentDimensions(),
@@ -2283,6 +2499,7 @@ ve.dm.Scalable.prototype.setDefaultDimensions = function ( dimensions ) {
 
 /**
  * Reset and remove the default dimensions
+ *
  * @fires defaultSizeChange
  */
 ve.dm.Scalable.prototype.clearDefaultDimensions = function () {
@@ -2293,6 +2510,7 @@ ve.dm.Scalable.prototype.clearDefaultDimensions = function () {
 
 /**
  * Reset and remove the default dimensions
+ *
  * @fires originalSizeChange
  */
 ve.dm.Scalable.prototype.clearOriginalDimensions = function () {
@@ -2358,6 +2576,7 @@ ve.dm.Scalable.prototype.setMaxDimensions = function ( dimensions ) {
 
 /**
  * Clear the minimum dimensions
+ *
  * @fires minSizeChange
  */
 ve.dm.Scalable.prototype.clearMinDimensions = function () {
@@ -2370,6 +2589,7 @@ ve.dm.Scalable.prototype.clearMinDimensions = function () {
 
 /**
  * Clear the maximum dimensions
+ *
  * @fires maxSizeChange
  */
 ve.dm.Scalable.prototype.clearMaxDimensions = function () {
@@ -2383,7 +2603,7 @@ ve.dm.Scalable.prototype.clearMaxDimensions = function () {
 /**
  * Get the original dimensions
  *
- * @returns {Object} Dimensions object with width & height
+ * @return {Object} Dimensions object with width & height
  */
 ve.dm.Scalable.prototype.getCurrentDimensions = function () {
 	return this.currentDimensions;
@@ -2392,7 +2612,7 @@ ve.dm.Scalable.prototype.getCurrentDimensions = function () {
 /**
  * Get the original dimensions
  *
- * @returns {Object} Dimensions object with width & height
+ * @return {Object} Dimensions object with width & height
  */
 ve.dm.Scalable.prototype.getOriginalDimensions = function () {
 	return this.originalDimensions;
@@ -2401,7 +2621,7 @@ ve.dm.Scalable.prototype.getOriginalDimensions = function () {
 /**
  * Get the default dimensions
  *
- * @returns {Object} Dimensions object with width & height
+ * @return {Object} Dimensions object with width & height
  */
 ve.dm.Scalable.prototype.getDefaultDimensions = function () {
 	return this.defaultDimensions;
@@ -2409,6 +2629,7 @@ ve.dm.Scalable.prototype.getDefaultDimensions = function () {
 
 /**
  * Get the default state of the scalable object
+ *
  * @return {boolean} Default size or custom
  */
 ve.dm.Scalable.prototype.isDefault = function () {
@@ -2418,7 +2639,7 @@ ve.dm.Scalable.prototype.isDefault = function () {
 /**
  * Get the minimum dimensions
  *
- * @returns {Object} Dimensions object with width & height
+ * @return {Object} Dimensions object with width & height
  */
 ve.dm.Scalable.prototype.getMinDimensions = function () {
 	return this.minDimensions;
@@ -2427,7 +2648,7 @@ ve.dm.Scalable.prototype.getMinDimensions = function () {
 /**
  * Get the maximum dimensions
  *
- * @returns {Object} Dimensions object with width & height
+ * @return {Object} Dimensions object with width & height
  */
 ve.dm.Scalable.prototype.getMaxDimensions = function () {
 	return this.maxDimensions;
@@ -2436,7 +2657,7 @@ ve.dm.Scalable.prototype.getMaxDimensions = function () {
 /**
  * The object enforces the minimum dimensions when scaling
  *
- * @returns {boolean} Enforces the minimum dimensions
+ * @return {boolean} Enforces the minimum dimensions
  */
 ve.dm.Scalable.prototype.isEnforcedMin = function () {
 	return this.enforceMin;
@@ -2445,7 +2666,7 @@ ve.dm.Scalable.prototype.isEnforcedMin = function () {
 /**
  * The object enforces the maximum dimensions when scaling
  *
- * @returns {boolean} Enforces the maximum dimensions
+ * @return {boolean} Enforces the maximum dimensions
  */
 ve.dm.Scalable.prototype.isEnforcedMax = function () {
 	return this.enforceMax;
@@ -2474,7 +2695,7 @@ ve.dm.Scalable.prototype.setEnforcedMax = function ( enforceMax ) {
 /**
  * Get the fixed aspect ratio (width/height)
  *
- * @returns {number} Aspect ratio
+ * @return {number} Aspect ratio
  */
 ve.dm.Scalable.prototype.getRatio = function () {
 	return this.ratio;
@@ -2483,7 +2704,7 @@ ve.dm.Scalable.prototype.getRatio = function () {
 /**
  * Check if the object has a fixed ratio
  *
- * @returns {boolean} The object has a fixed ratio
+ * @return {boolean} The object has a fixed ratio
  */
 ve.dm.Scalable.prototype.isFixedRatio = function () {
 	return this.fixedRatio;
@@ -2492,7 +2713,7 @@ ve.dm.Scalable.prototype.isFixedRatio = function () {
 /**
  * Get the current scale of the object
  *
- * @returns {number|null} A scale (1=100%), or null if not applicable
+ * @return {number|null} A scale (1=100%), or null if not applicable
  */
 ve.dm.Scalable.prototype.getCurrentScale = function () {
 	if ( !this.isFixedRatio() || !this.getCurrentDimensions() || !this.getOriginalDimensions() ) {
@@ -2506,7 +2727,7 @@ ve.dm.Scalable.prototype.getCurrentScale = function () {
  *
  * Only possible if enforceMin is false.
  *
- * @returns {boolean} Current dimensions are greater than maximum dimensions
+ * @return {boolean} Current dimensions are greater than maximum dimensions
  */
 ve.dm.Scalable.prototype.isTooSmall = function () {
 	return !!( this.getCurrentDimensions() && this.getMinDimensions() && (
@@ -2520,7 +2741,7 @@ ve.dm.Scalable.prototype.isTooSmall = function () {
  *
  * Only possible if enforceMax is false.
  *
- * @returns {boolean} Current dimensions are greater than maximum dimensions
+ * @return {boolean} Current dimensions are greater than maximum dimensions
  */
 ve.dm.Scalable.prototype.isTooLarge = function () {
 	return !!( this.getCurrentDimensions() && this.getMaxDimensions() && (
@@ -2534,7 +2755,7 @@ ve.dm.Scalable.prototype.isTooLarge = function () {
  *
  * @param {Object} dimensions Dimensions object with width & height
  * @param {number} [grid] Optional grid size to snap to
- * @returns {Object} Dimensions object with width & height
+ * @return {Object} Dimensions object with width & height
  */
 ve.dm.Scalable.prototype.getBoundedDimensions = function ( dimensions, grid ) {
 	var ratio, snap, snapMin, snapMax,
@@ -2586,7 +2807,7 @@ ve.dm.Scalable.prototype.getBoundedDimensions = function ( dimensions, grid ) {
 /**
  * Checks whether the current dimensions are numeric and within range
  *
- * @returns {boolean} Current dimensions are valid
+ * @return {boolean} Current dimensions are valid
  */
 ve.dm.Scalable.prototype.isCurrentDimensionsValid = function () {
 	var dimensions = this.getCurrentDimensions(),
@@ -2617,7 +2838,7 @@ ve.dm.Scalable.prototype.isCurrentDimensionsValid = function () {
  * Make sure that if width or height are set, they are not 'undefined'.
  *
  * @param {Object} dimensions A dimensions object to test
- * @returns {boolean} Valid or invalid dimensions object
+ * @return {boolean} Valid or invalid dimensions object
  */
 ve.dm.Scalable.prototype.isDimensionsObjectValid = function ( dimensions ) {
 	if (
@@ -2634,13 +2855,13 @@ ve.dm.Scalable.prototype.isDimensionsObjectValid = function ( dimensions ) {
 };
 
 /*!
- * VisualEditor DataModel ResourceProvider class.
+ * VisualEditor DataModel APIResultsProvider class.
  *
  * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
  */
 
 /**
- * Resource Provider object.
+ * API Results Provider object.
  *
  * @class
  * @mixins OO.EventEmitter
@@ -2658,7 +2879,7 @@ ve.dm.Scalable.prototype.isDimensionsObjectValid = function ( dimensions ) {
  *  the API request. These can change per request, like the search query term
  *  or sizing parameters for images, etc.
  */
-ve.dm.APIResultsProvider = function VeDmResourceProvider( apiurl, config ) {
+ve.dm.APIResultsProvider = function VeDmAPIResultsProvider( apiurl, config ) {
 	config = config || {};
 
 	this.setAPIurl( apiurl );
@@ -2722,7 +2943,7 @@ ve.dm.APIResultsProvider.prototype.setAPIurl = function ( apiurl ) {
 /**
  * Set api url
  *
- * @returns {string} API url
+ * @return {string} API url
  */
 ve.dm.APIResultsProvider.prototype.getAPIurl = function () {
 	return this.apiurl;
@@ -2731,7 +2952,7 @@ ve.dm.APIResultsProvider.prototype.getAPIurl = function () {
 /**
  * Get the static, non-changing data parameters sent to the API
  *
- * @returns {Object} Data parameters
+ * @return {Object} Data parameters
  */
 ve.dm.APIResultsProvider.prototype.getStaticParams = function () {
 	return this.staticParams;
@@ -2740,7 +2961,7 @@ ve.dm.APIResultsProvider.prototype.getStaticParams = function () {
 /**
  * Get the user-inputted dynamic data parameters sent to the API
  *
- * @returns {Object} Data parameters
+ * @return {Object} Data parameters
  */
 ve.dm.APIResultsProvider.prototype.getUserParams = function () {
 	return this.userParams;
@@ -2766,7 +2987,7 @@ ve.dm.APIResultsProvider.prototype.setUserParams = function ( params ) {
  * Get fetch limit or 'page' size. This is the number
  * of results per request.
  *
- * @returns {number} limit
+ * @return {number} limit
  */
 ve.dm.APIResultsProvider.prototype.getDefaultFetchLimit = function () {
 	return this.limit;
@@ -2784,7 +3005,7 @@ ve.dm.APIResultsProvider.prototype.setDefaultFetchLimit = function ( limit ) {
 /**
  * Get provider API language
  *
- * @returns {string} Provider API language
+ * @return {string} Provider API language
  */
 ve.dm.APIResultsProvider.prototype.getLang = function () {
 	return this.lang;
@@ -2802,7 +3023,7 @@ ve.dm.APIResultsProvider.prototype.setLang = function ( lang ) {
 /**
  * Get result offset
  *
- * @returns {number} Offset Results offset for the upcoming request
+ * @return {number} Offset Results offset for the upcoming request
  */
 ve.dm.APIResultsProvider.prototype.getOffset = function () {
 	return this.offset;
@@ -2811,7 +3032,7 @@ ve.dm.APIResultsProvider.prototype.getOffset = function () {
 /**
  * Set result offset
  *
- * @param {number} Results offset for the upcoming request
+ * @param {number} offset Results offset for the upcoming request
  */
 ve.dm.APIResultsProvider.prototype.setOffset = function ( offset ) {
 	this.offset = offset;
@@ -2821,7 +3042,7 @@ ve.dm.APIResultsProvider.prototype.setOffset = function ( offset ) {
  * Check whether the provider is depleted and has no more results
  * to hand off.
  *
- * @returns {boolean} The provider is depleted
+ * @return {boolean} The provider is depleted
  */
 ve.dm.APIResultsProvider.prototype.isDepleted = function () {
 	return this.depleted;
@@ -2839,7 +3060,7 @@ ve.dm.APIResultsProvider.prototype.toggleDepleted = function ( isDepleted ) {
 /**
  * Get the default ajax settings
  *
- * @returns {Object} Ajax settings
+ * @return {Object} Ajax settings
  */
 ve.dm.APIResultsProvider.prototype.getAjaxSettings = function () {
 	return this.ajaxSettings;
@@ -2855,13 +3076,13 @@ ve.dm.APIResultsProvider.prototype.setAjaxSettings = function ( settings ) {
 };
 
 /*!
- * VisualEditor DataModel ResourceQueue class.
+ * VisualEditor DataModel APIResultsQueue class.
  *
  * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
  */
 
 /**
- * Resource Queue object.
+ * API Results Queue object.
  *
  * @class
  * @mixins OO.EventEmitter
@@ -2873,7 +3094,7 @@ ve.dm.APIResultsProvider.prototype.setAjaxSettings = function ( settings ) {
  *  that the queue should always strive to have on top of the
  *  individual requests for items.
  */
-ve.dm.APIResultsQueue = function VeDmResourceQueue( config ) {
+ve.dm.APIResultsQueue = function VeDmAPIResultsQueue( config ) {
 	config = config || {};
 
 	this.fileRepoPromise = null;
@@ -2953,14 +3174,14 @@ ve.dm.APIResultsQueue.prototype.queryProviders = function ( howMany ) {
 		.then( function () {
 			// Abort previous requests
 			for ( i = 0, len = queue.providerPromises.length; i < len; i++ ) {
-				queue.providerPromises[i].abort();
+				queue.providerPromises[ i ].abort();
 			}
 			queue.providerPromises = [];
 			// Set up the query to all providers
 			for ( i = 0, len = queue.providers.length; i < len; i++ ) {
-				if ( !queue.providers[i].isDepleted() ) {
+				if ( !queue.providers[ i ].isDepleted() ) {
 					queue.providerPromises.push(
-						queue.providers[i].getResults( howMany )
+						queue.providers[ i ].getResults( howMany )
 					);
 				}
 			}
@@ -2985,11 +3206,11 @@ ve.dm.APIResultsQueue.prototype.setParams = function ( params ) {
 		this.queue = [];
 		// Reset promises
 		for ( i = 0, len = this.providerPromises.length; i < len; i++ ) {
-			this.providerPromises[i].abort();
+			this.providerPromises[ i ].abort();
 		}
 		// Change queries
 		for ( i = 0, len = this.providers.length; i < len; i++ ) {
-			this.providers[i].setUserParams( this.params );
+			this.providers[ i ].setUserParams( this.params );
 		}
 	}
 };
@@ -2997,7 +3218,7 @@ ve.dm.APIResultsQueue.prototype.setParams = function ( params ) {
 /**
  * Get the data parameters sent to the API
  *
- * @returns {Object} params API search parameters
+ * @return {Object} params API search parameters
  */
 ve.dm.APIResultsQueue.prototype.getParams = function () {
 	return this.params;
@@ -3024,7 +3245,7 @@ ve.dm.APIResultsQueue.prototype.addProvider = function ( provider ) {
 /**
  * Set the providers
  *
- * @returns {ve.dm.APIResultsProvider[]} providers An array of providers
+ * @return {ve.dm.APIResultsProvider[]} providers An array of providers
  */
 ve.dm.APIResultsQueue.prototype.getProviders = function () {
 	return this.providers;
@@ -3052,76 +3273,11 @@ ve.dm.APIResultsQueue.prototype.setThreshold = function ( threshold ) {
 /**
  * Get queue threshold
  *
- * @returns {number} threshold Queue threshold, below which we will
+ * @return {number} threshold Queue threshold, below which we will
  *  request more items
  */
 ve.dm.APIResultsQueue.prototype.getThreshold = function () {
 	return this.threshold;
-};
-
-/*!
- * VisualEditor DataModel Resizable node.
- *
- * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
- */
-
-/**
- * A mixin class for resizable nodes. This class is mostly a base
- * interface for resizable nodes to be able to produce scalable
- * objects for further calculation.
- *
- * @class
- * @abstract
- * @constructor
- */
-ve.dm.ResizableNode = function VeDmResizableNode() {
-	this.scalable = null;
-
-	this.connect( this, { attributeChange: 'onResizableAttributeChange' } );
-};
-
-/* Inheritance */
-
-OO.initClass( ve.dm.ResizableNode );
-
-/**
- * Get a scalable object for this node.
- *
- * #createScalable is called if one doesn't already exist.
- *
- * @returns {ve.dm.Scalable} Scalable object
- */
-ve.dm.ResizableNode.prototype.getScalable = function () {
-	if ( !this.scalable ) {
-		this.scalable = this.createScalable();
-	}
-	return this.scalable;
-};
-
-/**
- * Create a scalable object based on the current object's width and height.
- *
- * @abstract
- * @method
- * @returns {ve.dm.Scalable} Scalable object
- */
-ve.dm.ResizableNode.prototype.createScalable = null;
-
-/**
- * Handle attribute change events from the model.
- *
- * @method
- * @param {string} key Attribute key
- * @param {string} from Old value
- * @param {string} to New value
- */
-ve.dm.ResizableNode.prototype.onResizableAttributeChange = function ( key ) {
-	if ( key === 'width' || key === 'height' ) {
-		this.getScalable().setCurrentDimensions( {
-			width: this.getAttribute( 'width' ),
-			height: this.getAttribute( 'height' )
-		} );
-	}
 };
 
 /*!
@@ -3250,6 +3406,15 @@ ve.dm.Node.static.isFocusable = false;
  * @inheritable
  */
 ve.dm.Node.static.isAlignable = false;
+
+/**
+ * Whether this node type can behave as a table cell.
+ *
+ * @static
+ * @property {boolean}
+ * @inheritable
+ */
+ve.dm.Node.static.isCellable = false;
 
 /**
  * Whether this node type can contain content. The children of content container nodes must be
@@ -3390,13 +3555,13 @@ ve.dm.Node.static.remapInternalListKeys = function () {
  * @static
  * @param {HTMLElement[]} domElements DOM elements being converted
  * @param {ve.dm.Converter} converter Converter object
- * @returns {boolean} The element is inline
+ * @return {boolean} The element is inline
  */
 ve.dm.Node.static.isHybridInline = function ( domElements, converter ) {
 	var i, length, allTagsInline = true;
 
 	for ( i = 0, length = domElements.length; i < length; i++ ) {
-		if ( ve.isBlockElement( domElements[i] ) ) {
+		if ( ve.isBlockElement( domElements[ i ] ) ) {
 			allTagsInline = false;
 			break;
 		}
@@ -3419,7 +3584,7 @@ ve.dm.Node.static.isHybridInline = function ( domElements, converter ) {
  * @static
  * @param {Object} element Element object
  * @param {boolean} preserveGenerated Preserve internal.generated property of element
- * @returns {Object} Cloned element object
+ * @return {Object} Cloned element object
  */
 ve.dm.Node.static.cloneElement = function ( element, preserveGenerated ) {
 	var clone = ve.copy( element );
@@ -3437,7 +3602,7 @@ ve.dm.Node.static.cloneElement = function ( element, preserveGenerated ) {
 /**
  * @see #static-cloneElement
  * @param {boolean} preserveGenerated Preserve internal.generated property of element
- * @returns {Object} Cloned element object
+ * @return {Object} Cloned element object
  */
 ve.dm.Node.prototype.getClonedElement = function ( preserveGenerated ) {
 	return this.constructor.static.cloneElement( this.element, preserveGenerated );
@@ -3468,26 +3633,21 @@ ve.dm.Node.prototype.getSuggestedParentNodeTypes = function () {
  * @inheritdoc ve.Node
  */
 ve.dm.Node.prototype.canHaveChildren = function () {
-	// If childNodeTypes is null any child is allowed, if it's an array of at least one element
-	// than at least one kind of node is allowed
-	var types = this.constructor.static.childNodeTypes;
-	return types === null || ( Array.isArray( types ) && types.length > 0 );
+	return ve.dm.nodeFactory.canNodeHaveChildren( this.type );
 };
 
 /**
  * @inheritdoc ve.Node
  */
 ve.dm.Node.prototype.canHaveChildrenNotContent = function () {
-	return this.canHaveChildren() &&
-		!this.constructor.static.canContainContent &&
-		!this.constructor.static.isContent;
+	return ve.dm.nodeFactory.canNodeHaveChildrenNotContent( this.type );
 };
 
 /**
  * Check if the node is an internal node
  *
  * @method
- * @returns {boolean} Node is an internal node
+ * @return {boolean} Node is an internal node
  */
 ve.dm.Node.prototype.isInternal = function () {
 	return this.constructor.static.isInternal;
@@ -3529,10 +3689,24 @@ ve.dm.Node.prototype.isAlignable = function () {
 };
 
 /**
+ * @inheritdoc ve.Node
+ */
+ve.dm.Node.prototype.isCellable = function () {
+	return this.constructor.static.isCellable;
+};
+
+/**
+ * @inheritdoc ve.Node
+ */
+ve.dm.Node.prototype.isCellEditable = function () {
+	return this.constructor.static.isCellEditable;
+};
+
+/**
  * Check if the node can have a slug before it.
  *
  * @method
- * @returns {boolean} Whether the node can have a slug before it
+ * @return {boolean} Whether the node can have a slug before it
  */
 ve.dm.Node.prototype.canHaveSlugBefore = function () {
 	return !this.canContainContent() && this.getParentNodeTypes() === null;
@@ -3542,7 +3716,7 @@ ve.dm.Node.prototype.canHaveSlugBefore = function () {
  * Check if the node can have a slug after it.
  *
  * @method
- * @returns {boolean} Whether the node can have a slug after it
+ * @return {boolean} Whether the node can have a slug after it
  */
 ve.dm.Node.prototype.canHaveSlugAfter = ve.dm.Node.prototype.canHaveSlugBefore;
 
@@ -3571,7 +3745,7 @@ ve.dm.Node.prototype.shouldIgnoreChildren = function () {
  * Check if the node has an ancestor with matching type and attribute values.
  *
  * @method
- * @returns {boolean} Node has an ancestor with matching type and attribute values
+ * @return {boolean} Node has an ancestor with matching type and attribute values
  */
 ve.dm.Node.prototype.hasMatchingAncestor = function ( type, attributes ) {
 	var node = this;
@@ -3590,7 +3764,7 @@ ve.dm.Node.prototype.hasMatchingAncestor = function ( type, attributes ) {
  * Check if the node matches type and attribute values.
  *
  * @method
- * @returns {boolean} Node matches type and attribute values
+ * @return {boolean} Node matches type and attribute values
  */
 ve.dm.Node.prototype.matches = function ( type, attributes ) {
 	var key;
@@ -3602,7 +3776,7 @@ ve.dm.Node.prototype.matches = function ( type, attributes ) {
 	// Check attributes
 	if ( attributes ) {
 		for ( key in attributes ) {
-			if ( this.getAttribute( key ) !== attributes[key] ) {
+			if ( this.getAttribute( key ) !== attributes[ key ] ) {
 				return false;
 			}
 		}
@@ -3630,11 +3804,12 @@ ve.dm.Node.prototype.getLength = function () {
  * @throws {Error} Invalid content length error if length is less than 0
  */
 ve.dm.Node.prototype.setLength = function ( length ) {
+	var diff;
 	if ( length < 0 ) {
 		throw new Error( 'Length cannot be negative' );
 	}
 	// Compute length adjustment from old length
-	var diff = length - this.length;
+	diff = length - this.length;
 	// Set new length
 	this.length = length;
 	// Adjust the parent's length
@@ -3676,10 +3851,10 @@ ve.dm.Node.prototype.getOffset = function () {
 	siblings = this.parent.children;
 	offset = this.parent.getOffset() + ( this.parent === this.root ? 0 : 1 );
 	for ( i = 0, len = siblings.length; i < len; i++ ) {
-		if ( siblings[i] === this ) {
+		if ( siblings[ i ] === this ) {
 			break;
 		}
-		offset += siblings[i].getOuterLength();
+		offset += siblings[ i ].getOuterLength();
 	}
 	if ( i === len ) {
 		throw new Error( 'Node not found in parent\'s children array' );
@@ -3697,7 +3872,7 @@ ve.dm.Node.prototype.getOffset = function () {
  *
  * @method
  * @param {ve.dm.Node} node Node to consider merging with
- * @returns {boolean} Nodes can be merged
+ * @return {boolean} Nodes can be merged
  */
 ve.dm.Node.prototype.canBeMergedWith = function ( node ) {
 	var n1 = this,
@@ -3727,11 +3902,6 @@ ve.dm.Node.prototype.canBeMergedWith = function ( node ) {
 		n2 = n2.getParent();
 	}
 	return true;
-};
-
-ve.dm.Node.prototype.isResilient = function () {
-	var el = this.getOriginalDomElements()[0];
-	return (el && ( el.dataset.mode === 'resilient' ) );
 };
 
 /*!
@@ -3794,7 +3964,7 @@ OO.mixinClass( ve.dm.BranchNode, ve.BranchNode );
  *
  * @method
  * @param {ve.dm.BranchNode} childModel Item to add
- * @returns {number} New number of children
+ * @return {number} New number of children
  * @fires splice
  * @fires update
  */
@@ -3807,13 +3977,14 @@ ve.dm.BranchNode.prototype.push = function ( childModel ) {
  * Remove a child node from the end of the list.
  *
  * @method
- * @returns {ve.dm.BranchNode} Removed childModel
+ * @return {ve.dm.BranchNode} Removed childModel
  * @fires splice
  * @fires update
  */
 ve.dm.BranchNode.prototype.pop = function () {
+	var childModel;
 	if ( this.children.length ) {
-		var childModel = this.children[this.children.length - 1];
+		childModel = this.children[ this.children.length - 1 ];
 		this.splice( this.children.length - 1, 1 );
 		return childModel;
 	}
@@ -3824,7 +3995,7 @@ ve.dm.BranchNode.prototype.pop = function () {
  *
  * @method
  * @param {ve.dm.BranchNode} childModel Item to add
- * @returns {number} New number of children
+ * @return {number} New number of children
  * @fires splice
  * @fires update
  */
@@ -3837,13 +4008,14 @@ ve.dm.BranchNode.prototype.unshift = function ( childModel ) {
  * Remove a child node from the beginning of the list.
  *
  * @method
- * @returns {ve.dm.BranchNode} Removed childModel
+ * @return {ve.dm.BranchNode} Removed childModel
  * @fires splice
  * @fires update
  */
 ve.dm.BranchNode.prototype.shift = function () {
+	var childModel;
 	if ( this.children.length ) {
-		var childModel = this.children[0];
+		childModel = this.children[ 0 ];
 		this.splice( 0, 1 );
 		return childModel;
 	}
@@ -3855,9 +4027,9 @@ ve.dm.BranchNode.prototype.shift = function () {
  * @method
  * @param {number} index Index to remove and or insert nodes at
  * @param {number} howmany Number of nodes to remove
- * @param {ve.dm.BranchNode...} [nodes] Variadic list of nodes to insert
+ * @param {...ve.dm.BranchNode} [nodes] Variadic list of nodes to insert
  * @fires splice
- * @returns {ve.dm.BranchNode[]} Removed nodes
+ * @return {ve.dm.BranchNode[]} Removed nodes
  */
 ve.dm.BranchNode.prototype.splice = function () {
 	var i,
@@ -3868,15 +4040,15 @@ ve.dm.BranchNode.prototype.splice = function () {
 
 	removals = this.children.splice.apply( this.children, args );
 	for ( i = 0, length = removals.length; i < length; i++ ) {
-		removals[i].detach();
-		diff -= removals[i].getOuterLength();
+		removals[ i ].detach();
+		diff -= removals[ i ].getOuterLength();
 	}
 
 	if ( args.length >= 3 ) {
 		length = args.length;
 		for ( i = 2; i < length; i++ ) {
-			args[i].attach( this );
-			diff += args[i].getOuterLength();
+			args[ i ].attach( this );
+			diff += args[ i ].getOuterLength();
 		}
 	}
 
@@ -3906,28 +4078,28 @@ ve.dm.BranchNode.prototype.setupBlockSlugs = function () {
 	// completely empty, so this ensures DocumentNode gets a slug.
 	if (
 		this.getLength() === 0 ||
-		( this.children.length === 1 && this.children[0].isInternal() )
+		( this.children.length === 1 && this.children[ 0 ].isInternal() )
 	) {
-		this.slugPositions[0] = true;
+		this.slugPositions[ 0 ] = true;
 	} else {
 		// Iterate over all children of this branch and add slugs in appropriate places
 		for ( i = 0, len = this.children.length; i < len; i++ ) {
 			// Don't put slugs after internal nodes
-			if ( this.children[i].isInternal() ) {
+			if ( this.children[ i ].isInternal() ) {
 				continue;
 			}
 			// First sluggable child (left side)
-			if ( i === 0 && this.children[i].canHaveSlugBefore() ) {
-				this.slugPositions[i] = true;
+			if ( i === 0 && this.children[ i ].canHaveSlugBefore() ) {
+				this.slugPositions[ i ] = true;
 			}
-			if ( this.children[i].canHaveSlugAfter() ) {
+			if ( this.children[ i ].canHaveSlugAfter() ) {
 				if (
 					// Last sluggable child (right side)
 					i === this.children.length - 1 ||
 					// Sluggable child followed by another sluggable child (in between)
-					( this.children[i + 1] && this.children[i + 1].canHaveSlugBefore() )
+					( this.children[ i + 1 ] && this.children[ i + 1 ].canHaveSlugBefore() )
 				) {
-					this.slugPositions[i + 1] = true;
+					this.slugPositions[ i + 1 ] = true;
 				}
 			}
 		}
@@ -3939,19 +4111,19 @@ ve.dm.BranchNode.prototype.setupBlockSlugs = function () {
  *
  * @method
  * @param {number} offset Offset to check for a slug at
- * @returns {boolean} There is a slug at the offset
+ * @return {boolean} There is a slug at the offset
  */
 ve.dm.BranchNode.prototype.hasSlugAtOffset = function ( offset ) {
 	var i,
 		startOffset = this.getOffset() + ( this.isWrapped() ? 1 : 0 );
 
 	if ( offset === startOffset ) {
-		return !!this.slugPositions[0];
+		return !!this.slugPositions[ 0 ];
 	}
 	for ( i = 0; i < this.children.length; i++ ) {
-		startOffset += this.children[i].getOuterLength();
+		startOffset += this.children[ i ].getOuterLength();
 		if ( offset === startOffset ) {
-			return !!this.slugPositions[i + 1];
+			return !!this.slugPositions[ i + 1 ];
 		}
 	}
 	return false;
@@ -4032,7 +4204,7 @@ ve.dm.LeafNode.static.childNodeTypes = [];
  * model element doesn't have a .annotations property, an empty array is returned.
  *
  * @method
- * @returns {number[]} Annotation set indexes in the index-value store
+ * @return {number[]} Annotation set indexes in the index-value store
  */
 ve.dm.LeafNode.prototype.getAnnotations = function () {
 	return this.element.annotations || [];
@@ -4118,22 +4290,9 @@ ve.dm.Annotation.static.removes = [];
  * @param {HTMLDocument} doc HTML document for creating elements
  * @param {ve.dm.Converter} converter Converter object to optionally call .getDomSubtreeFromData() on
  * @param {Node[]} childDomElements Children that will be appended to the returned element
- * @returns {HTMLElement[]} Array of DOM elements; only the first element is used; may be empty
+ * @return {HTMLElement[]} Array of DOM elements; only the first element is used; may be empty
  */
 ve.dm.Annotation.static.toDomElements = null;
-
-/**
- * @inheritdoc
- */
-ve.dm.Annotation.static.getHashObject = function ( dataElement ) {
-	return {
-		type: dataElement.type,
-		attributes: dataElement.attributes,
-		// For uniqueness we are only concerned with the first node
-		originalDomElements: dataElement.originalDomElements &&
-			dataElement.originalDomElements[0].cloneNode( false ).outerHTML
-	};
-};
 
 /* Methods */
 
@@ -4153,7 +4312,7 @@ ve.dm.Annotation.prototype.getDomElements = function ( doc ) {
  *
  * This is used by the converter to merge adjacent annotations.
  *
- * @returns {Object} An object containing a subset of the annotation's properties
+ * @return {Object} An object containing a subset of the annotation's properties
  */
 ve.dm.Annotation.prototype.getComparableObject = function () {
 	var hashObject = this.getHashObject();
@@ -4167,13 +4326,13 @@ ve.dm.Annotation.prototype.getComparableObject = function () {
  * This should be removed once similar annotation merging is handled correctly
  * by Parsoid.
  *
- * @returns {Object} An object all HTML attributes except data-parsoid
+ * @return {Object} An object all HTML attributes except data-parsoid
  */
 ve.dm.Annotation.prototype.getComparableHtmlAttributes = function () {
 	var comparableAttributes, domElements = this.getOriginalDomElements();
-	if ( domElements[0] ) {
-		comparableAttributes = ve.getDomAttributes( domElements[0] );
-		delete comparableAttributes['data-parsoid'];
+	if ( domElements[ 0 ] ) {
+		comparableAttributes = ve.getDomAttributes( domElements[ 0 ] );
+		delete comparableAttributes[ 'data-parsoid' ];
 		return comparableAttributes;
 	}
 	return {};
@@ -4186,7 +4345,7 @@ ve.dm.Annotation.prototype.getComparableHtmlAttributes = function () {
  * This method needs to be different from #getComparableObject which is
  * still used for editing annotations.
  *
- * @returns {Object} An object containing a subset of the annotation's properties and HTML attributes
+ * @return {Object} An object containing a subset of the annotation's properties and HTML attributes
  */
 ve.dm.Annotation.prototype.getComparableObjectForSerialization = function () {
 	var object = this.getComparableObject(),
@@ -4203,7 +4362,7 @@ ve.dm.Annotation.prototype.getComparableObjectForSerialization = function () {
  *
  * Used by compareToForSerialization to avoid merging generated annotations.
  *
- * @returns {boolean} The annotation was generated
+ * @return {boolean} The annotation was generated
  */
 ve.dm.Annotation.prototype.isGenerated = function () {
 	// Only annotations and nodes generated by the converter have originalDomElements set.
@@ -4229,7 +4388,7 @@ ve.dm.Annotation.prototype.compareTo = function ( annotation ) {
  * they are both generated annotations, in which case they must be identical.
  *
  * @param {ve.dm.Annotation} annotation Annotation to compare to
- * @returns {boolean} The other annotation is similar to this one
+ * @return {boolean} The other annotation is similar to this one
  */
 ve.dm.Annotation.prototype.compareToForSerialization = function ( annotation ) {
 	// If both annotations were generated
@@ -4301,7 +4460,7 @@ OO.mixinClass( ve.dm.InternalList, OO.EventEmitter );
  * @param {string} groupName Item group
  * @param {string} key Item key
  * @param {string} html Item contents
- * @returns {Object} Object containing index of the item in the index-value store
+ * @return {Object} Object containing index of the item in the index-value store
  * (and also its index in the internal list node), and a flag indicating if it is a new item.
  */
 ve.dm.InternalList.prototype.queueItemHtml = function ( groupName, key, html ) {
@@ -4310,12 +4469,12 @@ ve.dm.InternalList.prototype.queueItemHtml = function ( groupName, key, html ) {
 
 	if ( index === undefined ) {
 		index = this.itemHtmlQueue.length;
-		this.keyIndexes[groupName + '/' + key] = index;
+		this.keyIndexes[ groupName + '/' + key ] = index;
 		this.itemHtmlQueue.push( html );
 		isNew = true;
-	} else if ( this.itemHtmlQueue[index] === '' ) {
+	} else if ( this.itemHtmlQueue[ index ] === '' ) {
 		// Previous value with this key was empty, overwrite value in queue
-		this.itemHtmlQueue[index] = html;
+		this.itemHtmlQueue[ index ] = html;
 		isNew = true;
 	}
 	return {
@@ -4326,8 +4485,9 @@ ve.dm.InternalList.prototype.queueItemHtml = function ( groupName, key, html ) {
 
 /**
  * Gets all the item's HTML strings
+ *
  * @method
- * @returns {Object} Name-indexed object containing HTMLElements
+ * @return {Object} Name-indexed object containing HTMLElements
  */
 ve.dm.InternalList.prototype.getItemHtmlQueue = function () {
 	return this.itemHtmlQueue;
@@ -4335,8 +4495,9 @@ ve.dm.InternalList.prototype.getItemHtmlQueue = function () {
 
 /**
  * Gets the internal list's document model
+ *
  * @method
- * @returns {ve.dm.Document} Document model
+ * @return {ve.dm.Document} Document model
  */
 ve.dm.InternalList.prototype.getDocument = function () {
 	return this.document;
@@ -4344,8 +4505,9 @@ ve.dm.InternalList.prototype.getDocument = function () {
 
 /**
  * Get the list node
+ *
  * @method
- * @returns {ve.dm.InternalListNode} List node
+ * @return {ve.dm.InternalListNode} List node
  */
 ve.dm.InternalList.prototype.getListNode = function () {
 	var i, nodes;
@@ -4353,8 +4515,8 @@ ve.dm.InternalList.prototype.getListNode = function () {
 	if ( !this.listNode || !this.listNode.doc ) {
 		nodes = this.getDocument().getDocumentNode().children;
 		for ( i = nodes.length; i >= 0; i-- ) {
-			if ( nodes[i] instanceof ve.dm.InternalListNode ) {
-				this.listNode = nodes[i];
+			if ( nodes[ i ] instanceof ve.dm.InternalListNode ) {
+				this.listNode = nodes[ i ];
 				break;
 			}
 		}
@@ -4366,7 +4528,7 @@ ve.dm.InternalList.prototype.getListNode = function () {
  * Get the number it internal items in the internal list.
  *
  * @method
- * @returns {number}
+ * @return {number}
  */
 ve.dm.InternalList.prototype.getItemNodeCount = function () {
 	return this.getListNode().children.length;
@@ -4377,17 +4539,17 @@ ve.dm.InternalList.prototype.getItemNodeCount = function () {
  *
  * @method
  * @param {number} index Item index
- * @returns {ve.dm.InternalItemNode} Item node
+ * @return {ve.dm.InternalItemNode} Item node
  */
 ve.dm.InternalList.prototype.getItemNode = function ( index ) {
-	return this.getListNode().children[index];
+	return this.getListNode().children[ index ];
 };
 
 /**
  * Get all node groups.
  *
  * @method
- * @returns {Object} Node groups, keyed by group name
+ * @return {Object} Node groups, keyed by group name
  */
 ve.dm.InternalList.prototype.getNodeGroups = function () {
 	return this.nodes;
@@ -4398,10 +4560,10 @@ ve.dm.InternalList.prototype.getNodeGroups = function () {
  *
  * @method
  * @param {string} groupName Name of the group
- * @returns {Object} Node group object, containing nodes and key order array
+ * @return {Object} Node group object, containing nodes and key order array
  */
 ve.dm.InternalList.prototype.getNodeGroup = function ( groupName ) {
-	return this.nodes[groupName];
+	return this.nodes[ groupName ];
 };
 
 /**
@@ -4415,28 +4577,29 @@ ve.dm.InternalList.prototype.getNodeGroup = function ( groupName ) {
  * @param {string} groupName Name of the group
  * @param {string} oldListKey Current list key to associate the generated list key with
  * @param {string} prefix Prefix to distinguish generated keys from non-generated ones
- * @returns {string} Generated unique list key, or existing unique key associated with oldListKey
+ * @return {string} Generated unique list key, or existing unique key associated with oldListKey
  */
 ve.dm.InternalList.prototype.getUniqueListKey = function ( groupName, oldListKey, prefix ) {
 	var group = this.getNodeGroup( groupName ),
 		num = 0;
 
-	if ( group.uniqueListKeys[oldListKey] !== undefined ) {
-		return group.uniqueListKeys[oldListKey];
+	if ( group.uniqueListKeys[ oldListKey ] !== undefined ) {
+		return group.uniqueListKeys[ oldListKey ];
 	}
 
-	while ( group.keyedNodes[prefix + num] || group.uniqueListKeysInUse[prefix + num] ) {
+	while ( group.keyedNodes[ prefix + num ] || group.uniqueListKeysInUse[ prefix + num ] ) {
 		num++;
 	}
 
-	group.uniqueListKeys[oldListKey] = prefix + num;
-	group.uniqueListKeysInUse[prefix + num] = true;
+	group.uniqueListKeys[ oldListKey ] = prefix + num;
+	group.uniqueListKeysInUse[ prefix + num ] = true;
 	return prefix + num;
 };
 
 /**
  * Get the next number in a monotonically increasing series.
- * @returns {number} One higher than the return value of the previous call, or 0 on the first call
+ *
+ * @return {number} One higher than the return value of the previous call, or 0 on the first call
  */
 ve.dm.InternalList.prototype.getNextUniqueNumber = function () {
 	return this.nextUniqueNumber++;
@@ -4453,7 +4616,7 @@ ve.dm.InternalList.prototype.getNextUniqueNumber = function () {
  * @method
  * @param {ve.dm.Converter} converter Converter object
  * @param {HTMLDocument} doc Document to create nodes in
- * @returns {Array} Linear model data
+ * @return {Array} Linear model data
  */
 ve.dm.InternalList.prototype.convertToData = function ( converter, doc ) {
 	var i, length, itemData, div,
@@ -4462,12 +4625,12 @@ ve.dm.InternalList.prototype.convertToData = function ( converter, doc ) {
 
 	list.push( { type: 'internalList' } );
 	for ( i = 0, length = itemHtmlQueue.length; i < length; i++ ) {
-		if ( itemHtmlQueue[i] !== '' ) {
+		if ( itemHtmlQueue[ i ] !== '' ) {
 			div = doc.createElement( 'div' );
-			div.innerHTML = itemHtmlQueue[i];
+			div.innerHTML = itemHtmlQueue[ i ];
 			itemData = converter.getDataFromDomSubtree( div );
 			list = list.concat(
-				[ { type: 'internalItem', attributes: { originalHtml: itemHtmlQueue[i] } } ],
+				[ { type: 'internalItem', attributes: { originalHtml: itemHtmlQueue[ i ] } } ],
 				itemData,
 				[ { type: '/internalItem' } ]
 			);
@@ -4483,10 +4646,11 @@ ve.dm.InternalList.prototype.convertToData = function ( converter, doc ) {
 
 /**
  * Generate a transaction for inserting a new internal item node
+ *
  * @param {string} groupName Item group
  * @param {string} key Item key
  * @param {Array} data Linear model data
- * @returns {Object} Object containing the transaction (or null if none required)
+ * @return {Object} Object containing the transaction (or null if none required)
  * and the new item's index within the list
  */
 ve.dm.InternalList.prototype.getItemInsertion = function ( groupName, key, data ) {
@@ -4495,7 +4659,7 @@ ve.dm.InternalList.prototype.getItemInsertion = function ( groupName, key, data 
 
 	if ( index === undefined ) {
 		index = this.getItemNodeCount();
-		this.keyIndexes[groupName + '/' + key] = index;
+		this.keyIndexes[ groupName + '/' + key ] = index;
 
 		itemData = [ { type: 'internalItem' } ].concat( data,  [ { type: '/internalItem' } ] );
 		tx = ve.dm.Transaction.newFromInsertion(
@@ -4515,26 +4679,29 @@ ve.dm.InternalList.prototype.getItemInsertion = function ( groupName, key, data 
 
 /**
  * Get position of a key within a group
+ *
  * @param {string} groupName Name of the group
  * @param {string} key Name of the key
- * @returns {number} Position within the key ordering for that group
+ * @return {number} Position within the key ordering for that group
  */
-ve.dm.InternalList.prototype.getIndexPosition = function ( groupName, index ) {
-	return this.nodes[groupName].indexOrder.indexOf( index );
+ve.dm.InternalList.prototype.getIndexPosition = function ( groupName, key ) {
+	return this.nodes[ groupName ].indexOrder.indexOf( key );
 };
 
 /**
  * Get the internal item index of a group key if it already exists
+ *
  * @param {string} groupName Item group
  * @param {string} key Item name
- * @returns {number|undefined} The index of the group key, or undefined if it doesn't exist yet
+ * @return {number|undefined} The index of the group key, or undefined if it doesn't exist yet
  */
 ve.dm.InternalList.prototype.getKeyIndex = function ( groupName, key ) {
-	return this.keyIndexes[groupName + '/' + key];
+	return this.keyIndexes[ groupName + '/' + key ];
 };
 
 /**
  * Add a node.
+ *
  * @method
  * @param {string} groupName Item group
  * @param {string} key Item name
@@ -4542,10 +4709,10 @@ ve.dm.InternalList.prototype.getKeyIndex = function ( groupName, key ) {
  * @param {ve.dm.Node} node Item node
  */
 ve.dm.InternalList.prototype.addNode = function ( groupName, key, index, node ) {
-	var i, len, start, keyedNodes, group = this.nodes[groupName];
+	var i, len, start, keyedNodes, group = this.nodes[ groupName ];
 	// The group may not exist yet
 	if ( group === undefined ) {
-		group = this.nodes[groupName] = {
+		group = this.nodes[ groupName ] = {
 			keyedNodes: {},
 			firstNodes: [],
 			indexOrder: [],
@@ -4553,11 +4720,11 @@ ve.dm.InternalList.prototype.addNode = function ( groupName, key, index, node ) 
 			uniqueListKeysInUse: {}
 		};
 	}
-	keyedNodes = group.keyedNodes[key];
-	this.keys[index] = key;
+	keyedNodes = group.keyedNodes[ key ];
+	this.keys[ index ] = key;
 	// The key may not exist yet
 	if ( keyedNodes === undefined ) {
-		keyedNodes = group.keyedNodes[key] = [];
+		keyedNodes = group.keyedNodes[ key ] = [];
 	}
 	if ( node.getDocument().buildingNodeTree ) {
 		// If the document is building the original node tree
@@ -4565,20 +4732,20 @@ ve.dm.InternalList.prototype.addNode = function ( groupName, key, index, node ) 
 		// need to worry about sorting.
 		keyedNodes.push( node );
 		if ( keyedNodes.length === 1 ) {
-			group.firstNodes[index] = node;
+			group.firstNodes[ index ] = node;
 		}
 	} else {
 		// TODO: We could use binary search insertion sort
 		start = node.getRange().start;
 		for ( i = 0, len = keyedNodes.length; i < len; i++ ) {
-			if ( start < keyedNodes[i].getRange().start ) {
+			if ( start < keyedNodes[ i ].getRange().start ) {
 				break;
 			}
 		}
 		// 'i' is now the insertion point, so add the node here
 		keyedNodes.splice( i, 0, node );
 		if ( i === 0 ) {
-			group.firstNodes[index] = node;
+			group.firstNodes[ index ] = node;
 		}
 	}
 	if ( group.indexOrder.indexOf( index ) === -1 ) {
@@ -4589,6 +4756,7 @@ ve.dm.InternalList.prototype.addNode = function ( groupName, key, index, node ) 
 
 /**
  * Mark a node group as having been changed since the last transaction.
+ *
  * @param {string} groupName Name of group which has changed
  */
 ve.dm.InternalList.prototype.markGroupAsChanged = function ( groupName ) {
@@ -4599,6 +4767,7 @@ ve.dm.InternalList.prototype.markGroupAsChanged = function ( groupName ) {
 
 /**
  * Handle document transaction events
+ *
  * @fires update
  */
 ve.dm.InternalList.prototype.onTransact = function () {
@@ -4606,7 +4775,7 @@ ve.dm.InternalList.prototype.onTransact = function () {
 	if ( this.groupsChanged.length > 0 ) {
 		// length will almost always be 1, so probably better to not cache it
 		for ( i = 0; i < this.groupsChanged.length; i++ ) {
-			this.sortGroupIndexes( this.nodes[this.groupsChanged[i]] );
+			this.sortGroupIndexes( this.nodes[ this.groupsChanged[ i ] ] );
 		}
 		this.emit( 'update', this.groupsChanged );
 		this.groupsChanged = [];
@@ -4615,6 +4784,7 @@ ve.dm.InternalList.prototype.onTransact = function () {
 
 /**
  * Remove a node.
+ *
  * @method
  * @param {string} groupName Item group
  * @param {string} key Item name
@@ -4623,14 +4793,14 @@ ve.dm.InternalList.prototype.onTransact = function () {
  */
 ve.dm.InternalList.prototype.removeNode = function ( groupName, key, index, node ) {
 	var i, len, j, keyedNodes,
-		group = this.nodes[groupName];
+		group = this.nodes[ groupName ];
 
-	keyedNodes = group.keyedNodes[key];
+	keyedNodes = group.keyedNodes[ key ];
 	for ( i = 0, len = keyedNodes.length; i < len; i++ ) {
-		if ( keyedNodes[i] === node ) {
+		if ( keyedNodes[ i ] === node ) {
 			keyedNodes.splice( i, 1 );
 			if ( i === 0 ) {
-				group.firstNodes[index] = keyedNodes[0];
+				group.firstNodes[ index ] = keyedNodes[ 0 ];
 			}
 			break;
 		}
@@ -4638,8 +4808,8 @@ ve.dm.InternalList.prototype.removeNode = function ( groupName, key, index, node
 	// If the all the items in this key have been removed
 	// then remove this index from indexOrder and firstNodes
 	if ( keyedNodes.length === 0 ) {
-		delete group.keyedNodes[key];
-		delete group.firstNodes[index];
+		delete group.keyedNodes[ key ];
+		delete group.firstNodes[ index ];
 		j = group.indexOrder.indexOf( index );
 		group.indexOrder.splice( j, 1 );
 	}
@@ -4648,12 +4818,13 @@ ve.dm.InternalList.prototype.removeNode = function ( groupName, key, index, node
 
 /**
  * Sort the indexOrder array within a group object.
+ *
  * @param {Object} group Group object
  */
 ve.dm.InternalList.prototype.sortGroupIndexes = function ( group ) {
 	// Sort indexOrder
 	group.indexOrder.sort( function ( index1, index2 ) {
-		return group.firstNodes[index1].getRange().start - group.firstNodes[index2].getRange().start;
+		return group.firstNodes[ index1 ].getRange().start - group.firstNodes[ index2 ].getRange().start;
 	} );
 };
 
@@ -4661,7 +4832,7 @@ ve.dm.InternalList.prototype.sortGroupIndexes = function ( group ) {
  * Clone this internal list.
  *
  * @param {ve.dm.Document} [doc] The new list's document. Defaults to this list's document.
- * @returns {ve.dm.InternalList} Clone of this internal
+ * @return {ve.dm.InternalList} Clone of this internal
  */
 ve.dm.InternalList.prototype.clone = function ( doc ) {
 	var clone = new this.constructor( doc || this.getDocument() );
@@ -4681,7 +4852,7 @@ ve.dm.InternalList.prototype.clone = function ( doc ) {
  *
  * @param {ve.dm.InternalList} list Internal list to merge into this list
  * @param {number} commonLength The number of elements, counted from the beginning, that the lists have in common
- * @returns {Object} 'mapping' is an object mapping indexes in list to indexes in this; newItemRanges is an array
+ * @return {Object} 'mapping' is an object mapping indexes in list to indexes in this; newItemRanges is an array
  *  of ranges of internal nodes in list's document that should be copied into our document
  */
 ve.dm.InternalList.prototype.merge = function ( list, commonLength ) {
@@ -4691,29 +4862,29 @@ ve.dm.InternalList.prototype.merge = function ( list, commonLength ) {
 		newItemRanges = [],
 		mapping = {};
 	for ( i = 0; i < commonLength; i++ ) {
-		mapping[i] = i;
+		mapping[ i ] = i;
 	}
 	for ( i = commonLength; i < listLen; i++ ) {
 		// Try to find i in list.keyIndexes
 		key = undefined;
 		for ( k in list.keyIndexes ) {
-			if ( list.keyIndexes[k] === i ) {
+			if ( list.keyIndexes[ k ] === i ) {
 				key = k;
 				break;
 			}
 		}
 
-		if ( this.keyIndexes[key] !== undefined ) {
+		if ( this.keyIndexes[ key ] !== undefined ) {
 			// We already have this key in this internal list. Ignore the duplicate that the other
 			// list is trying to merge in.
 			// NOTE: This case cannot occur in VE currently, but may be possible in the future with
 			// collaborative editing, which is why this code needs to be rewritten before we do
 			// collaborative editing.
-			mapping[i] = this.keyIndexes[key];
+			mapping[ i ] = this.keyIndexes[ key ];
 		} else {
-			mapping[i] = nextIndex;
+			mapping[ i ] = nextIndex;
 			if ( key !== undefined ) {
-				this.keyIndexes[key] = nextIndex;
+				this.keyIndexes[ key ] = nextIndex;
 			}
 			nextIndex++;
 			newItemRanges.push( list.getItemNode( i ).getOuterRange() );
@@ -4776,6 +4947,7 @@ ve.dm.MetaItem.static.group = 'misc';
 
 /**
  * Remove this item from the document. Only works if the item is attached to a MetaList.
+ *
  * @throws {Error} Cannot remove detached item
  */
 ve.dm.MetaItem.prototype.remove = function () {
@@ -4803,8 +4975,9 @@ ve.dm.MetaItem.prototype.replaceWith = function ( item ) {
 
 /**
  * Get the group this meta item belongs to.
+ *
  * @see #static-group
- * @returns {string} Group
+ * @return {string} Group
  */
 ve.dm.MetaItem.prototype.getGroup = function () {
 	return this.constructor.static.group;
@@ -4812,7 +4985,8 @@ ve.dm.MetaItem.prototype.getGroup = function () {
 
 /**
  * Get the MetaList this item is attached to.
- * @returns {ve.dm.MetaList|null} Reference to the parent list, or null if not attached
+ *
+ * @return {ve.dm.MetaList|null} Reference to the parent list, or null if not attached
  */
 ve.dm.MetaItem.prototype.getParentList = function () {
 	return this.list;
@@ -4823,7 +4997,7 @@ ve.dm.MetaItem.prototype.getParentList = function () {
  *
  * This is only known if the item is attached to a MetaList.
  *
- * @returns {number|null} Offset, or null if not attached
+ * @return {number|null} Offset, or null if not attached
  */
 ve.dm.MetaItem.prototype.getOffset = function () {
 	return this.offset;
@@ -4834,7 +5008,7 @@ ve.dm.MetaItem.prototype.getOffset = function () {
  *
  * This is only known if the item is attached to a MetaList.
  *
- * @returns {number|null} Index, or null if not attached
+ * @return {number|null} Index, or null if not attached
  */
 ve.dm.MetaItem.prototype.getIndex = function () {
 	return this.index;
@@ -4842,6 +5016,7 @@ ve.dm.MetaItem.prototype.getIndex = function () {
 
 /**
  * Set the offset. This is used by the parent list to synchronize the item with the document state.
+ *
  * @param {number} offset New offset
  */
 ve.dm.MetaItem.prototype.setOffset = function ( offset ) {
@@ -4850,6 +5025,7 @@ ve.dm.MetaItem.prototype.setOffset = function ( offset ) {
 
 /**
  * Set the index. This is used by the parent list to synchronize the item with the document state.
+ *
  * @param {number} index New index
  */
 ve.dm.MetaItem.prototype.setIndex = function ( index ) {
@@ -4858,6 +5034,7 @@ ve.dm.MetaItem.prototype.setIndex = function ( index ) {
 
 /**
  * Attach this item to a MetaList.
+ *
  * @param {ve.dm.MetaList} list Parent list to attach to
  * @param {number} offset Offset of this item in the parent list's document
  * @param {number} index Index of this item in the metadata array at the offset
@@ -4885,7 +5062,8 @@ ve.dm.MetaItem.prototype.detach = function ( list ) {
 
 /**
  * Check whether this item is attached to a MetaList.
- * @returns {boolean} Whether item is attached
+ *
+ * @return {boolean} Whether item is attached
  */
 ve.dm.MetaItem.prototype.isAttached = function () {
 	return this.list !== null;
@@ -4924,12 +5102,12 @@ ve.dm.MetaList = function VeDmMetaList( surface ) {
 	// Populate from document
 	metadata = this.document.getMetadata();
 	for ( i in metadata ) {
-		if ( Object.prototype.hasOwnProperty.call( metadata, i ) && Array.isArray( metadata[i] ) ) {
-			for ( j = 0, jlen = metadata[i].length; j < jlen; j++ ) {
-				item = ve.dm.metaItemFactory.createFromElement( metadata[i][j] );
-				group = this.groups[item.getGroup()];
+		if ( Object.prototype.hasOwnProperty.call( metadata, i ) && Array.isArray( metadata[ i ] ) ) {
+			for ( j = 0, jlen = metadata[ i ].length; j < jlen; j++ ) {
+				item = ve.dm.metaItemFactory.createFromElement( metadata[ i ][ j ] );
+				group = this.groups[ item.getGroup() ];
 				if ( !group ) {
-					group = this.groups[item.getGroup()] = [];
+					group = this.groups[ item.getGroup() ] = [];
 				}
 				item.attach( this, Number( i ), j );
 				group.push( item );
@@ -4966,6 +5144,7 @@ OO.mixinClass( ve.dm.MetaList, OO.EventEmitter );
  * - insert items for new metadata that was inserted
  * - remove items for metadata that was removed
  * - translate offsets and recompute indices for metadata that has shifted
+ *
  * @param {ve.dm.Transaction} tx Transaction that was applied to the document
  * @fires insert
  * @fires remove
@@ -4990,27 +5169,27 @@ ve.dm.MetaList.prototype.onTransact = function ( tx ) {
 	// don't actually touch this.items yet, otherwise we 1) get it out of order which breaks
 	// findItem() and 2) lose information about what the pre-transaction state of this.items was.
 	for ( i = 0, ilen = ops.length; i < ilen; i++ ) {
-		switch ( ops[i].type ) {
+		switch ( ops[ i ].type ) {
 			case 'retain':
 				// Advance itemIndex through the retain and update items we encounter along the way
 				for ( ;
-					itemIndex < numItems && this.items[itemIndex].offset < offset + ops[i].length;
+					itemIndex < numItems && this.items[ itemIndex ].offset < offset + ops[ i ].length;
 					itemIndex++
 				) {
 					// Plan to move this item to the post-transaction offset and index
 					newItems.push( {
-						item: this.items[itemIndex],
-						offset: this.items[itemIndex].offset + newOffset - offset,
-						index: this.items[itemIndex].offset === offset ?
+						item: this.items[ itemIndex ],
+						offset: this.items[ itemIndex ].offset + newOffset - offset,
+						index: this.items[ itemIndex ].offset === offset ?
 							// Adjust index for insertions or removals that happened at this offset
-							newIndex - index + this.items[itemIndex].index :
+							newIndex - index + this.items[ itemIndex ].index :
 							// Offset is retained over completely, don't adjust index
-							this.items[itemIndex].index
+							this.items[ itemIndex ].index
 					} );
 				}
 
-				offset += ops[i].length;
-				newOffset += ops[i].length;
+				offset += ops[ i ].length;
+				newOffset += ops[ i ].length;
 				index = 0;
 				newIndex = 0;
 				break;
@@ -5018,42 +5197,42 @@ ve.dm.MetaList.prototype.onTransact = function ( tx ) {
 			case 'retainMetadata':
 				// Advance itemIndex through the retain and update items we encounter along the way
 				for ( ;
-					itemIndex < numItems && this.items[itemIndex].offset === offset &&
-						this.items[itemIndex].index < index + ops[i].length;
+					itemIndex < numItems && this.items[ itemIndex ].offset === offset &&
+						this.items[ itemIndex ].index < index + ops[ i ].length;
 					itemIndex++
 				) {
 					newItems.push( {
-						item: this.items[itemIndex],
+						item: this.items[ itemIndex ],
 						offset: newOffset,
-						index: this.items[itemIndex].index + newIndex - index
+						index: this.items[ itemIndex ].index + newIndex - index
 					} );
 				}
 
-				index += ops[i].length;
-				newIndex += ops[i].length;
+				index += ops[ i ].length;
+				newIndex += ops[ i ].length;
 				break;
 
 			case 'replace':
-				ins = ops[i].insert;
-				rm = ops[i].remove;
-				if ( ops[i].removeMetadata !== undefined ) {
-					insMeta = ops[i].insertMetadata;
-					rmMeta = ops[i].removeMetadata;
+				ins = ops[ i ].insert;
+				rm = ops[ i ].remove;
+				if ( ops[ i ].removeMetadata !== undefined ) {
+					insMeta = ops[ i ].insertMetadata;
+					rmMeta = ops[ i ].removeMetadata;
 
 					// Process removed metadata
 					for ( ;
 						itemIndex < numItems &&
-							this.items[itemIndex].offset < offset + rmMeta.length;
+							this.items[ itemIndex ].offset < offset + rmMeta.length;
 						itemIndex++
 					) {
-						removedItems.push( this.items[itemIndex] );
+						removedItems.push( this.items[ itemIndex ] );
 					}
 
 					// Process inserted metadata
 					for ( j = 0, jlen = insMeta.length; j < jlen; j++ ) {
-						if ( insMeta[j] ) {
-							for ( k = 0, klen = insMeta[j].length; k < klen; k++ ) {
-								item = ve.dm.metaItemFactory.createFromElement( insMeta[j][k] );
+						if ( insMeta[ j ] ) {
+							for ( k = 0, klen = insMeta[ j ].length; k < klen; k++ ) {
+								item = ve.dm.metaItemFactory.createFromElement( insMeta[ j ][ k ] );
 								newItems.push( {
 									item: item,
 									offset: newOffset + j,
@@ -5067,13 +5246,13 @@ ve.dm.MetaList.prototype.onTransact = function ( tx ) {
 					// adjustments, same as a retain
 					for ( ;
 							itemIndex < numItems &&
-								this.items[itemIndex].offset < offset + rm.length;
+								this.items[ itemIndex ].offset < offset + rm.length;
 							itemIndex++
 					) {
 						newItems.push( {
-							item: this.items[itemIndex],
-							offset: this.items[itemIndex].offset + newOffset - offset,
-							index: this.items[itemIndex].index
+							item: this.items[ itemIndex ],
+							offset: this.items[ itemIndex ].offset + newOffset - offset,
+							index: this.items[ itemIndex ].index
 						} );
 					}
 				}
@@ -5083,21 +5262,21 @@ ve.dm.MetaList.prototype.onTransact = function ( tx ) {
 				break;
 
 			case 'replaceMetadata':
-				insMeta = ops[i].insert;
-				rmMeta = ops[i].remove;
+				insMeta = ops[ i ].insert;
+				rmMeta = ops[ i ].remove;
 
 				// Process removed items
 				for ( ;
-					itemIndex < numItems && this.items[itemIndex].offset === offset &&
-						this.items[itemIndex].index < index + rmMeta.length;
+					itemIndex < numItems && this.items[ itemIndex ].offset === offset &&
+						this.items[ itemIndex ].index < index + rmMeta.length;
 					itemIndex++
 				) {
-					removedItems.push( this.items[itemIndex] );
+					removedItems.push( this.items[ itemIndex ] );
 				}
 
 				// Process inserted items
 				for ( j = 0, jlen = insMeta.length; j < jlen; j++ ) {
-					item = ve.dm.metaItemFactory.createFromElement( insMeta[j] );
+					item = ve.dm.metaItemFactory.createFromElement( insMeta[ j ] );
 					newItems.push( { item: item, offset: newOffset, index: newIndex + j } );
 				}
 
@@ -5109,11 +5288,11 @@ ve.dm.MetaList.prototype.onTransact = function ( tx ) {
 	// Update the remaining items that the transaction didn't touch or retain over
 	for ( ; itemIndex < numItems; itemIndex++ ) {
 		newItems.push( {
-			item: this.items[itemIndex],
-			offset: this.items[itemIndex].offset + newOffset - offset,
-			index: this.items[itemIndex].offset === offset ?
-				newIndex - index + this.items[itemIndex].index :
-				this.items[itemIndex].index
+			item: this.items[ itemIndex ],
+			offset: this.items[ itemIndex ].offset + newOffset - offset,
+			index: this.items[ itemIndex ].offset === offset ?
+				newIndex - index + this.items[ itemIndex ].index :
+				this.items[ itemIndex ].index
 		} );
 	}
 
@@ -5122,35 +5301,35 @@ ve.dm.MetaList.prototype.onTransact = function ( tx ) {
 
 	// Remove removed items
 	for ( i = 0, ilen = removedItems.length; i < ilen; i++ ) {
-		this.deleteRemovedItem( removedItems[i].offset, removedItems[i].index );
+		this.deleteRemovedItem( removedItems[ i ].offset, removedItems[ i ].index );
 		events.push( [
-			'remove', removedItems[i], removedItems[i].offset, removedItems[i].index
+			'remove', removedItems[ i ], removedItems[ i ].offset, removedItems[ i ].index
 		] );
 	}
 
 	// Move moved items (these appear as inserted items that are already attached)
 	for ( i = 0, ilen = newItems.length; i < ilen; i++ ) {
-		if ( newItems[i].item.isAttached() ) {
-			if ( newItems[i].offset !== newItems[i].item.offset || newItems[i].index !== newItems[i].item.index ) {
-				this.deleteRemovedItem( newItems[i].item.offset, newItems[i].item.index );
-				newItems[i].preExisting = true;
+		if ( newItems[ i ].item.isAttached() ) {
+			if ( newItems[ i ].offset !== newItems[ i ].item.offset || newItems[ i ].index !== newItems[ i ].item.index ) {
+				this.deleteRemovedItem( newItems[ i ].item.offset, newItems[ i ].item.index );
+				newItems[ i ].preExisting = true;
 			}
 		}
 	}
 
 	// Insert new items
 	for ( i = 0, ilen = newItems.length; i < ilen; i++ ) {
-		if ( !newItems[i].item.isAttached() ) {
-			this.addInsertedItem( newItems[i].offset, newItems[i].index, newItems[i].item );
-			if ( !newItems[i].preExisting ) {
-				events.push( [ 'insert', newItems[i].item ] );
+		if ( !newItems[ i ].item.isAttached() ) {
+			this.addInsertedItem( newItems[ i ].offset, newItems[ i ].index, newItems[ i ].item );
+			if ( !newItems[ i ].preExisting ) {
+				events.push( [ 'insert', newItems[ i ].item ] );
 			}
 		}
 	}
 
 	// Emit events
 	for ( i = 0, ilen = events.length; i < ilen; i++ ) {
-		this.emit.apply( this, events[i] );
+		this.emit.apply( this, events[ i ] );
 	}
 };
 
@@ -5164,11 +5343,11 @@ ve.dm.MetaList.prototype.onTransact = function ( tx ) {
  * @param {string} [group] Group to search in. If not set, search in all groups
  * @param {boolean} [forInsertion] If the item is not found, return the index where it should have
  *  been rather than null
- * @returns {number|null} Index into this.items or this.groups[group] where the item was found, or
+ * @return {number|null} Index into this.items or this.groups[group] where the item was found, or
  *  null if not found
  */
 ve.dm.MetaList.prototype.findItem = function ( offset, index, group, forInsertion ) {
-	var items = typeof group === 'string' ? ( this.groups[group] || [] ) : this.items;
+	var items = typeof group === 'string' ? ( this.groups[ group ] || [] ) : this.items;
 	return ve.binarySearch( items, function ( item ) {
 		return ve.compareTuples(
 			[ offset, index ],
@@ -5182,11 +5361,11 @@ ve.dm.MetaList.prototype.findItem = function ( offset, index, group, forInsertio
  *
  * @param {number} offset Offset in the linear model
  * @param {number} index Index in the metadata array
- * @returns {ve.dm.MetaItem|null} The item at (offset,index), or null if not found
+ * @return {ve.dm.MetaItem|null} The item at (offset,index), or null if not found
  */
 ve.dm.MetaList.prototype.getItemAt = function ( offset, index ) {
 	var at = this.findItem( offset, index );
-	return at === null ? null : this.items[at];
+	return at === null ? null : this.items[ at ];
 };
 
 /**
@@ -5196,10 +5375,10 @@ ve.dm.MetaList.prototype.getItemAt = function ( offset, index ) {
  * themselves are.
  *
  * @param {string} group Group
- * @returns {ve.dm.MetaItem[]} Array of items in the group (shallow copy)
+ * @return {ve.dm.MetaItem[]} Array of items in the group (shallow copy)
  */
 ve.dm.MetaList.prototype.getItemsInGroup = function ( group ) {
-	return ( this.groups[group] || [] ).slice( 0 );
+	return ( this.groups[ group ] || [] ).slice( 0 );
 };
 
 /**
@@ -5208,7 +5387,7 @@ ve.dm.MetaList.prototype.getItemsInGroup = function ( group ) {
  * This function returns a shallow copy, so the array isn't returned by reference but the items
  * themselves are.
  *
- * @returns {ve.dm.MetaItem[]} Array of items in the list
+ * @return {ve.dm.MetaItem[]} Array of items in the list
  */
 ve.dm.MetaList.prototype.getAllItems = function () {
 	return this.items.slice( 0 );
@@ -5219,6 +5398,7 @@ ve.dm.MetaList.prototype.getAllItems = function () {
  * metadata into the document.
  *
  * Pass a plain object rather than a MetaItem into this function unless you know what you're doing.
+ *
  * @param {Object|ve.dm.MetaItem} meta Metadata element (or MetaItem) to insert
  * @param {number} [offset] Offset to insert the new metadata, or undefined to add to the end
  * @param {number} [index] Index to insert the new metadata, or undefined to add to the end
@@ -5241,6 +5421,7 @@ ve.dm.MetaList.prototype.insertMeta = function ( meta, offset, index ) {
 /**
  * Remove a meta item from the document. This builds and processes a transaction that removes the
  * associated metadata from the document.
+ *
  * @param {ve.dm.MetaItem} item Item to remove
  */
 ve.dm.MetaList.prototype.removeMeta = function ( item ) {
@@ -5268,11 +5449,11 @@ ve.dm.MetaList.prototype.addInsertedItem = function ( offset, index, item ) {
 	var group = item.getGroup(),
 		at = this.findItem( offset, index, null, true );
 	this.items.splice( at, 0, item );
-	if ( this.groups[group] ) {
+	if ( this.groups[ group ] ) {
 		at = this.findItem( offset, index, group, true );
-		this.groups[group].splice( at, 0, item );
+		this.groups[ group ].splice( at, 0, item );
 	} else {
-		this.groups[group] = [ item ];
+		this.groups[ group ] = [ item ];
 	}
 	item.attach( this, offset, index );
 };
@@ -5292,12 +5473,12 @@ ve.dm.MetaList.prototype.deleteRemovedItem = function ( offset, index ) {
 	if ( at === null ) {
 		return;
 	}
-	item = this.items[at];
+	item = this.items[ at ];
 	group = item.getGroup();
 	this.items.splice( at, 1 );
 	at = this.findItem( offset, index, group );
 	if ( at !== null ) {
-		this.groups[group].splice( at, 1 );
+		this.groups[ group ].splice( at, 1 );
 	}
 	item.detach( this );
 	return item;
@@ -5372,7 +5553,7 @@ ve.dm.TableMatrix.prototype.update = function () {
 		row++;
 		col = -1;
 		// initialize a matrix row
-		matrix[row] = matrix[row] || [];
+		matrix[ row ] = matrix[ row ] || [];
 		// store the row node
 		rowNodes.push( rowNode );
 	} );
@@ -5382,16 +5563,16 @@ ve.dm.TableMatrix.prototype.update = function () {
 	while ( ( cellNode = iterator.next() ) !== undefined ) {
 		col++;
 		// skip placeholders
-		while ( matrix[row][col] ) {
+		while ( matrix[ row ][ col ] ) {
 			col++;
 		}
 		if ( !cellNode ) {
-			matrix[row][col] = null;
+			matrix[ row ][ col ] = null;
 			continue;
 		}
 		cell = new ve.dm.TableMatrixCell( cellNode, row, col );
 		// store the cell in the matrix
-		matrix[row][col] = cell;
+		matrix[ row ][ col ] = cell;
 		// add place holders for spanned cells
 		rowSpan = cellNode.getRowspan();
 		colSpan = cellNode.getColspan();
@@ -5408,8 +5589,8 @@ ve.dm.TableMatrix.prototype.update = function () {
 				r = row + i;
 				c = col + j;
 				// initialize the cell matrix row if not yet present
-				matrix[r] = matrix[r] || [];
-				matrix[r][c] = new ve.dm.TableMatrixCell( cellNode, r, c, cell );
+				matrix[ r ] = matrix[ r ] || [];
+				matrix[ r ][ c ] = new ve.dm.TableMatrixCell( cellNode, r, c, cell );
 			}
 		}
 	}
@@ -5422,25 +5603,25 @@ ve.dm.TableMatrix.prototype.update = function () {
  *
  * @param {number} row Row index
  * @param {number} col Column index
- * @returns {ve.dm.TableMatrixCell|undefined} Cell, or undefined if out of bounds
+ * @return {ve.dm.TableMatrixCell|undefined} Cell, or undefined if out of bounds
  */
 ve.dm.TableMatrix.prototype.getCell = function ( row, col ) {
 	var matrix = this.getMatrix();
-	return matrix[row] ? matrix[row][col] : undefined;
+	return matrix[ row ] ? matrix[ row ][ col ] : undefined;
 };
 
 /**
  * Retrieves all cells of a column with given index.
  *
  * @param {number} col Column index
- * @returns {ve.dm.TableMatrixCell[]} The cells of a column
+ * @return {ve.dm.TableMatrixCell[]} The cells of a column
  */
 ve.dm.TableMatrix.prototype.getColumn = function ( col ) {
 	var cells, row,
 		matrix = this.getMatrix();
 	cells = [];
 	for ( row = 0; row < matrix.length; row++ ) {
-		cells.push( matrix[row][col] );
+		cells.push( matrix[ row ][ col ] );
 	}
 	return cells;
 };
@@ -5449,22 +5630,22 @@ ve.dm.TableMatrix.prototype.getColumn = function ( col ) {
  * Retrieves all cells of a row with given index.
  *
  * @param {number} row Row index
- * @returns {ve.dm.TableMatrixCell[]} The cells of a row
+ * @return {ve.dm.TableMatrixCell[]} The cells of a row
  */
 ve.dm.TableMatrix.prototype.getRow = function ( row ) {
 	var matrix = this.getMatrix();
-	return matrix[row];
+	return matrix[ row ];
 };
 
 /**
  * Retrieves the row node of a row with given index.
  *
  * @param {number} row Row index
- * @returns {ve.dm.TableRowNode} Node at give index
+ * @return {ve.dm.TableRowNode} Node at give index
  */
 ve.dm.TableMatrix.prototype.getRowNode = function ( row ) {
 	var rowNodes = this.getRowNodes();
-	return rowNodes[row];
+	return rowNodes[ row ];
 };
 
 /**
@@ -5473,7 +5654,7 @@ ve.dm.TableMatrix.prototype.getRowNode = function ( row ) {
  * Note: this is primarily for internal use. Do not change the delivered matrix
  * and do not store as it may be invalidated.
  *
- * @returns {ve.dm.TableMatrixCell[][]} Table matrix
+ * @return {ve.dm.TableMatrixCell[][]} Table matrix
  */
 ve.dm.TableMatrix.prototype.getMatrix = function () {
 	if ( !this.matrix ) {
@@ -5488,7 +5669,7 @@ ve.dm.TableMatrix.prototype.getMatrix = function () {
  * Note: this is primarily for internal use. Do not change the delivered array
  * and do not store it as it may be invalidated.
  *
- * @returns {ve.dm.TableRowNode[]} Table row nodes
+ * @return {ve.dm.TableRowNode[]} Table row nodes
  */
 ve.dm.TableMatrix.prototype.getRowNodes = function () {
 	if ( !this.rowNodes ) {
@@ -5500,7 +5681,7 @@ ve.dm.TableMatrix.prototype.getRowNodes = function () {
 /**
  * Get number of rows in the table
  *
- * @returns {number} Number of rows
+ * @return {number} Number of rows
  */
 ve.dm.TableMatrix.prototype.getRowCount = function () {
 	return this.getMatrix().length;
@@ -5510,18 +5691,18 @@ ve.dm.TableMatrix.prototype.getRowCount = function () {
  * Get number of columns in the table
  *
  * @param {number} [row] Row to count columns in (for when the table is sparse and this is variable)
- * @returns {number} Number of columns
+ * @return {number} Number of columns
  */
 ve.dm.TableMatrix.prototype.getColCount = function ( row ) {
 	var matrix = this.getMatrix();
-	return matrix.length ? matrix[row || 0].length : 0;
+	return matrix.length ? matrix[ row || 0 ].length : 0;
 };
 
 /**
  * Look up the matrix cell for a given cell node.
  *
  * @param {ve.dm.TableCellNode} cellNode Cell node
- * @returns {ve.dm.TableMatrixCell|null} The cell or null if not found
+ * @return {ve.dm.TableMatrixCell|null} The cell or null if not found
  */
 ve.dm.TableMatrix.prototype.lookupCell = function ( cellNode ) {
 	var row, col, cols, rowCells,
@@ -5532,10 +5713,10 @@ ve.dm.TableMatrix.prototype.lookupCell = function ( cellNode ) {
 	if ( row < 0 ) {
 		return null;
 	}
-	rowCells = matrix[row];
+	rowCells = matrix[ row ];
 	for ( col = 0, cols = rowCells.length; col < cols; col++ ) {
-		if ( rowCells[col] && rowCells[col].node === cellNode ) {
-			return rowCells[col];
+		if ( rowCells[ col ] && rowCells[ col ].node === cellNode ) {
+			return rowCells[ col ];
 		}
 	}
 	return null;
@@ -5545,21 +5726,21 @@ ve.dm.TableMatrix.prototype.lookupCell = function ( cellNode ) {
  * Finds the closest cell not being a placeholder for a given cell.
  *
  * @param {ve.dm.TableMatrixCell} cell Table cell
- * @returns {ve.dm.TableMatrixCell} Closest cell
+ * @return {ve.dm.TableMatrixCell|null} Closest cell
  */
 ve.dm.TableMatrix.prototype.findClosestCell = function ( cell ) {
 	var col, cols, rowCells,
 		matrix = this.getMatrix();
 
-	rowCells = matrix[cell.row];
+	rowCells = matrix[ cell.row ];
 	for ( col = cell.col; col >= 0; col-- ) {
-		if ( !rowCells[col].isPlaceholder() ) {
-			return rowCells[col];
+		if ( !rowCells[ col ].isPlaceholder() ) {
+			return rowCells[ col ];
 		}
 	}
 	for ( col = cell.col + 1, cols = rowCells.length; col < cols; col++ ) {
-		if ( !rowCells[col].isPlaceholder() ) {
-			return rowCells[col];
+		if ( !rowCells[ col ].isPlaceholder() ) {
+			return rowCells[ col ];
 		}
 	}
 	return null;
@@ -5696,7 +5877,7 @@ ve.dm.TransactionProcessor.processors = {};
  * @method
  */
 ve.dm.TransactionProcessor.prototype.nextOperation = function () {
-	return this.operations[this.operationIndex++] || false;
+	return this.operations[ this.operationIndex++ ] || false;
 };
 
 /**
@@ -5708,7 +5889,7 @@ ve.dm.TransactionProcessor.prototype.nextOperation = function () {
  */
 ve.dm.TransactionProcessor.prototype.executeOperation = function ( op ) {
 	if ( Object.prototype.hasOwnProperty.call( ve.dm.TransactionProcessor.processors, op.type ) ) {
-		ve.dm.TransactionProcessor.processors[op.type].call( this, op );
+		ve.dm.TransactionProcessor.processors[ op.type ].call( this, op );
 	} else {
 		throw new Error( 'Invalid operation error. Operation type is not supported: ' + op.type );
 	}
@@ -5776,7 +5957,7 @@ ve.dm.TransactionProcessor.prototype.process = function ( presynchronizeHandler 
  * @throws {Error} Unrecognized modification type
  */
 ve.dm.TransactionProcessor.prototype.queueModification = function ( modification ) {
-	if ( typeof ve.dm.TransactionProcessor.modifiers[modification.type] !== 'function' ) {
+	if ( typeof ve.dm.TransactionProcessor.modifiers[ modification.type ] !== 'function' ) {
 		throw new Error( 'Unrecognized modification type ' + modification.type );
 	}
 	this.modificationQueue.push( modification );
@@ -5790,10 +5971,10 @@ ve.dm.TransactionProcessor.prototype.applyModifications = function () {
 	var i, len, modifier, modifications = this.modificationQueue;
 	this.modificationQueue = [];
 	for ( i = 0, len = modifications.length; i < len; i++ ) {
-		modifier = ve.dm.TransactionProcessor.modifiers[modifications[i].type];
+		modifier = ve.dm.TransactionProcessor.modifiers[ modifications[ i ].type ];
 		// Add to the beginning of rollbackQueue, because the most recent change needs to
 		// be undone first
-		this.rollbackQueue.unshift( modifier.apply( this, modifications[i].args || [] ) );
+		this.rollbackQueue.unshift( modifier.apply( this, modifications[ i ].args || [] ) );
 	}
 };
 
@@ -5805,7 +5986,7 @@ ve.dm.TransactionProcessor.prototype.rollbackModifications = function () {
 	var i, len, rollbacks = this.rollbackQueue;
 	this.rollbackQueue = [];
 	for ( i = 0, len = rollbacks.length; i < len; i++ ) {
-		rollbacks[i]();
+		rollbacks[ i ]();
 	}
 };
 
@@ -5833,6 +6014,8 @@ ve.dm.TransactionProcessor.prototype.advanceCursor = function ( increment ) {
  * @throws {Error} Annotation to be cleared is not set
  */
 ve.dm.TransactionProcessor.prototype.applyAnnotations = function ( to ) {
+	var isElement, annotations, i, j, jlen;
+
 	function setAndClear( anns, set, clear ) {
 		if ( anns.containsAnyOf( set ) ) {
 			throw new Error( 'Invalid transaction, annotation to be set is already set' );
@@ -5846,8 +6029,6 @@ ve.dm.TransactionProcessor.prototype.applyAnnotations = function ( to ) {
 		}
 	}
 
-	var isElement, annotations, i, j, jlen,
-			nodeFactory = this.document.getNodeFactory();
 	if ( this.set.isEmpty() && this.clear.isEmpty() ) {
 		return;
 	}
@@ -5855,7 +6036,7 @@ ve.dm.TransactionProcessor.prototype.applyAnnotations = function ( to ) {
 	for ( i = this.cursor; i < to; i++ ) {
 		isElement = this.document.data.isElementData( i );
 		if ( isElement ) {
-			if ( !nodeFactory.isNodeContent( this.document.data.getType( i ) ) ) {
+			if ( !ve.dm.nodeFactory.isNodeContent( this.document.data.getType( i ) ) ) {
 				throw new Error( 'Invalid transaction, cannot annotate a non-content element' );
 			}
 			if ( this.document.data.isCloseElementData( i ) ) {
@@ -5902,6 +6083,7 @@ ve.dm.TransactionProcessor.prototype.applyAnnotations = function ( to ) {
 
 /**
  * Splice data into / out of the data or metadata array.
+ *
  * @param {string} type 'data' or 'metadata'
  * @param {number} offset Offset to remove/insert at
  * @param {number} remove Number of elements to remove
@@ -5909,9 +6091,10 @@ ve.dm.TransactionProcessor.prototype.applyAnnotations = function ( to ) {
  * @return {Function} Function that undoes the modification
  */
 ve.dm.TransactionProcessor.modifiers.splice = function ( type, offset, remove, insert ) {
+	var removed, data;
 	insert = insert || [];
-	var data = type === 'metadata' ? this.document.metadata : this.document.data,
-		removed = data.batchSplice( offset, remove, insert );
+	data = type === 'metadata' ? this.document.metadata : this.document.data;
+	removed = data.batchSplice( offset, remove, insert );
 	return function () {
 		data.batchSplice( offset, insert.length, removed );
 	};
@@ -5927,9 +6110,10 @@ ve.dm.TransactionProcessor.modifiers.splice = function ( type, offset, remove, i
  * @return {Function} Function that undoes the modification
  */
 ve.dm.TransactionProcessor.modifiers.spliceMetadataAtOffset = function ( offset, index, remove, insert ) {
+	var removed, metadata;
 	insert = insert || [];
-	var metadata = this.document.metadata,
-		removed = metadata.spliceMetadataAtOffset( offset, index, remove, insert );
+	metadata = this.document.metadata;
+	removed = metadata.spliceMetadataAtOffset( offset, index, remove, insert );
 	return function () {
 		metadata.spliceMetadataAtOffset( offset, index, insert.length, removed );
 	};
@@ -5970,6 +6154,7 @@ ve.dm.TransactionProcessor.modifiers.annotateMetadata = function ( offset, index
 
 /**
  * Set an attribute at a given offset.
+ *
  * @param {number} offset Offset in data array
  * @param {string} key Attribute name
  * @param {Mixed} value New attribute value
@@ -5978,7 +6163,7 @@ ve.dm.TransactionProcessor.modifiers.annotateMetadata = function ( offset, index
 ve.dm.TransactionProcessor.modifiers.setAttribute = function ( offset, key, value ) {
 	var data = this.document.data,
 		item = data.getData( offset ),
-		oldValue = item.attributes && item.attributes[key];
+		oldValue = item.attributes && item.attributes[ key ];
 	data.setAttributeAtOffset( offset, key, value );
 	return function () {
 		data.setAttributeAtOffset( offset, key, oldValue );
@@ -6116,8 +6301,8 @@ ve.dm.TransactionProcessor.processors.replace = function ( op ) {
 		insert = op.insert,
 		removeMetadata = op.removeMetadata,
 		insertMetadata = op.insertMetadata,
-		removeLinearData = new ve.dm.ElementLinearData( this.document.getStore(), remove, this.document.getNodeFactory() ),
-		insertLinearData = new ve.dm.ElementLinearData( this.document.getStore(), insert, this.document.getNodeFactory() ),
+		removeLinearData = new ve.dm.ElementLinearData( this.document.getStore(), remove ),
+		insertLinearData = new ve.dm.ElementLinearData( this.document.getStore(), insert ),
 		removeIsContent = removeLinearData.isContentData(),
 		insertIsContent = insertLinearData.isContentData(),
 		removeHasStructure = removeLinearData.containsElementData(),
@@ -6172,7 +6357,7 @@ ve.dm.TransactionProcessor.processors.replace = function ( op ) {
 			),
 			'leaves'
 		);
-		node = selection[0].node;
+		node = selection[ 0 ].node;
 		if (
 			!removeHasStructure && !insertHasStructure &&
 			selection.length === 1 &&
@@ -6184,16 +6369,16 @@ ve.dm.TransactionProcessor.processors.replace = function ( op ) {
 		} else if (
 			!removeHasStructure && !insertHasStructure && remove.length === 0 && insert.length > 0 &&
 			selection.length === 1 && node && node.canContainContent() &&
-			( selection[0].indexInNode !== undefined || node.getLength() === 0 )
+			( selection[ 0 ].indexInNode !== undefined || node.getLength() === 0 )
 		) {
 			// Text-only addition where a text node didn't exist before. Create one
-			this.synchronizer.pushInsertTextNode( node, selection[0].indexInNode || 0, insert.length - remove.length );
+			this.synchronizer.pushInsertTextNode( node, selection[ 0 ].indexInNode || 0, insert.length - remove.length );
 		} else {
 			// Replacement is not exclusively text
 			// Rebuild all covered nodes
 			range = new ve.Range(
-				selection[0].nodeOuterRange.start,
-				selection[selection.length - 1].nodeOuterRange.end
+				selection[ 0 ].nodeOuterRange.start,
+				selection[ selection.length - 1 ].nodeOuterRange.end
 			);
 			this.synchronizer.pushRebuild( range,
 				new ve.Range( range.start + this.adjustment,
@@ -6259,7 +6444,7 @@ ve.dm.TransactionProcessor.processors.replace = function ( op ) {
 						prevCursor + opRemove.length
 					), 'siblings' );
 					for ( i = 0; i < selection.length; i++ ) {
-						affectedRanges.push( selection[i].nodeOuterRange );
+						affectedRanges.push( selection[ i ].nodeOuterRange );
 					}
 				}
 				// Walk through the remove and insert data
@@ -6267,7 +6452,7 @@ ve.dm.TransactionProcessor.processors.replace = function ( op ) {
 				// for each of these two separately. The model is
 				// only consistent if both levels are zero.
 				for ( i = 0; i < opRemove.length; i++ ) {
-					type = opRemove[i].type;
+					type = opRemove[ i ].type;
 					if ( type !== undefined ) {
 						if ( type.charAt( 0 ) === '/' ) {
 							// Closing element
@@ -6283,7 +6468,7 @@ ve.dm.TransactionProcessor.processors.replace = function ( op ) {
 				// insertion closes elements it doesn't open (i.e. splits elements),
 				// in which case it's the affected ancestor
 				for ( i = 0; i < opInsert.length; i++ ) {
-					type = opInsert[i].type;
+					type = opInsert[ i ].type;
 					if ( type !== undefined ) {
 						if ( type.charAt( 0 ) === '/' ) {
 							// Closing element
@@ -6385,7 +6570,7 @@ ve.dm.Transaction = function VeDmTransaction( doc ) {
  * @param {ve.Range} range Range of data to remove
  * @param {Array} data Data to insert
  * @param {boolean} [removeMetadata=false] Remove metadata instead of collapsing it
- * @returns {ve.dm.Transaction} Transaction that replaces data
+ * @return {ve.dm.Transaction} Transaction that replaces data
  * @throws {Error} Invalid range
  */
 ve.dm.Transaction.newFromReplacement = function ( doc, range, data, removeMetadata ) {
@@ -6405,7 +6590,7 @@ ve.dm.Transaction.newFromReplacement = function ( doc, range, data, removeMetada
  * @param {ve.dm.Document} doc Document to create transaction for
  * @param {number} offset Offset to insert at
  * @param {Array} data Data to insert
- * @returns {ve.dm.Transaction} Transaction that inserts data
+ * @return {ve.dm.Transaction} Transaction that inserts data
  */
 ve.dm.Transaction.newFromInsertion = function ( doc, offset, data ) {
 	var tx = new ve.dm.Transaction( doc ),
@@ -6437,7 +6622,7 @@ ve.dm.Transaction.newFromInsertion = function ( doc, offset, data ) {
  * @param {ve.dm.Document} doc Document to create transaction for
  * @param {ve.Range} range Range of data to remove
  * @param {boolean} [removeMetadata=false] Remove metadata instead of collapsing it
- * @returns {ve.dm.Transaction} Transaction that removes data
+ * @return {ve.dm.Transaction} Transaction that removes data
  * @throws {Error} Invalid range
  */
 ve.dm.Transaction.newFromRemoval = function ( doc, range, removeMetadata ) {
@@ -6460,7 +6645,7 @@ ve.dm.Transaction.newFromRemoval = function ( doc, range, removeMetadata ) {
  * @param {number} offset Offset to insert at
  * @param {ve.dm.Document} newDoc Document to insert
  * @param {ve.Range} [newDocRange] Range from the new document to insert (defaults to entire document)
- * @returns {ve.dm.Transaction} Transaction that inserts the nodes and updates the internal list
+ * @return {ve.dm.Transaction} Transaction that inserts the nodes and updates the internal list
  */
 ve.dm.Transaction.newFromDocumentInsertion = function ( doc, offset, newDoc, newDocRange ) {
 	var i, len, storeMerge, listMerge, data, metadata, listData, listMetadata, linearData,
@@ -6472,15 +6657,14 @@ ve.dm.Transaction.newFromDocumentInsertion = function ( doc, offset, newDoc, new
 		newListNodeOuterRange = newListNode.getOuterRange();
 
 	if ( newDocRange ) {
-		data = new ve.dm.ElementLinearData( doc.getStore(), newDoc.getData( newDocRange, true ), doc.getNodeFactory() );
+		data = new ve.dm.ElementLinearData( doc.getStore(), newDoc.getData( newDocRange, true ) );
 		metadata = new ve.dm.MetaLinearData( doc.getStore(), newDoc.getMetadata( newDocRange, true ) );
 	} else {
 		// Get the data and the metadata, but skip over the internal list
 		data = new ve.dm.ElementLinearData( doc.getStore(),
 			newDoc.getData( new ve.Range( 0, newListNodeOuterRange.start ), true ).concat(
 				newDoc.getData( new ve.Range( newListNodeOuterRange.end, newDoc.data.getLength() ), true )
-			),
-			doc.getNodeFactory()
+			)
 		);
 		metadata = new ve.dm.MetaLinearData( doc.getStore(),
 			newDoc.getMetadata( new ve.Range( 0, newListNodeOuterRange.start ), true ).concat(
@@ -6514,8 +6698,7 @@ ve.dm.Transaction.newFromDocumentInsertion = function ( doc, offset, newDoc, new
 		}
 		linearData = new ve.dm.ElementLinearData(
 			doc.getStore(),
-			newDoc.getData( new ve.Range( newListNodeRange.start, newEndOffset ), true ),
-			doc.getNodeFactory()
+			newDoc.getData( new ve.Range( newListNodeRange.start, newEndOffset ), true )
 		);
 		// Remap indexes in data coming from newDoc
 		linearData.remapStoreIndexes( storeMerge );
@@ -6531,15 +6714,14 @@ ve.dm.Transaction.newFromDocumentInsertion = function ( doc, offset, newDoc, new
 	for ( i = 0, len = listMerge.newItemRanges.length; i < len; i++ ) {
 		linearData = new ve.dm.ElementLinearData(
 			doc.getStore(),
-			newDoc.getData( listMerge.newItemRanges[i], true ),
-			doc.getNodeFactory()
+			newDoc.getData( listMerge.newItemRanges[ i ], true )
 		);
 		// Remap indexes in data coming from newDoc
 		linearData.remapStoreIndexes( storeMerge );
 		listData = listData.concat( linearData.data );
 		// We don't have to worry about merging metadata at the edges, because there can't be
 		// metadata between internal list items
-		listMetadata = listMetadata.concat( newDoc.getMetadata( listMerge.newItemRanges[i], true ) );
+		listMetadata = listMetadata.concat( newDoc.getMetadata( listMerge.newItemRanges[ i ], true ) );
 	}
 
 	tx = new ve.dm.Transaction( doc );
@@ -6614,7 +6796,7 @@ ve.dm.Transaction.newFromDocumentInsertion = function ( doc, offset, newDoc, new
  * @param {number} offset Offset of element
  * @param {Object.<string,Mixed>} attr List of attribute key and value pairs, use undefined value
  *  to remove an attribute
- * @returns {ve.dm.Transaction} Transaction that changes an element
+ * @return {ve.dm.Transaction} Transaction that changes an element
  * @throws {Error} Cannot set attributes to non-element data
  * @throws {Error} Cannot set attributes on closing element
  */
@@ -6622,17 +6804,17 @@ ve.dm.Transaction.newFromAttributeChanges = function ( doc, offset, attr ) {
 	var tx = new ve.dm.Transaction( doc ),
 		data = doc.getData();
 	// Verify element exists at offset
-	if ( data[offset].type === undefined ) {
+	if ( data[ offset ].type === undefined ) {
 		throw new Error( 'Cannot set attributes to non-element data' );
 	}
 	// Verify element is not a closing
-	if ( data[offset].type.charAt( 0 ) === '/' ) {
+	if ( data[ offset ].type.charAt( 0 ) === '/' ) {
 		throw new Error( 'Cannot set attributes on closing element' );
 	}
 	// Retain up to element
 	tx.pushRetain( offset );
 	// Change attributes
-	tx.pushAttributeChanges( attr, data[offset].attributes || {} );
+	tx.pushAttributeChanges( attr, data[ offset ].attributes || {} );
 	// Retain to end of document
 	tx.pushFinalRetain( doc, offset );
 	return tx;
@@ -6649,7 +6831,7 @@ ve.dm.Transaction.newFromAttributeChanges = function ( doc, offset, attr ) {
  *  - `set`: Adds annotation to all content in range
  *  - `clear`: Removes instances of annotation from content in range
  * @param {ve.dm.Annotation} annotation Annotation to set or clear
- * @returns {ve.dm.Transaction} Transaction that annotates content
+ * @return {ve.dm.Transaction} Transaction that annotates content
  */
 ve.dm.Transaction.newFromAnnotation = function ( doc, range, method, annotation ) {
 	var covered, type, annotatable,
@@ -6660,18 +6842,17 @@ ve.dm.Transaction.newFromAnnotation = function ( doc, range, method, annotation 
 		span = i,
 		on = false,
 		insideContentNode = false,
-		ignoreChildrenDepth = 0,
-		nodeFactory = doc.getNodeFactory();
+		ignoreChildrenDepth = 0;
 
 	// Iterate over all data in range, annotating where appropriate
 	while ( i < range.end ) {
 		if ( data.isElementData( i ) ) {
 			type = data.getType( i );
-			if ( nodeFactory.shouldIgnoreChildren( type ) ) {
+			if ( ve.dm.nodeFactory.shouldIgnoreChildren( type ) ) {
 				ignoreChildrenDepth += data.isOpenElementData( i ) ? 1 : -1;
 			}
-			if ( nodeFactory.isNodeContent( type ) ) {
-				if ( method === 'set' && !nodeFactory.canNodeTakeAnnotationType( type, annotation ) ) {
+			if ( ve.dm.nodeFactory.isNodeContent( type ) ) {
+				if ( method === 'set' && !ve.dm.nodeFactory.canNodeTakeAnnotationType( type, annotation ) ) {
 					// Blacklisted annotations can't be set
 					annotatable = false;
 				} else {
@@ -6756,7 +6937,7 @@ ve.dm.Transaction.newFromAnnotation = function ( doc, range, method, annotation 
  * @param {number} offset Offset of element
  * @param {number} index Index of metadata cursor within element
  * @param {Array} newElements New elements to insert
- * @returns {ve.dm.Transaction} Transaction that inserts the metadata elements
+ * @return {ve.dm.Transaction} Transaction that inserts the metadata elements
  */
 ve.dm.Transaction.newFromMetadataInsertion = function ( doc, offset, index, newElements ) {
 	var tx = new ve.dm.Transaction( doc ),
@@ -6790,7 +6971,7 @@ ve.dm.Transaction.newFromMetadataInsertion = function ( doc, offset, index, newE
  * @param {ve.dm.Document} doc Document to create transaction for
  * @param {number} offset Offset of element
  * @param {ve.Range} range Range of metadata to remove
- * @returns {ve.dm.Transaction} Transaction that removes metadata elements
+ * @return {ve.dm.Transaction} Transaction that removes metadata elements
  * @throws {Error} Cannot remove metadata from empty list
  * @throws {Error} Range out of bounds
  */
@@ -6838,20 +7019,20 @@ ve.dm.Transaction.newFromMetadataRemoval = function ( doc, offset, range ) {
  * @param {number} offset Offset of element
  * @param {number} index Index of metadata cursor within element
  * @param {Object} newElement New element to insert
- * @returns {ve.dm.Transaction} Transaction that replaces a metadata element
+ * @return {ve.dm.Transaction} Transaction that replaces a metadata element
  * @throws {Error} Metadata index out of bounds
  */
 ve.dm.Transaction.newFromMetadataElementReplacement = function ( doc, offset, index, newElement ) {
 	var oldElement,
 		tx = new ve.dm.Transaction( doc ),
 		data = doc.getMetadata(),
-		elements = data[offset] || [];
+		elements = data[ offset ] || [];
 
 	if ( index >= elements.length ) {
 		throw new Error( 'Metadata index out of bounds' );
 	}
 
-	oldElement = elements[index];
+	oldElement = elements[ index ];
 
 	// Retain up to element
 	tx.pushRetain( offset );
@@ -6877,7 +7058,7 @@ ve.dm.Transaction.newFromMetadataElementReplacement = function ( doc, offset, in
  * @param {ve.Range} range Range to convert
  * @param {string} type Symbolic name of element type to convert to
  * @param {Object} attr Attributes to initialize element with
- * @returns {ve.dm.Transaction} Transaction that converts content branches
+ * @return {ve.dm.Transaction} Transaction that converts content branches
  */
 ve.dm.Transaction.newFromContentBranchConversion = function ( doc, range, type, attr ) {
 	var i, selected, branch, branchOuterRange,
@@ -6895,7 +7076,7 @@ ve.dm.Transaction.newFromContentBranchConversion = function ( doc, range, type, 
 	}
 	// Replace the wrappings of each content branch in the range
 	for ( i = 0; i < selection.length; i++ ) {
-		selected = selection[i];
+		selected = selection[ i ];
 		branch = selected.node.isContent() ? selected.node.getParent() : selected.node;
 		if ( branch.canContainContent() ) {
 			// Skip branches that are already of the target type and have all attributes in attr
@@ -6968,7 +7149,7 @@ ve.dm.Transaction.newFromContentBranchConversion = function ( doc, range, type, 
  * @param {Array} wrapOuter Opening elements to wrap around the range
  * @param {Array} unwrapEach Opening elements to unwrap from each top-level element in the range
  * @param {Array} wrapEach Opening elements to wrap around each top-level element in the range
- * @returns {ve.dm.Transaction}
+ * @return {ve.dm.Transaction}
  */
 ve.dm.Transaction.newFromWrap = function ( doc, range, unwrapOuter, wrapOuter, unwrapEach, wrapEach ) {
 	var i, j, unwrapOuterData, startOffset, unwrapEachData, closingUnwrapEach, closingWrapEach,
@@ -6981,7 +7162,7 @@ ve.dm.Transaction.newFromWrap = function ( doc, range, unwrapOuter, wrapOuter, u
 			closings = [],
 			len = openings.length;
 		for ( i = 0; i < len; i++ ) {
-			closings[closings.length] = { type: '/' + openings[len - i - 1].type };
+			closings[ closings.length ] = { type: '/' + openings[ len - i - 1 ].type };
 		}
 		return closings;
 	}
@@ -7003,9 +7184,9 @@ ve.dm.Transaction.newFromWrap = function ( doc, range, unwrapOuter, wrapOuter, u
 		// Verify that wrapOuter matches the data at this position
 		unwrapOuterData = doc.data.slice( range.start - unwrapOuter.length, range.start );
 		for ( i = 0; i < unwrapOuterData.length; i++ ) {
-			if ( unwrapOuterData[i].type !== unwrapOuter[i].type ) {
+			if ( unwrapOuterData[ i ].type !== unwrapOuter[ i ].type ) {
 				throw new Error( 'Element in unwrapOuter does not match: expected ' +
-					unwrapOuter[i].type + ' but found ' + unwrapOuterData[i].type );
+					unwrapOuter[ i ].type + ' but found ' + unwrapOuterData[ i ].type );
 			}
 		}
 		// Instead of putting in unwrapOuter as given, put it in the
@@ -7029,10 +7210,10 @@ ve.dm.Transaction.newFromWrap = function ( doc, range, unwrapOuter, wrapOuter, u
 						// Verify that unwrapEach matches the data at this position
 						unwrapEachData = doc.data.slice( i, i + unwrapEach.length );
 						for ( j = 0; j < unwrapEachData.length; j++ ) {
-							if ( unwrapEachData[j].type !== unwrapEach[j].type ) {
+							if ( unwrapEachData[ j ].type !== unwrapEach[ j ].type ) {
 								throw new Error( 'Element in unwrapEach does not match: expected ' +
-									unwrapEach[j].type + ' but found ' +
-									unwrapEachData[j].type );
+									unwrapEach[ j ].type + ' but found ' +
+									unwrapEachData[ j ].type );
 							}
 						}
 						// Instead of putting in unwrapEach as given, put it in the
@@ -7109,7 +7290,7 @@ ve.dm.Transaction.reversers = {
  * will be cleared. This means that if a transaction has already been committed, it will still
  * be possible to commit the clone. This is used for redoing transactions that were undone.
  *
- * @returns {ve.dm.Transaction} Clone of this transaction
+ * @return {ve.dm.Transaction} Clone of this transaction
  */
 ve.dm.Transaction.prototype.clone = function () {
 	var tx = new this.constructor();
@@ -7124,19 +7305,19 @@ ve.dm.Transaction.prototype.clone = function () {
  * means that applying the original transaction and then applying the reversed transaction will
  * result in no net changes. This is used to undo transactions.
  *
- * @returns {ve.dm.Transaction} Reverse of this transaction
+ * @return {ve.dm.Transaction} Reverse of this transaction
  */
 ve.dm.Transaction.prototype.reversed = function () {
 	var i, len, op, newOp, reverse, prop, tx = new this.constructor();
 	for ( i = 0, len = this.operations.length; i < len; i++ ) {
-		op = this.operations[i];
+		op = this.operations[ i ];
 		newOp = ve.copy( op );
-		reverse = this.constructor.reversers[op.type] || {};
+		reverse = this.constructor.reversers[ op.type ] || {};
 		for ( prop in reverse ) {
-			if ( typeof reverse[prop] === 'string' ) {
-				newOp[prop] = op[reverse[prop]];
+			if ( typeof reverse[ prop ] === 'string' ) {
+				newOp[ prop ] = op[ reverse[ prop ] ];
 			} else {
-				newOp[prop] = reverse[prop][op[prop]];
+				newOp[ prop ] = reverse[ prop ][ op[ prop ] ];
 			}
 		}
 		tx.operations.push( newOp );
@@ -7151,16 +7332,16 @@ ve.dm.Transaction.prototype.reversed = function () {
  * with identical content, but such transactions probably should not be created in the first place.
  *
  * @method
- * @returns {boolean} Transaction is no-op
+ * @return {boolean} Transaction is no-op
  */
 ve.dm.Transaction.prototype.isNoOp = function () {
 	if ( this.operations.length === 0 ) {
 		return true;
 	} else if ( this.operations.length === 1 ) {
-		return this.operations[0].type === 'retain';
+		return this.operations[ 0 ].type === 'retain';
 	} else if ( this.operations.length === 2 ) {
-		return this.operations[0].type === 'retain' &&
-			this.operations[1].type === 'retainMetadata';
+		return this.operations[ 0 ].type === 'retain' &&
+			this.operations[ 1 ].type === 'retainMetadata';
 	} else {
 		return false;
 	}
@@ -7170,7 +7351,7 @@ ve.dm.Transaction.prototype.isNoOp = function () {
  * Get all operations.
  *
  * @method
- * @returns {Object[]} List of operations
+ * @return {Object[]} List of operations
  */
 ve.dm.Transaction.prototype.getOperations = function () {
 	return this.operations;
@@ -7180,7 +7361,7 @@ ve.dm.Transaction.prototype.getOperations = function () {
  * Get the document the transaction was created for.
  *
  * @method
- * @returns {ve.dm.Document} Document
+ * @return {ve.dm.Document} Document
  */
 ve.dm.Transaction.prototype.getDocument = function () {
 	return this.doc;
@@ -7190,12 +7371,12 @@ ve.dm.Transaction.prototype.getDocument = function () {
  * Check if the transaction has any operations with a certain type.
  *
  * @method
- * @returns {boolean} Has operations of a given type
+ * @return {boolean} Has operations of a given type
  */
 ve.dm.Transaction.prototype.hasOperationWithType = function ( type ) {
 	var i, len;
 	for ( i = 0, len = this.operations.length; i < len; i++ ) {
-		if ( this.operations[i].type === type ) {
+		if ( this.operations[ i ].type === type ) {
 			return true;
 		}
 	}
@@ -7206,7 +7387,7 @@ ve.dm.Transaction.prototype.hasOperationWithType = function ( type ) {
  * Check if the transaction has any content data operations, such as insertion or deletion.
  *
  * @method
- * @returns {boolean} Has content data operations
+ * @return {boolean} Has content data operations
  */
 ve.dm.Transaction.prototype.hasContentDataOperations = function () {
 	return this.hasOperationWithType( 'replace' );
@@ -7216,7 +7397,7 @@ ve.dm.Transaction.prototype.hasContentDataOperations = function () {
  * Check if the transaction has any element attribute operations.
  *
  * @method
- * @returns {boolean} Has element attribute operations
+ * @return {boolean} Has element attribute operations
  */
 ve.dm.Transaction.prototype.hasElementAttributeOperations = function () {
 	return this.hasOperationWithType( 'attribute' );
@@ -7226,7 +7407,7 @@ ve.dm.Transaction.prototype.hasElementAttributeOperations = function () {
  * Check if the transaction has any annotation operations.
  *
  * @method
- * @returns {boolean} Has annotation operations
+ * @return {boolean} Has annotation operations
  */
 ve.dm.Transaction.prototype.hasAnnotationOperations = function () {
 	return this.hasOperationWithType( 'annotate' );
@@ -7236,7 +7417,7 @@ ve.dm.Transaction.prototype.hasAnnotationOperations = function () {
  * Check whether the transaction has already been applied.
  *
  * @method
- * @returns {boolean}
+ * @return {boolean}
  */
 ve.dm.Transaction.prototype.hasBeenApplied = function () {
 	return this.applied;
@@ -7263,7 +7444,7 @@ ve.dm.Transaction.prototype.markAsApplied = function () {
  * @param {number} offset Offset in the linear model before the transaction has been processed
  * @param {boolean} [excludeInsertion] Map the offset immediately before an insertion to
  *  right before the insertion rather than right after
- * @returns {number} Translated offset, as it will be after processing transaction
+ * @return {number} Translated offset, as it will be after processing transaction
  */
 ve.dm.Transaction.prototype.translateOffset = function ( offset, excludeInsertion ) {
 	var i, op, insertLength, removeLength, prevAdjustment,
@@ -7271,7 +7452,7 @@ ve.dm.Transaction.prototype.translateOffset = function ( offset, excludeInsertio
 		adjustment = 0;
 
 	for ( i = 0; i < this.operations.length; i++ ) {
-		op = this.operations[i];
+		op = this.operations[ i ];
 		if ( op.type === 'replace' ) {
 			insertLength = op.insert.length;
 			removeLength = op.remove.length;
@@ -7324,7 +7505,7 @@ ve.dm.Transaction.prototype.translateOffset = function ( offset, excludeInsertio
  * @param {ve.Range} range Range in the linear model before the transaction has been processed
  * @param {boolean} [excludeInsertion] Do not grow the range to cover insertions
  *  on the boundaries of the range.
- * @returns {ve.Range} Translated range, as it will be after processing transaction
+ * @return {ve.Range} Translated range, as it will be after processing transaction
  */
 ve.dm.Transaction.prototype.translateRange = function ( range, excludeInsertion ) {
 	var start = this.translateOffset( range.start, !excludeInsertion ),
@@ -7342,12 +7523,12 @@ ve.dm.Transaction.prototype.translateRange = function ( range, excludeInsertion 
  * simple insertion transaction, the range will cover the newly inserted data, and for a simple
  * removal transaction it will be a zero-length range.
  *
- * @returns {ve.Range|null} Range covering modifications, or null for a no-op transaction
+ * @return {ve.Range|null} Range covering modifications, or null for a no-op transaction
  */
 ve.dm.Transaction.prototype.getModifiedRange = function () {
 	var i, len, op, start, end, offset = 0;
 	for ( i = 0, len = this.operations.length; i < len; i++ ) {
-		op = this.operations[i];
+		op = this.operations[ i ];
 		switch ( op.type ) {
 			case 'retainMetadata':
 				continue;
@@ -7386,7 +7567,7 @@ ve.dm.Transaction.prototype.getModifiedRange = function () {
  * @private
  * @method
  * @param {ve.dm.Document} doc Document to finish off.
- * @param {number} Final offset edited by the transaction up to this point.
+ * @param {number} offset Final offset edited by the transaction up to this point.
  * @param {number} [metaOffset=0] Final metadata offset edited, if non-zero.
  */
 ve.dm.Transaction.prototype.pushFinalRetain = function ( doc, offset, metaOffset ) {
@@ -7411,13 +7592,14 @@ ve.dm.Transaction.prototype.pushFinalRetain = function ( doc, offset, metaOffset
  * @throws {Error} Cannot retain backwards
  */
 ve.dm.Transaction.prototype.pushRetain = function ( length ) {
+	var end;
 	if ( length < 0 ) {
 		throw new Error( 'Invalid retain length, cannot retain backwards:' + length );
 	}
 	if ( length ) {
-		var end = this.operations.length - 1;
-		if ( this.operations.length && this.operations[end].type === 'retain' ) {
-			this.operations[end].length += length;
+		end = this.operations.length - 1;
+		if ( this.operations.length && this.operations[ end ].type === 'retain' ) {
+			this.operations[ end ].length += length;
 		} else {
 			this.operations.push( {
 				type: 'retain',
@@ -7436,13 +7618,14 @@ ve.dm.Transaction.prototype.pushRetain = function ( length ) {
  * @throws {Error} Cannot retain backwards
  */
 ve.dm.Transaction.prototype.pushRetainMetadata = function ( length ) {
+	var end;
 	if ( length < 0 ) {
 		throw new Error( 'Invalid retain length, cannot retain backwards:' + length );
 	}
 	if ( length ) {
-		var end = this.operations.length - 1;
-		if ( this.operations.length && this.operations[end].type === 'retainMetadata' ) {
-			this.operations[end].length += length;
+		end = this.operations.length - 1;
+		if ( this.operations.length && this.operations[ end ].type === 'retainMetadata' ) {
+			this.operations[ end ].length += length;
 		} else {
 			this.operations.push( {
 				type: 'retainMetadata',
@@ -7466,12 +7649,11 @@ ve.dm.Transaction.prototype.pushRetainMetadata = function ( length ) {
  * @param {boolean} [removeMetadata=false] Remove metadata instead of collapsing it
  */
 ve.dm.Transaction.prototype.addSafeRemoveOps = function ( doc, removeStart, removeEnd, removeMetadata ) {
-	var i, retainStart, internalStackDepth = 0,
-		nodeFactory = doc.getNodeFactory();
+	var i, retainStart, internalStackDepth = 0;
 	// Iterate over removal range and use a stack counter to determine if
 	// we are inside an internal node
 	for ( i = removeStart; i < removeEnd; i++ ) {
-		if ( doc.data.isElementData( i ) && nodeFactory.isNodeInternal( doc.data.getType( i ) ) ) {
+		if ( doc.data.isElementData( i ) && ve.dm.nodeFactory.isNodeInternal( doc.data.getType( i ) ) ) {
 			if ( !doc.data.isCloseElementData( i ) ) {
 				if ( internalStackDepth === 0 ) {
 					this.pushReplace( doc, removeStart, i - removeStart, [], removeMetadata ? [] : undefined );
@@ -7501,14 +7683,14 @@ ve.dm.Transaction.prototype.addSafeRemoveOps = function ( doc, removeStart, remo
  * @param {Array} insertMetadata Metadata to insert.
  */
 ve.dm.Transaction.prototype.pushReplaceInternal = function ( remove, insert, removeMetadata, insertMetadata, insertedDataOffset, insertedDataLength ) {
-	if ( remove.length === 0 && insert.length === 0 ) {
-		return; // no-op
-	}
 	var op = {
 		type: 'replace',
 		remove: remove,
 		insert: insert
 	};
+	if ( remove.length === 0 && insert.length === 0 ) {
+		return; // no-op
+	}
 	if ( removeMetadata !== undefined && insertMetadata !== undefined ) {
 		op.removeMetadata = removeMetadata;
 		op.insertMetadata = insertMetadata;
@@ -7543,23 +7725,25 @@ ve.dm.Transaction.prototype.pushReplaceInternal = function ( remove, insert, rem
  * @param {number} [insertedDataLength] Length of the originally inserted data in the resulting operation data
  */
 ve.dm.Transaction.prototype.pushReplace = function ( doc, offset, removeLength, insert, insertMetadata, insertedDataOffset, insertedDataLength ) {
+	var extraMetadata, end, lastOp, penultOp, range, remove, removeMetadata,
+		isRemoveEmpty, isInsertEmpty, mergedMetadata;
+
 	if ( removeLength === 0 && insert.length === 0 ) {
 		// Don't push no-ops
 		return;
 	}
 
-	var extraMetadata,
-		end = this.operations.length - 1,
-		lastOp = end >= 0 ? this.operations[end] : null,
-		penultOp = end >= 1 ? this.operations[ end - 1 ] : null,
-		range = new ve.Range( offset, offset + removeLength ),
-		remove = doc.getData( range ),
-		removeMetadata = doc.getMetadata( range ),
-		// ve.compare compares arrays as objects, so no need to check against
-		// an array of the same length for emptiness.
-		isRemoveEmpty = ve.compare( removeMetadata, [] ),
-		isInsertEmpty = insertMetadata && ve.compare( insertMetadata, [] ),
-		mergedMetadata = [];
+	end = this.operations.length - 1;
+	lastOp = end >= 0 ? this.operations[ end ] : null;
+	penultOp = end >= 1 ? this.operations[ end - 1 ] : null;
+	range = new ve.Range( offset, offset + removeLength );
+	remove = doc.getData( range );
+	removeMetadata = doc.getMetadata( range );
+	// ve.compare compares arrays as objects, so no need to check against
+	// an array of the same length for emptiness.
+	isRemoveEmpty = ve.compare( removeMetadata, [] );
+	isInsertEmpty = insertMetadata && ve.compare( insertMetadata, [] );
+	mergedMetadata = [];
 
 	if ( !insertMetadata && !isRemoveEmpty ) {
 		// if we are removing a range which includes metadata, we need to
@@ -7568,7 +7752,7 @@ ve.dm.Transaction.prototype.pushReplace = function ( doc, offset, removeLength, 
 		// collapsed metadata.
 		insertMetadata = ve.dm.MetaLinearData.static.merge( removeMetadata );
 		if ( insert.length === 0 ) {
-			extraMetadata = insertMetadata[0];
+			extraMetadata = insertMetadata[ 0 ];
 			insertMetadata = [];
 		} else {
 			// pad out at end so insert metadata is the same length as insert data
@@ -7701,8 +7885,8 @@ ve.dm.Transaction.prototype.pushReplaceElementAttribute = function ( key, from, 
 ve.dm.Transaction.prototype.pushAttributeChanges = function ( changes, oldAttrs ) {
 	var key;
 	for ( key in changes ) {
-		if ( oldAttrs[key] !== changes[key] ) {
-			this.pushReplaceElementAttribute( key, oldAttrs[key], changes[key] );
+		if ( oldAttrs[ key ] !== changes[ key ] ) {
+			this.pushReplaceElementAttribute( key, oldAttrs[ key ], changes[ key ] );
 		}
 	}
 };
@@ -7748,7 +7932,7 @@ ve.dm.Transaction.prototype.pushStopAnnotating = function ( method, index ) {
  * @param {number} currentOffset Offset up to which the transaction has gone already
  * @param {number} insertOffset Offset to insert at
  * @param {Array} data Linear model data to insert
- * @returns {number} End offset of the insertion
+ * @return {number} End offset of the insertion
  */
 ve.dm.Transaction.prototype.pushInsertion = function ( doc, currentOffset, insertOffset, data ) {
 	// Fix up the insertion
@@ -7772,7 +7956,7 @@ ve.dm.Transaction.prototype.pushInsertion = function ( doc, currentOffset, inser
  * @param {number} currentOffset Offset up to which the transaction has gone already
  * @param {ve.Range} range Range to remove
  * @param {boolean} [removeMetadata=false] Remove metadata instead of collapsing it
- * @returns {number} End offset of the removal
+ * @return {number} End offset of the removal
  */
 ve.dm.Transaction.prototype.pushRemoval = function ( doc, currentOffset, range, removeMetadata ) {
 	var i, selection, first, last, nodeStart, nodeEnd,
@@ -7791,8 +7975,8 @@ ve.dm.Transaction.prototype.pushRemoval = function ( doc, currentOffset, range, 
 		// Empty selection? Something is wrong!
 		throw new Error( 'Invalid range, cannot remove from ' + range.start + ' to ' + range.end );
 	}
-	first = selection[0];
-	last = selection[selection.length - 1];
+	first = selection[ 0 ];
+	last = selection[ selection.length - 1 ];
 	// If the first and last node are mergeable, merge them
 	if ( first.node.canBeMergedWith( last.node ) ) {
 		if ( !first.range && !last.range ) {
@@ -7822,14 +8006,14 @@ ve.dm.Transaction.prototype.pushRemoval = function ( doc, currentOffset, range, 
 	// The selection wasn't mergeable, so remove nodes that are completely covered, and strip
 	// nodes that aren't
 	for ( i = 0; i < selection.length; i++ ) {
-		if ( !selection[i].range ) {
+		if ( !selection[ i ].range ) {
 			// Entire node is covered, remove it
-			nodeStart = selection[i].nodeOuterRange.start;
-			nodeEnd = selection[i].nodeOuterRange.end;
+			nodeStart = selection[ i ].nodeOuterRange.start;
+			nodeEnd = selection[ i ].nodeOuterRange.end;
 		} else {
 			// Part of the node is covered, remove that range
-			nodeStart = selection[i].range.start;
-			nodeEnd = selection[i].range.end;
+			nodeStart = selection[ i ].range.start;
+			nodeEnd = selection[ i ].range.end;
 		}
 
 		// Merge contiguous removals. Only apply a removal when a gap appears, or at the
@@ -7894,7 +8078,7 @@ ve.dm.Selection.static.type = null;
  *
  * @param {ve.dm.Document} doc Document to create the selection on
  * @param {string|Object} json JSON serialization or hash object
- * @returns {ve.dm.Selection} New selection
+ * @return {ve.dm.Selection} New selection
  * @throws {Error} Unknown selection type
  */
 ve.dm.Selection.static.newFromJSON = function ( doc, json ) {
@@ -7915,7 +8099,7 @@ ve.dm.Selection.static.newFromJSON = function ( doc, json ) {
  * @method
  * @param {ve.dm.Document} doc Document to create the selection on
  * @param {Object} hash Hash object
- * @returns {ve.dm.Selection} New selection
+ * @return {ve.dm.Selection} New selection
  */
 ve.dm.Selection.static.newFromHash = null;
 
@@ -7926,7 +8110,7 @@ ve.dm.Selection.static.newFromHash = null;
  *
  * @abstract
  * @method
- * @returns {Object} Object for JSON serialization
+ * @return {Object} Object for JSON serialization
  */
 ve.dm.Selection.prototype.toJSON = null;
 
@@ -7935,7 +8119,7 @@ ve.dm.Selection.prototype.toJSON = null;
  *
  * @abstract
  * @method
- * @returns {string} Textual description
+ * @return {string} Textual description
  */
 ve.dm.Selection.prototype.getDescription = null;
 
@@ -7944,7 +8128,7 @@ ve.dm.Selection.prototype.getDescription = null;
  *
  * @abstract
  * @method
- * @returns {ve.dm.Selection} Cloned selection
+ * @return {ve.dm.Selection} Cloned selection
  */
 ve.dm.Selection.prototype.clone = null;
 
@@ -7953,7 +8137,7 @@ ve.dm.Selection.prototype.clone = null;
  *
  * @abstract
  * @method
- * @returns {ve.dm.Selection} Collapsed selection
+ * @return {ve.dm.Selection} Collapsed selection
  */
 ve.dm.Selection.prototype.collapseToStart = null;
 
@@ -7962,7 +8146,7 @@ ve.dm.Selection.prototype.collapseToStart = null;
  *
  * @abstract
  * @method
- * @returns {ve.dm.Selection} Collapsed selection
+ * @return {ve.dm.Selection} Collapsed selection
  */
 ve.dm.Selection.prototype.collapseToEnd = null;
 
@@ -7971,7 +8155,7 @@ ve.dm.Selection.prototype.collapseToEnd = null;
  *
  * @abstract
  * @method
- * @returns {ve.dm.Selection} Collapsed selection
+ * @return {ve.dm.Selection} Collapsed selection
  */
 ve.dm.Selection.prototype.collapseToFrom = null;
 
@@ -7980,7 +8164,7 @@ ve.dm.Selection.prototype.collapseToFrom = null;
  *
  * @abstract
  * @method
- * @returns {ve.dm.Selection} Collapsed selection
+ * @return {ve.dm.Selection} Collapsed selection
  */
 ve.dm.Selection.prototype.collapseToTo = null;
 
@@ -7989,7 +8173,7 @@ ve.dm.Selection.prototype.collapseToTo = null;
  *
  * @abstract
  * @method
- * @returns {boolean} Selection is collapsed
+ * @return {boolean} Selection is collapsed
  */
 ve.dm.Selection.prototype.isCollapsed = null;
 
@@ -8014,7 +8198,7 @@ ve.dm.Selection.prototype.translateByTransaction = null;
 ve.dm.Selection.prototype.translateByTransactions = function ( txs, excludeInsertion ) {
 	var i, l, selection = this;
 	for ( i = 0, l = txs.length; i < l; i++ ) {
-		selection = selection.translateByTransaction( txs[i], excludeInsertion );
+		selection = selection.translateByTransaction( txs[ i ], excludeInsertion );
 	}
 	return selection;
 };
@@ -8022,7 +8206,7 @@ ve.dm.Selection.prototype.translateByTransactions = function ( txs, excludeInser
 /**
  * Check if this selection is null
  *
- * @returns {boolean} The selection is null
+ * @return {boolean} The selection is null
  */
 ve.dm.Selection.prototype.isNull = function () {
 	return false;
@@ -8033,14 +8217,14 @@ ve.dm.Selection.prototype.isNull = function () {
  *
  * @abstract
  * @method
- * @returns {ve.Range[]} Ranges
+ * @return {ve.Range[]} Ranges
  */
 ve.dm.Selection.prototype.getRanges = null;
 
 /**
  * Get the document model this selection applies to
  *
- * @returns {ve.dm.Document} Document model
+ * @return {ve.dm.Document} Document model
  */
 ve.dm.Selection.prototype.getDocument = function () {
 	return this.documentModel;
@@ -8052,7 +8236,7 @@ ve.dm.Selection.prototype.getDocument = function () {
  * @abstract
  * @method
  * @param {ve.dm.Selection} other Other selection
- * @returns {boolean} Selections are equal
+ * @return {boolean} Selections are equal
  */
 ve.dm.Selection.prototype.equals = null;
 
@@ -8093,7 +8277,8 @@ ve.dm.Surface = function VeDmSurface( doc ) {
 	this.undoIndex = 0;
 	this.historyTrackingInterval = null;
 	this.insertionAnnotations = new ve.dm.AnnotationSet( this.getDocument().getStore() );
-	this.coveredAnnotations = new ve.dm.AnnotationSet( this.getDocument().getStore() );
+	this.selectedAnnotations = new ve.dm.AnnotationSet( this.getDocument().getStore() );
+	this.isCollapsed = null;
 	this.enabled = true;
 	this.transacting = false;
 	this.queueingContextChanges = false;
@@ -8116,6 +8301,18 @@ OO.mixinClass( ve.dm.Surface, OO.EventEmitter );
 /**
  * @event select
  * @param {ve.dm.Selection} selection
+ */
+
+/**
+ * @event focus
+ *
+ * The selection was just set to a non-null selection
+ */
+
+/**
+ * @event blur
+ *
+ * The selection was just set to a null selection
  */
 
 /**
@@ -8167,6 +8364,7 @@ ve.dm.Surface.prototype.enable = function () {
 
 /**
  * Initialize the surface model
+ *
  * @fires contextChange
  */
 ve.dm.Surface.prototype.initialize = function () {
@@ -8230,7 +8428,7 @@ ve.dm.Surface.prototype.isStaging = function () {
  * @return {boolean} staging.allowUndo Allow undo while staging
  */
 ve.dm.Surface.prototype.getStaging = function () {
-	return this.stagingStack[this.stagingStack.length - 1];
+	return this.stagingStack[ this.stagingStack.length - 1 ];
 };
 
 /**
@@ -8283,18 +8481,19 @@ ve.dm.Surface.prototype.pushStaging = function ( allowUndo ) {
  * @return {ve.dm.Transaction[]|undefined} Staging transactions, or undefined if not staging
  */
 ve.dm.Surface.prototype.popStaging = function () {
+	var i, transaction, staging, transactions,
+		reverseTransactions = [];
+
 	if ( !this.isStaging() ) {
 		return;
 	}
 
-	var i, transaction,
-		reverseTransactions = [],
-		staging = this.stagingStack.pop(),
-		transactions = staging.transactions;
+	staging = this.stagingStack.pop();
+	transactions = staging.transactions;
 
 	// Not applying, so rollback transactions
 	for ( i = transactions.length - 1; i >= 0; i-- ) {
-		transaction = transactions[i].reversed();
+		transaction = transactions[ i ].reversed();
 		reverseTransactions.push( transaction );
 	}
 	this.changeInternal( reverseTransactions, undefined, true );
@@ -8313,11 +8512,12 @@ ve.dm.Surface.prototype.popStaging = function () {
  * @fires history
  */
 ve.dm.Surface.prototype.applyStaging = function () {
+	var staging;
 	if ( !this.isStaging() ) {
 		return;
 	}
 
-	var staging = this.stagingStack.pop();
+	staging = this.stagingStack.pop();
 
 	if ( this.isStaging() ) {
 		// Merge popped transactions into the current item in the staging stack
@@ -8346,11 +8546,12 @@ ve.dm.Surface.prototype.applyStaging = function () {
  * @return {ve.dm.Transaction[]|undefined} Staging transactions, or undefined if not staging
  */
 ve.dm.Surface.prototype.popAllStaging = function () {
+	var transactions = [];
+
 	if ( !this.isStaging() ) {
 		return;
 	}
 
-	var transactions = [];
 	while ( this.isStaging() ) {
 		ve.batchSplice( transactions, 0, 0, this.popStaging() );
 	}
@@ -8378,7 +8579,7 @@ ve.dm.Surface.prototype.getInsertionAnnotations = function () {
 /**
  * Set annotations that will be used upon insertion.
  *
- * @param {ve.dm.AnnotationSet|null} Insertion annotations to use or null to disable them
+ * @param {ve.dm.AnnotationSet|null} annotations Insertion annotations to use or null to disable them
  * @fires insertionAnnotationsChange
  * @fires contextChange
  */
@@ -8526,7 +8727,7 @@ ve.dm.Surface.prototype.getFragment = function ( selection, noAutoSelect, exclud
  * @return {ve.dm.SurfaceFragment} Surface fragment
  */
 ve.dm.Surface.prototype.getLinearFragment = function ( range, noAutoSelect, excludeInsertions ) {
-	return new ve.dm.SurfaceFragment( this, new ve.dm.LinearSelection( this.getDocument(), range ), noAutoSelect, excludeInsertions );
+	return this.getFragment( new ve.dm.LinearSelection( this.getDocument(), range ), noAutoSelect, excludeInsertions );
 };
 
 /**
@@ -8621,7 +8822,8 @@ ve.dm.Surface.prototype.setNullSelection = function () {
  */
 ve.dm.Surface.prototype.setSelection = function ( selection ) {
 	var left, right, leftAnnotations, rightAnnotations, insertionAnnotations,
-		startNode, selectedNode, range, coveredAnnotations,
+		startNode, selectedNode, range, selectedAnnotations, isCollapsed,
+		oldSelection = this.selection,
 		branchNodes = {},
 		selectionChange = false,
 		contextChange = false,
@@ -8639,7 +8841,7 @@ ve.dm.Surface.prototype.setSelection = function ( selection ) {
 	}
 
 	// this.selection needs to be updated before we call setInsertionAnnotations
-	if ( !this.selection.equals( selection ) ) {
+	if ( !oldSelection.equals( selection ) ) {
 		selectionChange = true;
 		this.selection = selection;
 	}
@@ -8673,12 +8875,14 @@ ve.dm.Surface.prototype.setSelection = function ( selection ) {
 			if ( !linearData.isContentOffset( right ) ) {
 				right = -1;
 			}
-			coveredAnnotations = linearData.getAnnotationsFromOffset( range.start );
+			selectedAnnotations = linearData.getAnnotationsFromOffset( range.start );
+			isCollapsed = true;
 		} else {
 			// Get annotations from the first character of the range
 			left = linearData.getNearestContentOffset( range.start );
 			right = linearData.getNearestContentOffset( range.end );
-			coveredAnnotations = linearData.getAnnotationsFromRange( range );
+			selectedAnnotations = linearData.getAnnotationsFromRange( range, true );
+			isCollapsed = false;
 		}
 		if ( left === -1 ) {
 			// No content offset to our left, use empty set
@@ -8703,14 +8907,25 @@ ve.dm.Surface.prototype.setSelection = function ( selection ) {
 		if ( !insertionAnnotations.equalsInOrder( this.insertionAnnotations ) ) {
 			this.setInsertionAnnotations( insertionAnnotations );
 		}
-	}
-
-	if ( selection instanceof ve.dm.TableSelection || selection instanceof ve.dm.NullSelection ) {
+	} else if ( selection instanceof ve.dm.TableSelection ) {
+		if ( selection.isSingleCell() ) {
+			selectedNode = selection.getMatrixCells()[ 0 ].node;
+		}
+		contextChange = true;
+	} else if ( selection instanceof ve.dm.NullSelection ) {
 		contextChange = true;
 	}
 
-	if ( coveredAnnotations && !coveredAnnotations.compareTo( this.coveredAnnotations ) ) {
-		this.coveredAnnotations = coveredAnnotations;
+	if ( selectedAnnotations && !selectedAnnotations.compareTo( this.selectedAnnotations ) ) {
+		this.selectedAnnotations = selectedAnnotations;
+		contextChange = true;
+	}
+
+	if ( isCollapsed !== this.isCollapsed ) {
+		// selectedAnnotations won't have changed if going from insertion annotations to
+		// selection of the same annotations, but some tools will consider that a context change
+		// (e.g. ClearAnnotationTool).
+		this.isCollapsed = isCollapsed;
 		contextChange = true;
 	}
 
@@ -8728,6 +8943,12 @@ ve.dm.Surface.prototype.setSelection = function ( selection ) {
 	// If selection changed emit a select
 	if ( selectionChange ) {
 		this.emit( 'select', this.selection.clone() );
+		if ( oldSelection.isNull() ) {
+			this.emit( 'focus' );
+		}
+		if ( selection.isNull() ) {
+			this.emit( 'blur' );
+		}
 	}
 
 	if ( contextChange ) {
@@ -8790,24 +9011,24 @@ ve.dm.Surface.prototype.changeInternal = function ( transactions, selection, ski
 		}
 		this.transacting = true;
 		for ( i = 0, len = transactions.length; i < len; i++ ) {
-			if ( !transactions[i].isNoOp() ) {
+			if ( !transactions[ i ].isNoOp() ) {
 				if ( !skipUndoStack ) {
 					if ( this.isStaging() ) {
 						if ( !this.getStagingTransactions().length ) {
 							this.getStaging().selectionBefore = selectionBefore;
 						}
-						this.getStagingTransactions().push( transactions[i] );
+						this.getStagingTransactions().push( transactions[ i ] );
 					} else {
 						this.truncateUndoStack();
 						if ( !this.newTransactions.length ) {
 							this.selectionBefore = selectionBefore;
 						}
-						this.newTransactions.push( transactions[i] );
+						this.newTransactions.push( transactions[ i ] );
 					}
 				}
 				// The .commit() call below indirectly invokes setSelection()
-				this.getDocument().commit( transactions[i] );
-				if ( transactions[i].hasElementAttributeOperations() ) {
+				this.getDocument().commit( transactions[ i ] );
+				if ( transactions[ i ].hasElementAttributeOperations() ) {
 					contextChange = true;
 				}
 			}
@@ -8884,11 +9105,11 @@ ve.dm.Surface.prototype.undo = function () {
 	this.breakpoint();
 	this.undoIndex++;
 
-	item = this.undoStack[this.undoStack.length - this.undoIndex];
+	item = this.undoStack[ this.undoStack.length - this.undoIndex ];
 	if ( item ) {
 		// Apply reversed transactions in reversed order
 		for ( i = item.transactions.length - 1; i >= 0; i-- ) {
-			transaction = item.transactions[i].reversed();
+			transaction = item.transactions[ i ].reversed();
 			transactions.push( transaction );
 		}
 		this.changeInternal( transactions, item.selectionBefore, true );
@@ -8909,7 +9130,7 @@ ve.dm.Surface.prototype.redo = function () {
 
 	this.breakpoint();
 
-	item = this.undoStack[this.undoStack.length - this.undoIndex];
+	item = this.undoStack[ this.undoStack.length - this.undoIndex ];
 	if ( item ) {
 		// ve.copy( item.transactions ) invokes .clone() on each transaction in item.transactions
 		this.changeInternal( ve.copy( item.transactions ), item.selection, true );
@@ -9009,24 +9230,24 @@ OO.initClass( ve.dm.SurfaceFragment );
  * @return {ve.dm.Model[]} Selected models
  */
 ve.dm.SurfaceFragment.prototype.getSelectedModels = function ( all ) {
+	var i, len, nodes, selectedNode, annotations;
 	// Handle null selection
 	if ( this.isNull() ) {
 		return [];
 	}
 
-	var i, len, nodes, selectedNode,
-		annotations = this.getAnnotations( all );
+	annotations = this.getAnnotations( all );
 
 	// Filter out nodes with collapsed ranges
 	if ( all ) {
 		nodes = this.getCoveredNodes();
 		for ( i = 0, len = nodes.length; i < len; i++ ) {
-			if ( nodes[i].range && nodes[i].range.isCollapsed() ) {
+			if ( nodes[ i ].range && nodes[ i ].range.isCollapsed() ) {
 				nodes.splice( i, 1 );
 				len--;
 				i--;
 			} else {
-				nodes[i] = nodes[i].node;
+				nodes[ i ] = nodes[ i ].node;
 			}
 		}
 	} else {
@@ -9047,12 +9268,12 @@ ve.dm.SurfaceFragment.prototype.getSelectedModels = function ( all ) {
  * @param {ve.dm.Selection} [selection] Optional selection to set
  */
 ve.dm.SurfaceFragment.prototype.update = function ( selection ) {
+	var txs;
 	// Handle null selection
 	if ( this.isNull() ) {
 		return;
 	}
 
-	var txs;
 	if ( selection ) {
 		this.selection = selection;
 		this.historyPointer = this.document.getCompleteHistoryLength();
@@ -9096,7 +9317,7 @@ ve.dm.SurfaceFragment.prototype.change = function ( txs, selection ) {
  * Get the surface the fragment is a part of.
  *
  * @method
- * @returns {ve.dm.Surface|null} Surface of fragment
+ * @return {ve.dm.Surface|null} Surface of fragment
  */
 ve.dm.SurfaceFragment.prototype.getSurface = function () {
 	return this.surface;
@@ -9106,7 +9327,7 @@ ve.dm.SurfaceFragment.prototype.getSurface = function () {
  * Get the document of the surface the fragment is a part of.
  *
  * @method
- * @returns {ve.dm.Document|null} Document of surface of fragment
+ * @return {ve.dm.Document|null} Document of surface of fragment
  */
 ve.dm.SurfaceFragment.prototype.getDocument = function () {
 	return this.document;
@@ -9119,7 +9340,7 @@ ve.dm.SurfaceFragment.prototype.getDocument = function () {
  *
  * @method
  * @param {boolean} noCopy Return the selection by reference, not a copy
- * @returns {ve.dm.Selection} Surface selection
+ * @return {ve.dm.Selection} Surface selection
  */
 ve.dm.SurfaceFragment.prototype.getSelection = function ( noCopy ) {
 	this.update();
@@ -9130,7 +9351,7 @@ ve.dm.SurfaceFragment.prototype.getSelection = function ( noCopy ) {
  * Check if the fragment is null.
  *
  * @method
- * @returns {boolean} Fragment is a null fragment
+ * @return {boolean} Fragment is a null fragment
  */
 ve.dm.SurfaceFragment.prototype.isNull = function () {
 	return this.selection.isNull();
@@ -9140,7 +9361,7 @@ ve.dm.SurfaceFragment.prototype.isNull = function () {
  * Check if the surface's selection will be updated automatically when changes are made.
  *
  * @method
- * @returns {boolean} Will automatically update surface selection
+ * @return {boolean} Will automatically update surface selection
  */
 ve.dm.SurfaceFragment.prototype.willAutoSelect = function () {
 	return !this.noAutoSelect;
@@ -9162,7 +9383,7 @@ ve.dm.SurfaceFragment.prototype.setAutoSelect = function ( autoSelect ) {
  * Get a clone of this SurfaceFragment, optionally with a different selection.
  *
  * @param {ve.dm.Selection} [selection] If set, use this selection rather than the old fragment's selection
- * @returns {ve.dm.SurfaceFragment} Clone of this fragment
+ * @return {ve.dm.SurfaceFragment} Clone of this fragment
  */
 ve.dm.SurfaceFragment.prototype.clone = function ( selection ) {
 	return new this.constructor(
@@ -9176,7 +9397,7 @@ ve.dm.SurfaceFragment.prototype.clone = function ( selection ) {
 /**
  * Check whether updates to this fragment's selection will exclude content inserted at the boundaries.
  *
- * @returns {boolean} Selection updates will exclude insertions
+ * @return {boolean} Selection updates will exclude insertions
  */
 ve.dm.SurfaceFragment.prototype.willExcludeInsertions = function () {
 	return this.excludeInsertions;
@@ -9188,6 +9409,7 @@ ve.dm.SurfaceFragment.prototype.willExcludeInsertions = function () {
  * boundaries of the selection; if it is disabled, insertions will be included.
  *
  * @param {boolean} excludeInsertions Whether to exclude insertions
+ * @chainable
  */
 ve.dm.SurfaceFragment.prototype.setExcludeInsertions = function ( excludeInsertions ) {
 	excludeInsertions = !!excludeInsertions;
@@ -9197,6 +9419,7 @@ ve.dm.SurfaceFragment.prototype.setExcludeInsertions = function ( excludeInserti
 		// Set the new value
 		this.excludeInsertions = excludeInsertions;
 	}
+	return this;
 };
 
 /**
@@ -9205,13 +9428,14 @@ ve.dm.SurfaceFragment.prototype.setExcludeInsertions = function ( excludeInserti
  * @method
  * @param {number} [start] Adjustment for start position
  * @param {number} [end] Adjustment for end position
- * @returns {ve.dm.SurfaceFragment} Adjusted fragment
+ * @return {ve.dm.SurfaceFragment} Adjusted fragment
  */
 ve.dm.SurfaceFragment.prototype.adjustLinearSelection = function ( start, end ) {
+	var newRange, oldRange;
 	if ( !( this.selection instanceof ve.dm.LinearSelection ) ) {
 		return this.clone();
 	}
-	var newRange, oldRange = this.getSelection( true ).getRange();
+	oldRange = this.getSelection( true ).getRange();
 	newRange = oldRange && new ve.Range( oldRange.start + ( start || 0 ), oldRange.end + ( end || 0 ) );
 	return this.clone( new ve.dm.LinearSelection( this.getDocument(), newRange ) );
 };
@@ -9221,13 +9445,14 @@ ve.dm.SurfaceFragment.prototype.adjustLinearSelection = function ( start, end ) 
  *
  * @method
  * @param {number} limit Maximum length of range (negative for left-side truncation)
- * @returns {ve.dm.SurfaceFragment} Truncated fragment
+ * @return {ve.dm.SurfaceFragment} Truncated fragment
  */
 ve.dm.SurfaceFragment.prototype.truncateLinearSelection = function ( limit ) {
+	var range;
 	if ( !( this.selection instanceof ve.dm.LinearSelection ) ) {
 		return this.clone();
 	}
-	var range = this.getSelection( true ).getRange();
+	range = this.getSelection( true ).getRange();
 	return this.clone( new ve.dm.LinearSelection( this.getDocument(), range.truncate( limit ) ) );
 };
 
@@ -9235,7 +9460,7 @@ ve.dm.SurfaceFragment.prototype.truncateLinearSelection = function ( limit ) {
  * Get a new fragment with a zero-length selection at the start offset.
  *
  * @method
- * @returns {ve.dm.SurfaceFragment} Collapsed fragment
+ * @return {ve.dm.SurfaceFragment} Collapsed fragment
  */
 ve.dm.SurfaceFragment.prototype.collapseToStart = function () {
 	return this.clone( this.getSelection( true ).collapseToStart() );
@@ -9245,7 +9470,7 @@ ve.dm.SurfaceFragment.prototype.collapseToStart = function () {
  * Get a new fragment with a zero-length selection at the end offset.
  *
  * @method
- * @returns {ve.dm.SurfaceFragment} Collapsed fragment
+ * @return {ve.dm.SurfaceFragment} Collapsed fragment
  */
 ve.dm.SurfaceFragment.prototype.collapseToEnd = function () {
 	return this.clone( this.getSelection( true ).collapseToEnd() );
@@ -9255,14 +9480,15 @@ ve.dm.SurfaceFragment.prototype.collapseToEnd = function () {
  * Get a new fragment with a range that no longer includes leading and trailing whitespace.
  *
  * @method
- * @returns {ve.dm.SurfaceFragment} Trimmed fragment
+ * @return {ve.dm.SurfaceFragment} Trimmed fragment
  */
 ve.dm.SurfaceFragment.prototype.trimLinearSelection = function () {
+	var oldRange, newRange;
 	if ( !( this.selection instanceof ve.dm.LinearSelection ) ) {
 		return this.clone();
 	}
-	var oldRange = this.getSelection( true ).getRange(),
-		newRange = oldRange;
+	oldRange = this.getSelection( true ).getRange();
+	newRange = oldRange;
 
 	if ( this.getText().trim().length === 0 ) {
 		// oldRange is only whitespace
@@ -9286,15 +9512,15 @@ ve.dm.SurfaceFragment.prototype.trimLinearSelection = function () {
  *  - `closest`: Expands to cover the closest common ancestor node of a give type (ve.dm.Node)
  *  - `parent`: Expands to cover the closest common parent node
  * @param {Mixed} [type] Parameter to use with scope method if needed
- * @returns {ve.dm.SurfaceFragment} Expanded fragment
+ * @return {ve.dm.SurfaceFragment} Expanded fragment
  */
 ve.dm.SurfaceFragment.prototype.expandLinearSelection = function ( scope, type ) {
+	var node, nodes, parent, newRange, oldRange;
 	if ( !( this.selection instanceof ve.dm.LinearSelection ) ) {
 		return this.clone();
 	}
 
-	var node, nodes, parent, newRange,
-		oldRange = this.getSelection( true ).getRange();
+	oldRange = this.getSelection( true ).getRange();
 
 	switch ( scope || 'parent' ) {
 		case 'word':
@@ -9328,11 +9554,11 @@ ve.dm.SurfaceFragment.prototype.expandLinearSelection = function ( scope, type )
 			// Grow range to cover all siblings
 			nodes = this.document.selectNodes( oldRange, 'siblings' );
 			if ( nodes.length === 1 ) {
-				newRange = nodes[0].node.getOuterRange();
+				newRange = nodes[ 0 ].node.getOuterRange();
 			} else {
 				newRange = new ve.Range(
-					nodes[0].node.getOuterRange().start,
-					nodes[nodes.length - 1].node.getOuterRange().end
+					nodes[ 0 ].node.getOuterRange().start,
+					nodes[ nodes.length - 1 ].node.getOuterRange().end
 				);
 			}
 			break;
@@ -9340,11 +9566,11 @@ ve.dm.SurfaceFragment.prototype.expandLinearSelection = function ( scope, type )
 			// Grow range to cover closest common ancestor node of given type
 			nodes = this.document.selectNodes( oldRange, 'siblings' );
 			// If the range covered the entire node check that node
-			if ( nodes[0].nodeRange.equalsSelection( oldRange ) && nodes[0].node instanceof type ) {
-				newRange = nodes[0].nodeOuterRange;
+			if ( nodes[ 0 ].nodeRange.equalsSelection( oldRange ) && nodes[ 0 ].node instanceof type ) {
+				newRange = nodes[ 0 ].nodeOuterRange;
 				break;
 			}
-			parent = nodes[0].node.getParent();
+			parent = nodes[ 0 ].node.getParent();
 			while ( parent && !( parent instanceof type ) ) {
 				node = parent;
 				parent = parent.getParent();
@@ -9355,7 +9581,7 @@ ve.dm.SurfaceFragment.prototype.expandLinearSelection = function ( scope, type )
 			break;
 		case 'parent':
 			// Grow range to cover the closest common parent node
-			node = this.document.selectNodes( oldRange, 'siblings' )[0].node;
+			node = this.document.selectNodes( oldRange, 'siblings' )[ 0 ].node;
 			parent = node.getParent();
 			if ( parent ) {
 				newRange = parent.getOuterRange();
@@ -9376,7 +9602,7 @@ ve.dm.SurfaceFragment.prototype.expandLinearSelection = function ( scope, type )
  *
  * @method
  * @param {boolean} [deep] Get a deep copy of the data
- * @returns {Array} Fragment data
+ * @return {Array} Fragment data
  */
 ve.dm.SurfaceFragment.prototype.getData = function ( deep ) {
 	if ( !( this.selection instanceof ve.dm.LinearSelection ) ) {
@@ -9389,7 +9615,7 @@ ve.dm.SurfaceFragment.prototype.getData = function ( deep ) {
  * Get plain text for the fragment.
  *
  * @method
- * @returns {string} Fragment text
+ * @return {string} Fragment text
  */
 ve.dm.SurfaceFragment.prototype.getText = function () {
 	if ( !( this.selection instanceof ve.dm.LinearSelection ) ) {
@@ -9406,7 +9632,7 @@ ve.dm.SurfaceFragment.prototype.getText = function () {
  *
  * @method
  * @param {boolean} [all] Get annotations which only cover some of the fragment
- * @returns {ve.dm.AnnotationSet} All annotation objects range is covered by
+ * @return {ve.dm.AnnotationSet} All annotation objects range is covered by
  */
 ve.dm.SurfaceFragment.prototype.getAnnotations = function ( all ) {
 	var i, l, ranges, rangeAnnotations,
@@ -9418,7 +9644,7 @@ ve.dm.SurfaceFragment.prototype.getAnnotations = function ( all ) {
 	} else {
 		ranges = selection.getRanges();
 		for ( i = 0, l = ranges.length; i < l; i++ ) {
-			rangeAnnotations = this.getDocument().data.getAnnotationsFromRange( ranges[i], all );
+			rangeAnnotations = this.getDocument().data.getAnnotationsFromRange( ranges[ i ], all );
 			if ( all ) {
 				annotations.addSet( rangeAnnotations );
 			} else {
@@ -9436,13 +9662,13 @@ ve.dm.SurfaceFragment.prototype.getAnnotations = function ( all ) {
  * it stops at the first sight of an annotation.
  *
  * @method
- * @returns {boolean} The fragment contains at least one annotation
+ * @return {boolean} The fragment contains at least one annotation
  */
 ve.dm.SurfaceFragment.prototype.hasAnnotations = function () {
 	var i, l, ranges = this.getSelection().getRanges();
 
 	for ( i = 0, l = ranges.length; i < l; i++ ) {
-		if ( this.getDocument().data.hasAnnotationsInRange( ranges[i] ) ) {
+		if ( this.getDocument().data.hasAnnotationsInRange( ranges[ i ] ) ) {
 			return true;
 		}
 	}
@@ -9455,7 +9681,7 @@ ve.dm.SurfaceFragment.prototype.hasAnnotations = function () {
  * @see ve.Document#selectNodes Used to get the return value
  *
  * @method
- * @returns {Array} List of nodes and related information
+ * @return {Array} List of nodes and related information
  */
 ve.dm.SurfaceFragment.prototype.getLeafNodes = function () {
 	if ( !( this.selection instanceof ve.dm.LinearSelection ) ) {
@@ -9475,15 +9701,15 @@ ve.dm.SurfaceFragment.prototype.getLeafNodes = function () {
  * Get all leaf nodes excluding nodes where the selection is empty.
  *
  * @method
- * @returns {Array} List of nodes and related information
+ * @return {Array} List of nodes and related information
  */
 ve.dm.SurfaceFragment.prototype.getSelectedLeafNodes = function () {
 	var i, len,
 		selectedLeafNodes = [],
 		leafNodes = this.getLeafNodes();
 	for ( i = 0, len = leafNodes.length; i < len; i++ ) {
-		if ( len === 1 || !leafNodes[i].range || leafNodes[i].range.getLength() ) {
-			selectedLeafNodes.push( leafNodes[i].node );
+		if ( len === 1 || !leafNodes[ i ].range || leafNodes[ i ].range.getLength() ) {
+			selectedLeafNodes.push( leafNodes[ i ].node );
 		}
 	}
 	return selectedLeafNodes;
@@ -9495,19 +9721,20 @@ ve.dm.SurfaceFragment.prototype.getSelectedLeafNodes = function () {
  * Note that this method operates on the fragment's range, not the document's current selection.
  * This fragment does not need to be selected for this method to work.
  *
- * @returns {ve.dm.Node|null} The node selected by the range, or null if a node is not selected
+ * @return {ve.dm.Node|null} The node selected by the range, or null if a node is not selected
  */
 ve.dm.SurfaceFragment.prototype.getSelectedNode = function () {
+	var i, len, range, nodes;
 	if ( !( this.selection instanceof ve.dm.LinearSelection ) ) {
 		return null;
 	}
 
-	var i, len, range = this.getSelection().getRange(),
-		nodes = this.document.selectNodes( range, 'covered' );
+	range = this.getSelection().getRange();
+	nodes = this.document.selectNodes( range, 'covered' );
 
 	for ( i = 0, len = nodes.length; i < len; i++ ) {
-		if ( nodes[i].nodeOuterRange.equalsSelection( range ) ) {
-			return nodes[i].node;
+		if ( nodes[ i ].nodeOuterRange.equalsSelection( range ) ) {
+			return nodes[ i ].node;
 		}
 	}
 	return null;
@@ -9523,7 +9750,7 @@ ve.dm.SurfaceFragment.prototype.getSelectedNode = function () {
  * @see ve.Document#selectNodes for more information about the return value
  *
  * @method
- * @returns {Array} List of nodes and related information
+ * @return {Array} List of nodes and related information
  */
 ve.dm.SurfaceFragment.prototype.getCoveredNodes = function () {
 	if ( !( this.selection instanceof ve.dm.LinearSelection ) ) {
@@ -9540,7 +9767,7 @@ ve.dm.SurfaceFragment.prototype.getCoveredNodes = function () {
  * @see ve.Document#selectNodes for more information about the return value.
  *
  * @method
- * @returns {Array} List of nodes and related information
+ * @return {Array} List of nodes and related information
  */
 ve.dm.SurfaceFragment.prototype.getSiblingNodes = function () {
 	if ( !( this.selection instanceof ve.dm.LinearSelection ) ) {
@@ -9574,7 +9801,7 @@ ve.dm.SurfaceFragment.prototype.changeAttributes = function ( attr, type ) {
 		covered = this.getCoveredNodes();
 
 	for ( i = 0, len = covered.length; i < len; i++ ) {
-		result = covered[i];
+		result = covered[ i ];
 		if (
 			// Non-wrapped nodes have no attributes
 			!result.node.isWrapped() ||
@@ -9626,7 +9853,7 @@ ve.dm.SurfaceFragment.prototype.annotateContent = function ( method, nameOrAnnot
 		} else {
 			annotations = [];
 			for ( i = 0, ilen = ranges.length; i < ilen; i++ ) {
-				annotations = this.document.data.getAnnotationsFromRange( ranges[i], true )
+				annotations = this.document.data.getAnnotationsFromRange( ranges[ i ], true )
 					.getAnnotationsByName( annotation.name ).get();
 				if ( annotations.length ) {
 					break;
@@ -9635,22 +9862,22 @@ ve.dm.SurfaceFragment.prototype.annotateContent = function ( method, nameOrAnnot
 		}
 	}
 	for ( i = 0, ilen = ranges.length; i < ilen; i++ ) {
-		range = ranges[i];
+		range = ranges[ i ];
 		if ( !range.isCollapsed() ) {
 			// Apply to selection
 			for ( j = 0, jlen = annotations.length; j < jlen; j++ ) {
-				tx = ve.dm.Transaction.newFromAnnotation( this.document, range, method, annotations[j] );
+				tx = ve.dm.Transaction.newFromAnnotation( this.document, range, method, annotations[ j ] );
 				txs.push( tx );
 			}
 		} else {
 			// Apply annotation to stack
 			if ( method === 'set' ) {
 				for ( i = 0, ilen = annotations.length; i < ilen; i++ ) {
-					this.surface.addInsertionAnnotations( annotations[i] );
+					this.surface.addInsertionAnnotations( annotations[ i ] );
 				}
 			} else if ( method === 'clear' ) {
 				for ( i = 0, ilen = annotations.length; i < ilen; i++ ) {
-					this.surface.removeInsertionAnnotations( annotations[i] );
+					this.surface.removeInsertionAnnotations( annotations[ i ] );
 				}
 			}
 		}
@@ -9676,11 +9903,11 @@ ve.dm.SurfaceFragment.prototype.annotateContent = function ( method, nameOrAnnot
  * @chainable
  */
 ve.dm.SurfaceFragment.prototype.insertContent = function ( content, annotate ) {
+	var i, l, lines, annotations, tx, offset, newRange;
+
 	if ( !( this.selection instanceof ve.dm.LinearSelection ) ) {
 		return this;
 	}
-
-	var i, l, lines, annotations, tx, offset, newRange;
 
 	if ( !this.getSelection( true ).isCollapsed() ) {
 		// If we're replacing content, use the annotations selected
@@ -9697,9 +9924,9 @@ ve.dm.SurfaceFragment.prototype.insertContent = function ( content, annotate ) {
 		if ( lines.length > 1 ) {
 			content = [];
 			for ( i = 0, l = lines.length; i < l; i++ ) {
-				if ( lines[i].length ) {
+				if ( lines[ i ].length ) {
 					content.push( { type: 'paragraph' } );
-					content = content.concat( lines[i].split( '' ) );
+					content = content.concat( lines[ i ].split( '' ) );
 					content.push( { type: '/paragraph' } );
 				}
 			}
@@ -9735,6 +9962,10 @@ ve.dm.SurfaceFragment.prototype.insertContent = function ( content, annotate ) {
 /**
  * Insert HTML in the fragment.
  *
+ * This will move the fragment's range to cover the inserted content. Note that this may be
+ * different from what a normal range translation would do: the insertion might occur
+ * at a different offset if that is needed to make the document balanced.
+ *
  * @method
  * @param {string} html HTML to insert
  * @param {Object} [importRules] The import rules for the target surface, if importing
@@ -9748,11 +9979,17 @@ ve.dm.SurfaceFragment.prototype.insertHtml = function ( html, importRules ) {
 /**
  * Insert a ve.dm.Document in the fragment.
  *
+ * This will move the fragment's range to cover the inserted content. Note that this may be
+ * different from what a normal range translation would do: the insertion might occur
+ * at a different offset if that is needed to make the document balanced.
+ *
  * @method
  * @param {ve.dm.Document} doc Document to insert
  * @chainable
  */
 ve.dm.SurfaceFragment.prototype.insertDocument = function ( doc ) {
+	var tx, newRange;
+
 	if ( !( this.selection instanceof ve.dm.LinearSelection ) ) {
 		return this;
 	}
@@ -9761,11 +9998,15 @@ ve.dm.SurfaceFragment.prototype.insertDocument = function ( doc ) {
 		this.removeContent();
 	}
 
-	this.change( new ve.dm.Transaction.newFromDocumentInsertion(
+	tx = new ve.dm.Transaction.newFromDocumentInsertion(
 		this.getDocument(),
 		this.getSelection().getRange().start,
 		doc
-	) );
+	);
+	// Set the range to cover the inserted content; the offset translation will be wrong
+	// if newFromInsertion() decided to move the insertion point
+	newRange = tx.getModifiedRange();
+	this.change( tx, new ve.dm.LinearSelection( this.getDocument(), newRange ) );
 
 	return this;
 };
@@ -9796,32 +10037,35 @@ ve.dm.SurfaceFragment.prototype.removeContent = function () {
  * @chainable
  */
 ve.dm.SurfaceFragment.prototype.delete = function ( directionAfterDelete ) {
+	var rangeAfterRemove, internalListRange, parentNode,
+		tx, startNode, endNode, endNodeData, nodeToDelete,
+		rangeToRemove;
+
 	if ( !( this.selection instanceof ve.dm.LinearSelection ) ) {
 		return this;
 	}
-	var rangeAfterRemove,
-		tx, startNode, endNode, endNodeData, nodeToDelete, isResilient, root,
-		rangeToRemove = this.getSelection( true ).getRange();
+
+	rangeToRemove = this.getSelection( true ).getRange();
 
 	if ( rangeToRemove.isCollapsed() ) {
 		return this;
 	}
 
-	// traverse up to the node which completely spans rangeToRemove
-	root = this.getDocument().getDocumentNode().getNodeFromOffset( rangeToRemove.start );
-
-	// trivial case: rangeToRemove is completely within the leaf node (99% use case for 1-char deletions)
-	if (root.getRange().containsRange(rangeToRemove)) {
+	// If selection spans entire document (selectAll) then
+	// replace with an empty paragraph
+	internalListRange = this.document.getInternalList().getListNode().getOuterRange();
+	if ( rangeToRemove.start === 0 && rangeToRemove.end >= internalListRange.start ) {
+		tx = ve.dm.Transaction.newFromReplacement( this.document, new ve.Range( 0, internalListRange.start ), [
+			{ type: 'paragraph' },
+			{ type: '/paragraph' }
+		] );
+		this.change( tx );
+		rangeAfterRemove = new ve.Range( 1 );
+	} else {
 		tx = ve.dm.Transaction.newFromRemoval( this.document, rangeToRemove );
 		this.change( tx );
 		rangeAfterRemove = tx.translateRange( rangeToRemove );
-	} else {
-		while (!root.getOuterRange().containsRange(rangeToRemove)) {
-			root = root.getParent();
-		}
-		rangeAfterRemove = this.deleteResilient(root, rangeToRemove, rangeToRemove);
 	}
-
 	if ( !rangeAfterRemove.isCollapsed() ) {
 		// If after processing removal transaction range is not collapsed it means that not
 		// everything got merged nicely (at this moment transaction processor is capable of merging
@@ -9838,13 +10082,32 @@ ve.dm.SurfaceFragment.prototype.delete = function ( directionAfterDelete ) {
 		// If endNode is within our rangeAfterRemove, then we shouldn't delete it
 		if ( endNode.getRange().start >= rangeAfterRemove.end ) {
 			startNode = this.document.getBranchNodeFromOffset( rangeAfterRemove.start, false );
-			if ( startNode.getRange().isCollapsed() && !startNode.isResilient() ) {
-				// Remove startNode
-				this.change( [
-					ve.dm.Transaction.newFromRemoval(
-						this.document, startNode.getOuterRange()
-					)
-				] );
+
+			if ( startNode.getRange().isCollapsed() ) {
+				parentNode = startNode.getParent();
+
+				do {
+					// Remove startNode
+					tx = ve.dm.Transaction.newFromRemoval( this.document, startNode.getOuterRange() );
+					this.change( tx );
+					rangeAfterRemove = tx.translateRange( rangeAfterRemove );
+
+					startNode = parentNode;
+					parentNode = startNode.getParent();
+
+					// If the removal resulted in a block slug appearing in an empty node (e.g. when startNode
+					// was a paragraph or heading inside a list item), delete the empty node too.
+				} while (
+					startNode &&
+					startNode.children.length === 0 &&
+					(
+						startNode.hasSlugAtOffset( startNode.getRange().start ) ||
+						// These may not have slugs, but also must not be left empty (and thus uneditable) :(
+						startNode instanceof ve.dm.DefinitionListNode || startNode instanceof ve.dm.ListNode
+					) &&
+					startNode.canHaveChildrenNotContent()
+				);
+
 			} else {
 				endNodeData = this.document.getData( endNode.getRange() );
 				nodeToDelete = endNode;
@@ -9857,42 +10120,17 @@ ve.dm.SurfaceFragment.prototype.delete = function ( directionAfterDelete ) {
 						return false;
 					}
 				} );
-				// check if the node is within a resilient branch
-				isResilient = false;
-				nodeToDelete.traverseUpstream( function ( node ) {
-					if (node === root) {
-						return false;
-					}
-					isResilient = node.isResilient();
-					return !isResilient;
-				} );
-				// only delete if it has no resilient ancestors
-				if (!isResilient) {
-					// Move contents of endNode into startNode, and delete nodeToDelete
-					this.change( [
-						ve.dm.Transaction.newFromRemoval(
-							this.document, nodeToDelete.getOuterRange()
-						),
-						ve.dm.Transaction.newFromInsertion(
-							this.document, rangeAfterRemove.start, endNodeData
-						)
-					] );
-				}
+				// Move contents of endNode into startNode, and delete nodeToDelete
+				this.change( [
+					ve.dm.Transaction.newFromRemoval(
+						this.document, nodeToDelete.getOuterRange()
+					),
+					ve.dm.Transaction.newFromInsertion(
+						this.document, rangeAfterRemove.start, endNodeData
+					)
+				] );
 			}
 		}
-	}
-
-	// insert an empty paragraph if the document is empty after all
-	// HACK: even after deleting the whole range DocumentNode will have a length of two
-	// The original check is not working anymore:
-	//   	if (this.document.getDocumentNode().getLength() === 0) {
-	if (this.document.getDocumentNode().getLength() <= 2) {
-		tx = ve.dm.Transaction.newFromInsertion( this.document, 0, [
-			{ type: 'paragraph' },
-			{ type: '/paragraph' }
-		] );
-		this.change( tx );
-		rangeAfterRemove = new ve.Range( 1 );
 	}
 
 	// rangeAfterRemove is now guaranteed to be collapsed so make sure that it is a content offset
@@ -9907,104 +10145,6 @@ ve.dm.SurfaceFragment.prototype.delete = function ( directionAfterDelete ) {
 	this.change( [], new ve.dm.LinearSelection( this.getDocument(), rangeAfterRemove ) );
 
 	return this;
-};
-
-ve.dm.SurfaceFragment.prototype.deleteResilient = function ( node, rangeToRemove, rangeAfterRemove ) {
-	var isResilient = [],
-		children = [],
-		child, i, leftOffset, rightOffset, tx;
-
-	// Trivial case: nothing to remove
-	if (rangeToRemove.isCollapsed()) {
-		return rangeAfterRemove;
-	}
-
-	// Treat LeafNodes normally
-	// Note: if the node itself is resilient, rangeToRemove should have been prepared to be a valid inner content range
-	if (!node.canHaveChildren()) {
-		tx = ve.dm.Transaction.newFromRemoval( this.document, rangeToRemove );
-		this.change( tx );
-		rangeAfterRemove = tx.translateRange( rangeAfterRemove );
-		return rangeAfterRemove;
-	}
-
-	// Prepare a isResilient lookup table which is necessary to
-	// compute proper inner content ranges (see below)
-	for (i = 0; i < node.children.length; i++) {
-		child = node.children[i];
-		if (child.getOuterRange().intersects(rangeToRemove)) {
-			children.push(child);
-			isResilient.push(child.isResilient());
-		}
-	}
-
-	// Performing deletions in reverse order so that the ranges do not interfer with other recursion levels
-	for (i = children.length - 1; i >= 0; i--) {
-		child = children[i];
-		// Resilient nodes do not get deleted (only if the parent gets deleted)
-		// Instead, deletion is done on an inner content range
-		// Note: it is important to compute a valid content range based on content offsets.
-		if (child.isResilient()) {
-			leftOffset = Math.max(
-				// make sure that the computed content offset is still within the node (minimum with end)
-				Math.min(this.document.data.getNearestContentOffset(child.getRange().start, 1), child.getRange().end),
-				rangeToRemove.start
-			);
-			rightOffset = Math.min(
-				// make sure that the computed content offset is still within the node (maximum with start)
-				Math.max(this.document.data.getNearestContentOffset(child.getRange().end, -1), child.getRange().start),
-				rangeToRemove.end
-			);
-			// delete inner range recursively
-			rangeAfterRemove = this.deleteResilient(child, new ve.Range(leftOffset, rightOffset), rangeAfterRemove);
-		// Normal non-resilient nodes...
-		} else {
-			// trivial case: delete the whole node if it is fully selected
-			if ( rangeToRemove.containsRange( child.getOuterRange() ) ) {
-				tx = ve.dm.Transaction.newFromRemoval( this.document, child.getOuterRange() );
-				this.change( tx );
-				rangeAfterRemove = tx.translateRange( rangeAfterRemove );
-
-			// Otherwise, delete recursively
-			// Note: this is important so that resilient nodes on an inner level are considered a well
-			} else {
-				// We need to be careful that we do not delete open/close tags in presence of a resilient sibling,
-				// as the according close/open tag of the resilient node doesn't get deleted.
-				// Example:
-				//   [<p>,a,b,c,</p>,<p>,d,e,f,</p>]
-				//
-				//   Consider the deletion of range [3,7[ (= c-> e)
-				//   Without resilience, the tags at [4,5] can be deleted even when the range is
-				//   split (as done here) into [3,5[ and  [5,7[
-				//     -> [<p>,a,b,e,f,</p>]
-				//
-				//   Now consider the first node resilient, which means that [4] is not deleted.
-				//   This, the second tag [5] must not be deleted, accordingly.
-				//   To retain a valid structure, the following ranges need to be deleted instead: [3, 4[, [6, 7[
-				//     -> [<p>,a,b</p>,<p>,e,f,</p>]
-				//
-				if (isResilient[ i - 1 ]) {
-					leftOffset = Math.max(
-						Math.min( this.document.data.getNearestContentOffset(child.getOuterRange().start, 1), child.getOuterRange().end ),
-						rangeToRemove.start
-					);
-				} else {
-					leftOffset = Math.max(child.getOuterRange().start, rangeToRemove.start);
-				}
-				if (isResilient[ i + 1 ]) {
-					rightOffset = Math.min(
-						Math.max( this.document.data.getNearestContentOffset(child.getOuterRange().end, -1), child.getOuterRange().start),
-						rangeToRemove.end
-					);
-				} else {
-					rightOffset = Math.min(child.getOuterRange().end, rangeToRemove.end);
-				}
-				rangeAfterRemove = this.deleteResilient(child, new ve.Range(leftOffset, rightOffset), rangeAfterRemove);
-			}
-		}
-	}
-
-	return rangeAfterRemove;
 };
 
 /**
@@ -10075,14 +10215,15 @@ ve.dm.SurfaceFragment.prototype.wrapNodes = function ( wrapper ) {
  * @chainable
  */
 ve.dm.SurfaceFragment.prototype.unwrapNodes = function ( outerDepth, innerDepth ) {
+	var i, range,
+		innerUnwrapper = [],
+		outerUnwrapper = [];
+
 	if ( !( this.selection instanceof ve.dm.LinearSelection ) ) {
 		return this;
 	}
 
-	var i,
-		range = this.getSelection().getRange(),
-		innerUnwrapper = [],
-		outerUnwrapper = [];
+	range = this.getSelection().getRange();
 
 	if ( range.getLength() < innerDepth * 2 ) {
 		throw new Error( 'cannot unwrap by greater depth than maximum theoretical depth of selection' );
@@ -10124,13 +10265,14 @@ ve.dm.SurfaceFragment.prototype.unwrapNodes = function ( outerDepth, innerDepth 
  * @chainable
  */
 ve.dm.SurfaceFragment.prototype.rewrapNodes = function ( depth, wrapper ) {
+	var i, range,
+		unwrapper = [];
+
 	if ( !( this.selection instanceof ve.dm.LinearSelection ) ) {
 		return this;
 	}
 
-	var i,
-		range = this.getSelection().getRange(),
-		unwrapper = [];
+	range = this.getSelection().getRange();
 
 	if ( !Array.isArray( wrapper ) ) {
 		wrapper = [ wrapper ];
@@ -10205,17 +10347,19 @@ ve.dm.SurfaceFragment.prototype.wrapAllNodes = function ( wrapper ) {
  * @chainable
  */
 ve.dm.SurfaceFragment.prototype.rewrapAllNodes = function ( depth, wrapper ) {
+	var i, range, innerRange,
+		unwrapper = [];
+
 	if ( !( this.selection instanceof ve.dm.LinearSelection ) ) {
 		return this;
 	}
 
-	var i, unwrapper = [],
-		range = this.getSelection().getRange(),
-		// TODO: preserve direction
-		innerRange = new ve.Range(
-			range.start + depth,
-			range.end - depth
-		);
+	range = this.getSelection().getRange();
+	// TODO: preserve direction
+	innerRange = new ve.Range(
+		range.start + depth,
+		range.end - depth
+	);
 
 	if ( !Array.isArray( wrapper ) ) {
 		wrapper = [ wrapper ];
@@ -10245,19 +10389,14 @@ ve.dm.SurfaceFragment.prototype.rewrapAllNodes = function ( depth, wrapper ) {
  * The new isolated selection is then safely unwrapped.
  *
  * @method
- * @param {string} type Node type to isolate for
+ * @param {string} isolateForType Node type to isolate for
  * @chainable
  */
 ve.dm.SurfaceFragment.prototype.isolateAndUnwrap = function ( isolateForType ) {
-	if ( !( this.selection instanceof ve.dm.LinearSelection ) ) {
-		return this;
-	}
-
-	var nodes, startSplitNode, endSplitNode,
-		startOffset, endOffset, oldExclude,
+	var nodes, startSplitNode, endSplitNode, startOffset, endOffset, oldExclude,
+		allowedParents,
 		outerDepth = 0,
-		factory = this.document.getNodeFactory(),
-		allowedParents = factory.getSuggestedParentNodeTypes( isolateForType ),
+		factory = ve.dm.nodeFactory,
 		startSplitRequired = false,
 		endSplitRequired = false,
 		startSplitNodes = [],
@@ -10269,8 +10408,8 @@ ve.dm.SurfaceFragment.prototype.isolateAndUnwrap = function ( isolateForType ) {
 			adjustment = 0,
 			data = [];
 		for ( i = 0, length = splitNodes.length; i < length; i++ ) {
-			data.unshift( { type: '/' + splitNodes[i].type } );
-			data.push( splitNodes[i].getClonedElement() );
+			data.unshift( { type: '/' + splitNodes[ i ].type } );
+			data.push( splitNodes[ i ].getClonedElement() );
 
 			if ( insertBefore ) {
 				adjustment += 2;
@@ -10284,10 +10423,15 @@ ve.dm.SurfaceFragment.prototype.isolateAndUnwrap = function ( isolateForType ) {
 		endOffset += adjustment;
 	}
 
+	if ( !( this.selection instanceof ve.dm.LinearSelection ) ) {
+		return this;
+	}
+
+	allowedParents = factory.getSuggestedParentNodeTypes( isolateForType );
 	nodes = this.getSiblingNodes();
 
 	// Find start split point, if required
-	startSplitNode = nodes[0].node;
+	startSplitNode = nodes[ 0 ].node;
 	startOffset = startSplitNode.getOuterRange().start;
 	while ( allowedParents !== null && allowedParents.indexOf( startSplitNode.getParent().type ) === -1 ) {
 		if ( startSplitNode.getParent().indexOf( startSplitNode ) > 0 ) {
@@ -10303,7 +10447,7 @@ ve.dm.SurfaceFragment.prototype.isolateAndUnwrap = function ( isolateForType ) {
 	}
 
 	// Find end split point, if required
-	endSplitNode = nodes[nodes.length - 1].node;
+	endSplitNode = nodes[ nodes.length - 1 ].node;
 	endOffset = endSplitNode.getOuterRange().end;
 	while ( allowedParents !== null && allowedParents.indexOf( endSplitNode.getParent().type ) === -1 ) {
 		if ( endSplitNode.getParent().indexOf( endSplitNode ) < endSplitNode.getParent().getChildren().length - 1 ) {
@@ -10346,6 +10490,7 @@ ve.dm.SurfaceFragment.prototype.isolateAndUnwrap = function ( isolateForType ) {
 
 /**
  * Wrapper class to read document data as a plain text string.
+ *
  * @class
  * @extends unicodeJS.TextString
  * @constructor
@@ -10361,14 +10506,15 @@ OO.inheritClass( ve.dm.DataString, unicodeJS.TextString );
 
 /**
  * Reads the character from the specified position in the data.
+ *
  * @param {number} position Position in data to read from
- * @returns {string|null} Character at position, or null if not text
+ * @return {string|null} Character at position, or null if not text
  */
 ve.dm.DataString.prototype.read = function ( position ) {
-	var dataAt = this.data[position];
+	var dataAt = this.data[ position ];
 	// check data is present at position and is not an element
 	if ( dataAt !== undefined && dataAt.type === undefined ) {
-		return typeof dataAt === 'string' ? dataAt : dataAt[0];
+		return typeof dataAt === 'string' ? dataAt : dataAt[ 0 ];
 	} else {
 		return null;
 	}
@@ -10402,24 +10548,16 @@ ve.dm.DataString.prototype.read = function ( position ) {
  * @param {string} [lang] Language code
  * @param {string} [dir='ltr'] Directionality (ltr/rtl)
  */
-ve.dm.Document = function VeDmDocument( data, nodeFactory, htmlDocument, parentDocument, internalList, innerWhitespace, lang, dir ) {
+ve.dm.Document = function VeDmDocument( data, htmlDocument, parentDocument, internalList, innerWhitespace, lang, dir ) {
+	var fullData, result, split, doc, root;
+
 	// Parent constructor
 	ve.Document.call( this, new ve.dm.DocumentNode() );
 
-	// use ve.dm.nodeFactory for legacy
-	nodeFactory = nodeFactory || ve.dm.nodeFactory;
-
-	if ( !(nodeFactory instanceof ve.dm.NodeFactory) ) {
-		throw new Error('API changed: 2nd argument must be of type ve.dm.NodeFactory');
-	}
-
 	// Initialization
-	var fullData, result,
-		split = true,
-		doc = parentDocument || this,
-		root = this.documentNode;
-
-	this.nodeFactory = nodeFactory;
+	split = true;
+	doc = parentDocument || this;
+	root = this.documentNode;
 
 	this.lang = lang || 'en';
 	this.dir = dir || 'ltr';
@@ -10453,7 +10591,7 @@ ve.dm.Document = function VeDmDocument( data, nodeFactory, htmlDocument, parentD
 	this.htmlDocument = htmlDocument || ve.createDocumentFromHtml( '' );
 
 	if ( split ) {
-		result = this.constructor.static.splitData( fullData, nodeFactory );
+		result = this.constructor.static.splitData( fullData );
 		this.data = result.elementData;
 		this.metadata = result.metaData;
 	} else {
@@ -10493,12 +10631,12 @@ OO.inheritClass( ve.dm.Document, ve.Document );
  *
  * @static
  * @param {ve.dm.FlatLinearData} fullData Full data from converter
- * @returns {Object} Object containing element linear data and meta linear data (if processed)
+ * @return {Object} Object containing element linear data and meta linear data (if processed)
  */
-ve.dm.Document.static.splitData = function ( fullData, nodeFactory ) {
+ve.dm.Document.static.splitData = function ( fullData ) {
 	var i, len, offset, meta, elementData, metaData;
 
-	elementData = new ve.dm.ElementLinearData( fullData.getStore(), [], nodeFactory );
+	elementData = new ve.dm.ElementLinearData( fullData.getStore() );
 	// Sparse array containing the metadata for each offset
 	// Each element is either undefined, or an array of metadata elements
 	// Because the indexes in the metadata array represent offsets in the data array, the
@@ -10561,19 +10699,19 @@ ve.dm.Document.static.addAnnotationsToData = function ( data, annotationSet ) {
 	}
 	// Apply annotations to data
 	for ( i = 0, length = data.length; i < length; i++ ) {
-		if ( data[i].type ) {
+		if ( data[ i ].type ) {
 			// Element
 			continue;
-		} else if ( !Array.isArray( data[i] ) ) {
+		} else if ( !Array.isArray( data[ i ] ) ) {
 			// Wrap in array
-			data[i] = [ data[i] ];
+			data[ i ] = [ data[ i ] ];
 			newAnnotationSet = annotationSet.clone();
 		} else {
 			// Add to existing array
-			newAnnotationSet = new ve.dm.AnnotationSet( store, data[i][1] );
+			newAnnotationSet = new ve.dm.AnnotationSet( store, data[ i ][ 1 ] );
 			newAnnotationSet.addSet( annotationSet.clone() );
 		}
-		data[i][1] = newAnnotationSet.getIndexes();
+		data[ i ][ 1 ] = newAnnotationSet.getIndexes();
 	}
 };
 
@@ -10596,8 +10734,7 @@ ve.dm.Document.prototype.buildNodeTree = function () {
 	var i, len, node, children,
 		currentStack, parentStack, nodeStack, currentNode, doc,
 		textLength = 0,
-		inTextNode = false,
-		nodeFactory = this.nodeFactory;
+		inTextNode = false;
 
 	// Build a tree of nodes and nodes that will be added to them after a full scan is complete,
 	// then from the bottom up add nodes to their potential parents. This avoids massive length
@@ -10631,7 +10768,7 @@ ve.dm.Document.prototype.buildNodeTree = function () {
 				// Finish the text node by setting the length
 				currentNode.setLength( textLength );
 				// Put the state variables back as they were
-				currentNode = parentStack[parentStack.length - 1];
+				currentNode = parentStack[ parentStack.length - 1 ];
 				inTextNode = false;
 				textLength = 0;
 			}
@@ -10639,11 +10776,11 @@ ve.dm.Document.prototype.buildNodeTree = function () {
 			if ( this.data.isOpenElementData( i ) ) {
 				// Branch or leaf node opening
 				// Create a childless node
-				node = nodeFactory.createFromElement( this.data.getData( i ) );
+				node = ve.dm.nodeFactory.createFromElement( this.data.getData( i ) );
 				node.setDocument( doc );
 				// Put the childless node on the current inner stack
 				currentStack.push( node );
-				if ( nodeFactory.canNodeHaveChildren( node.getType() ) ) {
+				if ( ve.dm.nodeFactory.canNodeHaveChildren( node.getType() ) ) {
 					// Create a new inner stack for this node
 					parentStack = currentStack;
 					currentStack = [];
@@ -10666,14 +10803,14 @@ ve.dm.Document.prototype.buildNodeTree = function () {
 				// node's child nodes fully constructed
 				children = nodeStack.pop();
 				currentStack = parentStack;
-				parentStack = nodeStack[nodeStack.length - 2];
+				parentStack = nodeStack[ nodeStack.length - 2 ];
 				if ( !parentStack ) {
 					// This can only happen if we got unbalanced data
 					throw new Error( 'Unbalanced input passed to document' );
 				}
 				// Attach the children to the node
 				ve.batchSplice( currentNode, 0, 0, children );
-				currentNode = parentStack[parentStack.length - 1];
+				currentNode = parentStack[ parentStack.length - 1 ];
 			}
 		}
 	}
@@ -10731,7 +10868,7 @@ ve.dm.Document.prototype.commit = function ( transaction ) {
  * @method
  * @param {ve.Range} [range] Range of data to get, all data will be given by default
  * @param {boolean} [deep=false] Whether to return a deep copy (WARNING! This may be very slow)
- * @returns {Array} Slice or copy of document data
+ * @return {Array} Slice or copy of document data
  */
 ve.dm.Document.prototype.getData = function ( range, deep ) {
 	return this.data.getDataSlice( range, deep );
@@ -10743,7 +10880,7 @@ ve.dm.Document.prototype.getData = function ( range, deep ) {
  * @method
  * @param {ve.Range} [range] Range of metadata to get, all metadata will be given by default
  * @param {boolean} [deep=false] Whether to return a deep copy (WARNING! This may be very slow)
- * @returns {Array} Slice or copy of document metadata
+ * @return {Array} Slice or copy of document metadata
  */
 ve.dm.Document.prototype.getMetadata = function ( range, deep ) {
 	return this.metadata.getDataSlice( range, deep );
@@ -10753,7 +10890,7 @@ ve.dm.Document.prototype.getMetadata = function ( range, deep ) {
  * Get the HTMLDocument associated with this document.
  *
  * @method
- * @returns {HTMLDocument} Associated document
+ * @return {HTMLDocument} Associated document
  */
 ve.dm.Document.prototype.getHtmlDocument = function () {
 	return this.htmlDocument;
@@ -10763,7 +10900,7 @@ ve.dm.Document.prototype.getHtmlDocument = function () {
  * Get the document's index-value store
  *
  * @method
- * @returns {ve.dm.IndexValueStore} The document's index-value store
+ * @return {ve.dm.IndexValueStore} The document's index-value store
  */
 ve.dm.Document.prototype.getStore = function () {
 	return this.store;
@@ -10771,7 +10908,8 @@ ve.dm.Document.prototype.getStore = function () {
 
 /**
  * Get the document's internal list
- * @returns {ve.dm.InternalList} The document's internal list
+ *
+ * @return {ve.dm.InternalList} The document's internal list
  */
 ve.dm.Document.prototype.getInternalList = function () {
 	return this.internalList;
@@ -10779,7 +10917,8 @@ ve.dm.Document.prototype.getInternalList = function () {
 
 /**
  * Get the document's inner whitespace
- * @returns {Array} The document's inner whitespace
+ *
+ * @return {Array} The document's inner whitespace
  */
 ve.dm.Document.prototype.getInnerWhitespace = function () {
 	return this.innerWhitespace;
@@ -10791,7 +10930,7 @@ ve.dm.Document.prototype.getInnerWhitespace = function () {
  * The new document's internal list will be only contain references to data within the slice.
  *
  * @param {ve.Range} range Range of data to slice
- * @returns {ve.dm.DocumentSlice} New document
+ * @return {ve.dm.DocumentSlice} New document
  */
 ve.dm.Document.prototype.cloneSliceFromRange = function ( range ) {
 	var i, first, last, firstNode, lastNode,
@@ -10807,27 +10946,27 @@ ve.dm.Document.prototype.cloneSliceFromRange = function ( range ) {
 
 	// Fix up selection to remove empty items in unwrapped nodes
 	// TODO: fix this is selectNodes
-	while ( selection[0] && selection[0].range && selection[0].range.isCollapsed() && !selection[0].node.isWrapped() ) {
+	while ( selection[ 0 ] && selection[ 0 ].range && selection[ 0 ].range.isCollapsed() && !selection[ 0 ].node.isWrapped() ) {
 		selection.shift();
 	}
 
 	i = selection.length - 1;
-	while ( selection[i] && selection[i].range && selection[i].range.isCollapsed() && !selection[i].node.isWrapped() ) {
+	while ( selection[ i ] && selection[ i ].range && selection[ i ].range.isCollapsed() && !selection[ i ].node.isWrapped() ) {
 		selection.pop();
 		i--;
 	}
 
 	if ( selection.length === 0 ) {
 		// Nothing selected
-		data = new ve.dm.ElementLinearData( this.getStore(), [], this.getNodeFactory() );
+		data = new ve.dm.ElementLinearData( this.getStore(), [] );
 		originalRange = balancedRange = new ve.Range( 0 );
 	} else if ( startNode === endNode ) {
 		// Nothing to balance
 		balancedNodes = selection;
 	} else {
 		// Selection is not balanced
-		first = selection[0];
-		last = selection[selection.length - 1];
+		first = selection[ 0 ];
+		last = selection[ selection.length - 1 ];
 		firstNode = first.node;
 		lastNode = last.node;
 		while ( !firstNode.isWrapped() ) {
@@ -10873,14 +11012,14 @@ ve.dm.Document.prototype.cloneSliceFromRange = function ( range ) {
 		// Check if any of the balanced siblings need more context for insertion anywhere
 		needsContext = false;
 		for ( i = balancedNodes.length - 1; i >= 0; i-- ) {
-			if ( balancedNodes[i].node.getParentNodeTypes() !== null ) {
+			if ( balancedNodes[ i ].node.getParentNodeTypes() !== null ) {
 				needsContext = true;
 				break;
 			}
 		}
 
 		if ( needsContext ) {
-			startNode = balancedNodes[0].node;
+			startNode = balancedNodes[ 0 ].node;
 			// Keep wrapping until the outer node can be inserted anywhere
 			while ( startNode.getParent() && startNode.getParentNodeTypes() !== null ) {
 				startNode = startNode.getParent();
@@ -10897,8 +11036,7 @@ ve.dm.Document.prototype.cloneSliceFromRange = function ( range ) {
 				.concat( balanceOpenings.reverse() )
 				.concat( this.data.slice( range.start, range.end ) )
 				.concat( balanceClosings )
-				.concat( contextClosings ),
-			this.getNodeFactory()
+				.concat( contextClosings )
 		);
 		originalRange = new ve.Range(
 			contextOpenings.length + balanceOpenings.length,
@@ -10928,7 +11066,7 @@ ve.dm.Document.prototype.cloneSliceFromRange = function ( range ) {
  * clones of the ones in this document.
  *
  * @param {ve.Range} range Range of data to clone
- * @returns {ve.dm.Document} New document
+ * @return {ve.dm.Document} New document
  */
 ve.dm.Document.prototype.cloneFromRange = function ( range ) {
 	var data, newDoc,
@@ -10940,9 +11078,8 @@ ve.dm.Document.prototype.cloneFromRange = function ( range ) {
 		// The range does not include the entire internal list, so add it
 		data = data.concat( this.getFullData( listRange ) );
 	}
-	newDoc = this.createDocument(
+	newDoc = new this.constructor(
 		new ve.dm.FlatLinearData( store, data ),
-		this.nodeFactory,
 		this.getHtmlDocument(), undefined, this.getInternalList(), undefined,
 		this.getLang(), this.getDir()
 	);
@@ -10963,7 +11100,7 @@ ve.dm.Document.prototype.cloneFromRange = function ( range ) {
  *
  * @param {ve.Range} [range] Range to get full data for. If omitted, all data will be returned
  * @param {boolean} [edgeMetadata=false] Include metadata at the edges of the range
- * @returns {Array} Data with metadata interleaved
+ * @return {Array} Data with metadata interleaved
  */
 ve.dm.Document.prototype.getFullData = function ( range, edgeMetadata ) {
 	var j, jLen,
@@ -10976,8 +11113,8 @@ ve.dm.Document.prototype.getFullData = function ( range, edgeMetadata ) {
 	while ( i <= iLen ) {
 		if ( this.metadata.getData( i ) && ( edgeMetadata || ( i !== range.start && i !== range.end ) ) ) {
 			for ( j = 0, jLen = this.metadata.getData( i ).length; j < jLen; j++ ) {
-				result.push( this.metadata.getData( i )[j] );
-				result.push( { type: '/' + this.metadata.getData( i )[j].type } );
+				result.push( this.metadata.getData( i )[ j ] );
+				result.push( { type: '/' + this.metadata.getData( i )[ j ].type } );
 			}
 		}
 		if ( i < iLen ) {
@@ -10994,7 +11131,7 @@ ve.dm.Document.prototype.getFullData = function ( range, edgeMetadata ) {
  * @method
  * @param {number} offset Offset to start from
  * @param {number} [direction] Direction to prefer matching offset in, -1 for left and 1 for right
- * @returns {number} Nearest word boundary
+ * @return {number} Nearest word boundary
  */
 ve.dm.Document.prototype.getSiblingWordBoundary = function ( offset, direction ) {
 	var dataString = new ve.dm.DataString( this.getData() );
@@ -11008,12 +11145,11 @@ ve.dm.Document.prototype.getSiblingWordBoundary = function ( offset, direction )
  * @param {number} offset Offset to start from
  * @param {number} direction Direction to prefer matching offset in, -1 for left and 1 for right
  * @param {string} [unit] Unit [word|character]
- * @returns {number} Relative offset
+ * @return {number} Relative offset
  */
 ve.dm.Document.prototype.getRelativeOffset = function ( offset, direction, unit ) {
 	var relativeContentOffset, relativeStructuralOffset, newOffset, adjacentDataOffset, isFocusable,
-		data = this.data,
-		nodeFactory = this.nodeFactory;
+		data = this.data;
 	if ( unit === 'word' ) { // word
 		// Method getSiblingWordBoundary does not "move/jump" over element data. If passed offset is
 		// an element data offset then the same offset is returned - and in such case this method
@@ -11028,7 +11164,7 @@ ve.dm.Document.prototype.getRelativeOffset = function ( offset, direction, unit 
 		adjacentDataOffset = offset + ( direction > 0 ? 0 : -1 );
 		if (
 			data.isElementData( adjacentDataOffset ) &&
-			nodeFactory.isNodeFocusable( data.getType( adjacentDataOffset ) )
+			ve.dm.nodeFactory.isNodeFocusable( data.getType( adjacentDataOffset ) )
 		) {
 			// We are adjacent to a focusableNode, move inside it
 			return offset + direction;
@@ -11041,7 +11177,7 @@ ve.dm.Document.prototype.getRelativeOffset = function ( offset, direction, unit 
 		} else {
 			isFocusable = ( relativeStructuralOffset - offset < 0 ? -1 : 1 ) === direction &&
 				data.isElementData( relativeStructuralOffset + direction ) &&
-				nodeFactory.isNodeFocusable( data.getType( relativeStructuralOffset + direction ) );
+				ve.dm.nodeFactory.isNodeFocusable( data.getType( relativeStructuralOffset + direction ) );
 		}
 		// Check if we've moved into a slug or a focusableNode
 		if ( isFocusable || this.hasSlugAtOffset( relativeStructuralOffset ) ) {
@@ -11078,7 +11214,7 @@ ve.dm.Document.prototype.getRelativeOffset = function ( offset, direction, unit 
  * @param {boolean} expand Expanding range
  * @param {ve.Range} [limit] Optional limiting range. If the relative range is not in this range
  *                           the input range is returned instead.
- * @returns {ve.Range} Relative range
+ * @return {ve.Range} Relative range
  */
 ve.dm.Document.prototype.getRelativeRange = function ( range, direction, unit, expand, limit ) {
 	var contentOrSlugOffset,
@@ -11127,8 +11263,7 @@ ve.dm.Document.prototype.getRelativeRange = function ( range, direction, unit, e
 ve.dm.Document.prototype.getNearestFocusableNode = function ( offset, direction, limit ) {
 	// It is never an offset of the node, but just an offset for which getNodeFromOffset should
 	// return that node. Usually it would be node offset + 1 or offset of node closing tag.
-	var coveredOffset,
-		nodeFactory = this.nodeFactory;
+	var coveredOffset;
 	this.data.getRelativeOffset(
 		offset,
 		direction === 1 ? 0 : -1,
@@ -11139,14 +11274,14 @@ ve.dm.Document.prototype.getNearestFocusableNode = function ( offset, direction,
 			}
 			if (
 				this.isOpenElementData( index ) &&
-				nodeFactory.isNodeFocusable( this.getType( index ) )
+				ve.dm.nodeFactory.isNodeFocusable( this.getType( index ) )
 			) {
 				coveredOffset = index + 1;
 				return true;
 			}
 			if (
 				this.isCloseElementData( index ) &&
-				nodeFactory.isNodeFocusable( this.getType( index ) )
+				ve.dm.nodeFactory.isNodeFocusable( this.getType( index ) )
 			) {
 				coveredOffset = index;
 				return true;
@@ -11176,7 +11311,7 @@ ve.dm.Document.prototype.getBranchNodeFromOffset = function ( offset ) {
  *
  * @method
  * @param {number} offset Offset to check for a slug at
- * @returns {boolean} There is a slug at the offset
+ * @return {boolean} There is a slug at the offset
  */
 ve.dm.Document.prototype.hasSlugAtOffset = function ( offset ) {
 	var node = this.getBranchNodeFromOffset( offset );
@@ -11188,7 +11323,7 @@ ve.dm.Document.prototype.hasSlugAtOffset = function ( offset ) {
  *
  * @method
  * @param {ve.dm.Node} node Node to get content data for
- * @returns {Array|null} List of content and elements inside node or null if node is not found
+ * @return {Array|null} List of content and elements inside node or null if node is not found
  */
 ve.dm.Document.prototype.getDataFromNode = function ( node ) {
 	var length = node.getLength(),
@@ -11236,13 +11371,13 @@ ve.dm.Document.prototype.getDataFromNode = function ( node ) {
  *  - If {numNodes} > 1: The node at {index} and the next {numNodes-1} nodes will be rebuilt
  * @param {number} offset Linear model offset to rebuild from
  * @param {number} newLength Length of data in linear model to rebuild or insert nodes for
- * @returns {ve.dm.Node[]} Array containing the rebuilt/inserted nodes
+ * @return {ve.dm.Node[]} Array containing the rebuilt/inserted nodes
  */
 ve.dm.Document.prototype.rebuildNodes = function ( parent, index, numNodes, offset, newLength ) {
 	var // Get a slice of the document where it's been changed
 		data = this.data.sliceObject( offset, offset + newLength ),
 		// Build document fragment from data
-		fragment = this.createDocument( data, this.nodeFactory, this.htmlDocument, this ),
+		fragment = new this.constructor( data, this.htmlDocument, this ),
 		// Get generated child nodes from the document fragment
 		nodes = fragment.getDocumentNode().getChildren();
 	// Replace nodes in the model tree
@@ -11273,15 +11408,13 @@ ve.dm.Document.prototype.rebuildTree = function () {
  * @method
  * @param {Array} data Snippet of linear model data to insert
  * @param {number} offset Offset in the linear model where the caller wants to insert data
- * @returns {Object} A (possibly modified) copy of data, a (possibly modified) offset,
+ * @return {Object} A (possibly modified) copy of data, a (possibly modified) offset,
  * and a number of elements to remove and the position of the original data in the new data
  */
 ve.dm.Document.prototype.fixupInsertion = function ( data, offset ) {
 	var
 		// Array where we build the return value
 		newData = [],
-
-		nodeFactory = this.nodeFactory,
 
 		// Temporary variables for handling combining marks
 		insert, annotations,
@@ -11364,7 +11497,7 @@ ve.dm.Document.prototype.fixupInsertion = function ( data, offset ) {
 				// have unclosed nodes from within data) and if this opening matches the top of
 				// closingStack
 				if ( openingStack.length === 0 && closingStack.length > 0 &&
-					closingStack[closingStack.length - 1].getType() === element.type
+					closingStack[ closingStack.length - 1 ].getType() === element.type
 				) {
 					// The top of closingStack is now balanced out, so remove it
 					// Also restore parentNode from closingStack. While this is technically not
@@ -11407,8 +11540,8 @@ ve.dm.Document.prototype.fixupInsertion = function ( data, offset ) {
 						(
 							// Only throw an error if the content can't be adopted from one content
 							// branch to another
-							!nodeFactory.canNodeContainContent( element.type.slice( 1 ) ) ||
-							!nodeFactory.canNodeContainContent( expectedType )
+							!ve.dm.nodeFactory.canNodeContainContent( element.type.slice( 1 ) ) ||
+							!ve.dm.nodeFactory.canNodeContainContent( expectedType )
 						)
 					) {
 						throw new Error( 'Cannot adopt content from ' + element.type +
@@ -11426,12 +11559,12 @@ ve.dm.Document.prototype.fixupInsertion = function ( data, offset ) {
 	isFirstChild = doc.data.isOpenElementData( offset - 1 );
 
 	for ( i = 0; i < data.length; i++ ) {
-		if ( inTextNode && data[i].type !== undefined ) {
+		if ( inTextNode && data[ i ].type !== undefined ) {
 			parentType = openingStack.length > 0 ?
-				openingStack[openingStack.length - 1].type : parentNode.getType();
+				openingStack[ openingStack.length - 1 ].type : parentNode.getType();
 		}
-		if ( data[i].type === undefined || data[i].type.charAt( 0 ) !== '/' ) {
-			childType = data[i].type || 'text';
+		if ( data[ i ].type === undefined || data[ i ].type.charAt( 0 ) !== '/' ) {
+			childType = data[ i ].type || 'text';
 			openings = [];
 			closings = [];
 			reopenElements = [];
@@ -11441,17 +11574,17 @@ ve.dm.Document.prototype.fixupInsertion = function ( data, offset ) {
 
 			// If this node is content, check that the containing node can contain content. If not,
 			// wrap in a paragraph
-			if ( nodeFactory.isNodeContent( childType ) &&
-				!nodeFactory.canNodeContainContent( parentType )
+			if ( ve.dm.nodeFactory.isNodeContent( childType ) &&
+				!ve.dm.nodeFactory.canNodeContainContent( parentType )
 			) {
 				childType = 'paragraph';
-				openings.unshift( nodeFactory.getDataElement( childType ) );
+				openings.unshift( ve.dm.nodeFactory.getDataElement( childType ) );
 			}
 
 			// Check that this node is allowed to have the containing node as its parent. If not,
 			// wrap it until it's fixed
 			do {
-				allowedParents = nodeFactory.getParentNodeTypes( childType );
+				allowedParents = ve.dm.nodeFactory.getParentNodeTypes( childType );
 				parentsOK = allowedParents === null ||
 					allowedParents.indexOf( parentType ) !== -1;
 				if ( !parentsOK ) {
@@ -11461,22 +11594,22 @@ ve.dm.Document.prototype.fixupInsertion = function ( data, offset ) {
 							' cannot have a parent (at index ' + i + ')' );
 					}
 					// Open an allowed node around this node
-					childType = allowedParents[0];
-					openings.unshift( nodeFactory.getDataElement( childType ) );
+					childType = allowedParents[ 0 ];
+					openings.unshift( ve.dm.nodeFactory.getDataElement( childType ) );
 				}
 			} while ( !parentsOK );
 
 			// Check that the containing node can have this node as its child. If not, close nodes
 			// until it's fixed
 			do {
-				allowedChildren = nodeFactory.getChildNodeTypes( parentType );
+				allowedChildren = ve.dm.nodeFactory.getChildNodeTypes( parentType );
 				childrenOK = allowedChildren === null ||
 					allowedChildren.indexOf( childType ) !== -1;
 				// Also check if we're trying to insert structure into a node that has to contain
 				// content
 				childrenOK = childrenOK && !(
-					!nodeFactory.isNodeContent( childType ) &&
-					nodeFactory.canNodeContainContent( parentType )
+					!ve.dm.nodeFactory.isNodeContent( childType ) &&
+					ve.dm.nodeFactory.canNodeContainContent( parentType )
 				);
 				if ( !childrenOK ) {
 					// We can't insert this into this parent
@@ -11514,7 +11647,7 @@ ve.dm.Document.prototype.fixupInsertion = function ( data, offset ) {
 			if (
 				i === 0 &&
 				childType === 'text' &&
-				ve.isUnattachedCombiningMark( data[i] )
+				ve.isUnattachedCombiningMark( data[ i ] )
 			) {
 				// Note we only need to check data[0] as combining marks further
 				// along should already have been merged
@@ -11525,12 +11658,12 @@ ve.dm.Document.prototype.fixupInsertion = function ( data, offset ) {
 				} else {
 					offset--;
 					remove++;
-					insert = doc.data.getCharacterData( offset ) + data[i];
+					insert = doc.data.getCharacterData( offset ) + data[ i ];
 					annotations = doc.data.getAnnotationIndexesFromOffset( offset );
 					if ( annotations.length ) {
 						insert = [ insert, annotations ];
 					}
-					data[i] = insert;
+					data[ i ] = insert;
 				}
 			}
 
@@ -11542,7 +11675,7 @@ ve.dm.Document.prototype.fixupInsertion = function ( data, offset ) {
 				} else {
 					insertedDataLength++;
 				}
-				newData.push( closings[j] );
+				newData.push( closings[ j ] );
 			}
 			for ( j = 0; j < openings.length; j++ ) {
 				if ( i === 0 ) {
@@ -11550,10 +11683,10 @@ ve.dm.Document.prototype.fixupInsertion = function ( data, offset ) {
 				} else {
 					insertedDataLength++;
 				}
-				writeElement( openings[j], i );
+				writeElement( openings[ j ], i );
 			}
-			writeElement( data[i], i );
-			if ( data[i].type === undefined ) {
+			writeElement( data[ i ], i );
+			if ( data[ i ].type === undefined ) {
 				// Special treatment for text nodes
 				inTextNode = true;
 				if ( openings.length > 0 ) {
@@ -11563,13 +11696,13 @@ ve.dm.Document.prototype.fixupInsertion = function ( data, offset ) {
 				// If we didn't wrap the text node, then the node we're inserting into can have
 				// content, so we couldn't have closed anything
 			} else {
-				parentType = data[i].type;
+				parentType = data[ i ].type;
 			}
 		} else {
 			// Closing
-			writeElement( data[i], i );
+			writeElement( data[ i ], i );
 			parentType = openingStack.length > 0 ?
-				openingStack[openingStack.length - 1].type : parentNode.getType();
+				openingStack[ openingStack.length - 1 ].type : parentNode.getType();
 		}
 	}
 
@@ -11581,19 +11714,19 @@ ve.dm.Document.prototype.fixupInsertion = function ( data, offset ) {
 
 	if ( inTextNode ) {
 		parentType = openingStack.length > 0 ?
-			openingStack[openingStack.length - 1].type : parentNode.getType();
+			openingStack[ openingStack.length - 1 ].type : parentNode.getType();
 	}
 
 	// Close unclosed openings
 	while ( openingStack.length > 0 ) {
-		popped = openingStack[openingStack.length - 1];
+		popped = openingStack[ openingStack.length - 1 ];
 		// writeElement() will perform the actual pop() that removes
 		// popped from openingStack
 		writeElement( { type: '/' + popped.type }, i );
 	}
 	// Re-open closed nodes
 	while ( closingStack.length > 0 ) {
-		popped = closingStack[closingStack.length - 1];
+		popped = closingStack[ closingStack.length - 1 ];
 		// writeElement() will perform the actual pop() that removes
 		// popped from closingStack
 		writeElement( popped.getClonedElement(), i );
@@ -11621,7 +11754,7 @@ ve.dm.Document.prototype.newFromHtml = function ( html, importRules ) {
 		doc = ve.dm.converter.getModelFromDom( htmlDoc, {
 			targetDoc: this.getHtmlDocument(),
 			fromClipboard: !!importRules
-		}, this),
+		} ),
 		data = doc.data;
 
 	// FIXME: This is a paste-specific thing and possibly should not be in the generic newFromHtml()
@@ -11630,7 +11763,7 @@ ve.dm.Document.prototype.newFromHtml = function ( html, importRules ) {
 	doc.metadata = new ve.dm.MetaLinearData( doc.getStore(), new Array( 1 + data.getLength() ) );
 
 	if ( importRules ) {
-		data.sanitize( importRules.external );
+		data.sanitize( importRules.external || {} );
 		if ( importRules.all ) {
 			data.sanitize( importRules.all );
 		}
@@ -11666,9 +11799,9 @@ ve.dm.Document.prototype.findText = function ( query, caseSensitive, noOverlaps 
 		// Avoid multi-line matching by only matching within newlines
 		lines = text.split( '\n' );
 		for ( i = 0, l = lines.length; i < l; i++ ) {
-			while ( lines[i] && ( match = query.exec( lines[i] ) ) !== null ) {
+			while ( lines[ i ] && ( match = query.exec( lines[ i ] ) ) !== null ) {
 				// Skip empty string matches (e.g. with .*)
-				if ( match[0].length === 0 ) {
+				if ( match[ 0 ].length === 0 ) {
 					// Set lastIndex to the next character to avoid an infinite
 					// loop. Browsers differ in whether they do this for you
 					// for empty matches; see
@@ -11678,13 +11811,13 @@ ve.dm.Document.prototype.findText = function ( query, caseSensitive, noOverlaps 
 				}
 				ranges.push( new ve.Range(
 					offset + match.index,
-					offset + match.index + match[0].length
+					offset + match.index + match[ 0 ].length
 				) );
 				if ( !noOverlaps ) {
 					query.lastIndex = match.index + 1;
 				}
 			}
-			offset += lines[i].length + 1;
+			offset += lines[ i ].length + 1;
 			query.lastIndex = 0;
 		}
 	} else {
@@ -11705,7 +11838,8 @@ ve.dm.Document.prototype.findText = function ( query, caseSensitive, noOverlaps 
 
 /**
  * Get the length of the complete history stack. This is also the current pointer.
- * @returns {number} Length of the complete history stack
+ *
+ * @return {number} Length of the complete history stack
  */
 ve.dm.Document.prototype.getCompleteHistoryLength = function () {
 	return this.completeHistory.length;
@@ -11713,8 +11847,9 @@ ve.dm.Document.prototype.getCompleteHistoryLength = function () {
 
 /**
  * Get all the items in the complete history stack since a specified pointer.
+ *
  * @param {number} pointer Pointer from where to start the slice
- * @returns {Array} Array of transaction objects with undo flag
+ * @return {Array} Array of transaction objects with undo flag
  */
 ve.dm.Document.prototype.getCompleteHistorySince = function ( pointer ) {
 	return this.completeHistory.slice( pointer );
@@ -11722,7 +11857,8 @@ ve.dm.Document.prototype.getCompleteHistorySince = function ( pointer ) {
 
 /**
  * Get the content language
- * @returns {string} Language code
+ *
+ * @return {string} Language code
  */
 ve.dm.Document.prototype.getLang = function () {
 	return this.lang;
@@ -11730,26 +11866,11 @@ ve.dm.Document.prototype.getLang = function () {
 
 /**
  * Get the content directionality
- * @returns {string} Directionality (ltr/rtl)
+ *
+ * @return {string} Directionality (ltr/rtl)
  */
 ve.dm.Document.prototype.getDir = function () {
 	return this.dir;
-};
-
-/**
- * Get the nodeFactory for this document
- * @returns {ve.dm.NodeFactory} Factory for ve.dm.Node instances
- */
-ve.dm.Document.prototype.getNodeFactory = function () {
-	return this.nodeFactory;
-};
-
-/**
- * Named constructor which allows to better control the creation of documents,
- * such as subclassing or post-processing.
- */
-ve.dm.Document.prototype.createDocument = function ( data, nodeFactory, htmlDocument, parentDocument, internalList, innerWhitespace, lang, dir ) {
-	return new ve.dm.Document( data, nodeFactory, htmlDocument, parentDocument, internalList, innerWhitespace, lang, dir );
 };
 
 /*!
@@ -11827,7 +11948,7 @@ OO.initClass( ve.dm.LinearData );
  *
  * @method
  * @param {Object} item Element item
- * @returns {string} Type of the element
+ * @return {string} Type of the element
  */
 ve.dm.LinearData.static.getType = function ( item ) {
 	return this.isCloseElementData( item ) ? item.type.slice( 1 ) : item.type;
@@ -11845,7 +11966,7 @@ ve.dm.LinearData.static.getType = function ( item ) {
  *
  * @method
  * @param {Object|Array|string} item Linear data item
- * @returns {boolean} Item is an element
+ * @return {boolean} Item is an element
  */
 ve.dm.LinearData.static.isElementData = function ( item ) {
 	// Data exists and appears to be an element
@@ -11854,9 +11975,10 @@ ve.dm.LinearData.static.isElementData = function ( item ) {
 
 /**
  * Checks if data item is an open element.
+ *
  * @method
  * @param {Object} item Element item
- * @returns {boolean} Item is an open element
+ * @return {boolean} Item is an open element
  */
 ve.dm.LinearData.static.isOpenElementData = function ( item ) {
 	return this.isElementData( item ) && item.type.charAt( 0 ) !== '/';
@@ -11864,9 +11986,10 @@ ve.dm.LinearData.static.isOpenElementData = function ( item ) {
 
 /**
  * Checks if data item is a close element.
+ *
  * @method
  * @param {Object} item Element item
- * @returns {boolean} Item is a close element
+ * @return {boolean} Item is a close element
  */
 ve.dm.LinearData.static.isCloseElementData = function ( item ) {
 	return this.isElementData( item ) && item.type.charAt( 0 ) === '/';
@@ -11879,10 +12002,10 @@ ve.dm.LinearData.static.isCloseElementData = function ( item ) {
  *
  * @method
  * @param {number} [offset] Offset to get data from
- * @returns {Object|Array} Data from index, or all data (by reference)
+ * @return {Object|Array} Data from index, or all data (by reference)
  */
 ve.dm.LinearData.prototype.getData = function ( offset ) {
-	return offset === undefined ? this.data : this.data[offset];
+	return offset === undefined ? this.data : this.data[ offset ];
 };
 
 /**
@@ -11893,15 +12016,15 @@ ve.dm.LinearData.prototype.getData = function ( offset ) {
  * @param {Object|string} value Value to store
  */
 ve.dm.LinearData.prototype.setData = function ( offset, value ) {
-	this.data[offset] = value;
+	this.data[ offset ] = value;
 };
 
 /**
  * Push data to the end of the array
  *
  * @method
- * @param {Object...} [value] Values to store
- * @returns {number} The new length of the linear data
+ * @param {...Object} [value] Values to store
+ * @return {number} The new length of the linear data
  */
 ve.dm.LinearData.prototype.push = function () {
 	return Array.prototype.push.apply( this.data, arguments );
@@ -11911,7 +12034,7 @@ ve.dm.LinearData.prototype.push = function () {
  * Gets length of the linear data
  *
  * @method
- * @returns {number} Length of the linear data
+ * @return {number} Length of the linear data
  */
 ve.dm.LinearData.prototype.getLength = function () {
 	return this.getData().length;
@@ -11919,8 +12042,9 @@ ve.dm.LinearData.prototype.getLength = function () {
 
 /**
  * Gets the index-value store
+ *
  * @method
- * @returns {ve.dm.IndexValueStore} The index-value store
+ * @return {ve.dm.IndexValueStore} The index-value store
  */
 ve.dm.LinearData.prototype.getStore = function () {
 	return this.store;
@@ -11932,7 +12056,7 @@ ve.dm.LinearData.prototype.getStore = function () {
  * @method
  * @param {number} begin Index to begin at
  * @param {number} [end] Index to end at
- * @returns {Array} One-level deep copy of sliced range
+ * @return {Array} One-level deep copy of sliced range
  */
 ve.dm.LinearData.prototype.slice = function () {
 	return Array.prototype.slice.apply( this.data, arguments );
@@ -11944,7 +12068,7 @@ ve.dm.LinearData.prototype.slice = function () {
  * @method
  * @param {number} begin Index to begin at
  * @param {number} [end] Index to end at
- * @returns {ve.dm.LinearData} LinearData object containing one-level deep copy of sliced range
+ * @return {ve.dm.LinearData} LinearData object containing one-level deep copy of sliced range
  */
 ve.dm.LinearData.prototype.sliceObject = function () {
 	return new this.constructor( this.getStore(), this.slice.apply( this, arguments ) );
@@ -11956,8 +12080,8 @@ ve.dm.LinearData.prototype.sliceObject = function () {
  * @method
  * @param {number} index Splice from
  * @param {number} howmany Items to be removed
- * @param {Object...} [element] Items to be inserted
- * @returns {Array} Elements removed
+ * @param {...Object} [element] Items to be inserted
+ * @return {Array} Elements removed
  */
 ve.dm.LinearData.prototype.splice = function () {
 	return Array.prototype.splice.apply( this.data, arguments );
@@ -11969,8 +12093,8 @@ ve.dm.LinearData.prototype.splice = function () {
  * @method
  * @param {number} index Splice from
  * @param {number} howmany Items to be removed
- * @param {Object...} [element] Items to be inserted
- * @returns {ve.dm.LinearData} LinearData object containing elements removed
+ * @param {...Object} [element] Items to be inserted
+ * @return {ve.dm.LinearData} LinearData object containing elements removed
  */
 ve.dm.LinearData.prototype.spliceObject = function () {
 	return new this.constructor( this.getStore(), this.splice.apply( this, arguments ) );
@@ -11981,10 +12105,10 @@ ve.dm.LinearData.prototype.spliceObject = function () {
  *
  * @method
  * @see ve#batchSplice
- * @param offset
- * @param remove
- * @param insert
- * @returns {Array}
+ * @param {number} offset
+ * @param {number} remove
+ * @param {Array} data
+ * @return {Array}
  */
 ve.dm.LinearData.prototype.batchSplice = function ( offset, remove, data ) {
 	return ve.batchSplice( this.getData(), offset, remove, data );
@@ -11995,10 +12119,10 @@ ve.dm.LinearData.prototype.batchSplice = function ( offset, remove, data ) {
  *
  * @method
  * @see ve#batchSplice
- * @param offset
- * @param remove
- * @param insert
- * @returns {ve.dm.LinearData}
+ * @param {number} offset
+ * @param {number} remove
+ * @param {Array} data
+ * @return {ve.dm.LinearData}
  */
 ve.dm.LinearData.prototype.batchSpliceObject = function ( offset, remove, data ) {
 	return new this.constructor(
@@ -12013,7 +12137,7 @@ ve.dm.LinearData.prototype.batchSpliceObject = function ( offset, remove, data )
  * @method
  * @param {ve.Range} [range] Range of data to get, all data will be given by default
  * @param {boolean} [deep=false] Whether to return a deep copy (WARNING! This may be very slow)
- * @returns {Array} Slice or copy of data
+ * @return {Array} Slice or copy of data
  */
 ve.dm.LinearData.prototype.getDataSlice = function ( range, deep ) {
 	var end, data,
@@ -12032,7 +12156,7 @@ ve.dm.LinearData.prototype.getDataSlice = function ( range, deep ) {
 /*
  * Clone the data, with a deep copy of the data.
  *
- * @returns {ve.dm.LinearData} Clone of this object
+ * @return {ve.dm.LinearData} Clone of this object
  */
 ve.dm.LinearData.prototype.clone = function () {
 	return new this.constructor(
@@ -12106,8 +12230,8 @@ ve.dm.DocumentSynchronizer.synchronizers.annotation = function ( action ) {
 	for ( i = 0; i < selection.length; i++ ) {
 		// No tree synchronization needed
 		// Queue events
-		this.queueEvent( selection[i].node, 'annotation' );
-		this.queueEvent( selection[i].node, 'update' );
+		this.queueEvent( selection[ i ].node, 'annotation' );
+		this.queueEvent( selection[ i ].node, 'update' );
 	}
 };
 
@@ -12186,16 +12310,16 @@ ve.dm.DocumentSynchronizer.synchronizers.rebuild = function ( action ) {
 
 	// If the document is empty, selection[0].node will be the document (so no parent)
 	// but we won't get indexInNode either. Detect this and use index=0 in that case.
-	if ( 'indexInNode' in selection[0] || !selection[0].node.getParent() ) {
+	if ( 'indexInNode' in selection[ 0 ] || !selection[ 0 ].node.getParent() ) {
 		// Insertion
-		parent = selection[0].node;
-		index = selection[0].indexInNode || 0;
+		parent = selection[ 0 ].node;
+		index = selection[ 0 ].indexInNode || 0;
 		numNodes = 0;
 	} else {
 		// Rebuild
-		firstNode = selection[0].node;
+		firstNode = selection[ 0 ].node;
 		parent = firstNode.getParent();
-		index = selection[0].index;
+		index = selection[ 0 ].index;
 		numNodes = selection.length;
 	}
 	// Perform rebuild in tree
@@ -12212,7 +12336,7 @@ ve.dm.DocumentSynchronizer.synchronizers.rebuild = function ( action ) {
  * Get the document being synchronized.
  *
  * @method
- * @returns {ve.dm.Document} Document being synchronized
+ * @return {ve.dm.Document} Document being synchronized
  */
 ve.dm.DocumentSynchronizer.prototype.getDocument = function () {
 	return this.document;
@@ -12319,7 +12443,7 @@ ve.dm.DocumentSynchronizer.prototype.pushRebuild = function ( oldRange, newRange
  * @method
  * @param {ve.dm.Node} node
  * @param {string} event Event name
- * @param {Mixed...} [args] Additional arguments to be passed to the event when fired
+ * @param {...Mixed} [args] Additional arguments to be passed to the event when fired
  */
 ve.dm.DocumentSynchronizer.prototype.queueEvent = function ( node ) {
 	// Check if this is already queued
@@ -12330,8 +12454,8 @@ ve.dm.DocumentSynchronizer.prototype.queueEvent = function ( node ) {
 	if ( !node.queuedEventHashes ) {
 		node.queuedEventHashes = {};
 	}
-	if ( !node.queuedEventHashes[hash] ) {
-		node.queuedEventHashes[hash] = true;
+	if ( !node.queuedEventHashes[ hash ] ) {
+		node.queuedEventHashes[ hash ] = true;
 		this.eventQueue.push( {
 			node: node,
 			args: args.concat( this.transaction )
@@ -12358,16 +12482,16 @@ ve.dm.DocumentSynchronizer.prototype.synchronize = function () {
 		i;
 	// Execute the actions in the queue
 	for ( i = 0; i < this.actionQueue.length; i++ ) {
-		action = this.actionQueue[i];
+		action = this.actionQueue[ i ];
 		if ( Object.prototype.hasOwnProperty.call( ve.dm.DocumentSynchronizer.synchronizers, action.type ) ) {
-			ve.dm.DocumentSynchronizer.synchronizers[action.type].call( this, action );
+			ve.dm.DocumentSynchronizer.synchronizers[ action.type ].call( this, action );
 		} else {
 			throw new Error( 'Invalid action type ' + action.type );
 		}
 	}
 	// Emit events in the event queue
 	for ( i = 0; i < this.eventQueue.length; i++ ) {
-		event = this.eventQueue[i];
+		event = this.eventQueue[ i ];
 		event.node.emit.apply( event.node, event.args );
 		delete event.node.queuedEventHashes;
 	}
@@ -12406,7 +12530,7 @@ ve.dm.IndexValueStore = function VeDmIndexValueStore() {
  * @param {Object|string|Array} value Value to lookup or store
  * @param {string} [hash] Value hash. Uses OO.getHash( value ) if not provided.
  * @param {boolean} [overwrite=false] Overwrite the value in the store if the hash is already in use
- * @returns {number} The index of the value in the store
+ * @return {number} The index of the value in the store
  */
 ve.dm.IndexValueStore.prototype.index = function ( value, hash, overwrite ) {
 	var index;
@@ -12419,13 +12543,13 @@ ve.dm.IndexValueStore.prototype.index = function ( value, hash, overwrite ) {
 			index = this.valueStore.length;
 		}
 		if ( Array.isArray( value ) ) {
-			this.valueStore[index] = ve.copy( value );
+			this.valueStore[ index ] = ve.copy( value );
 		} else if ( typeof value === 'object' ) {
-			this.valueStore[index] = ve.cloneObject( value );
+			this.valueStore[ index ] = ve.cloneObject( value );
 		} else {
-			this.valueStore[index] = value;
+			this.valueStore[ index ] = value;
 		}
-		this.hashStore[hash] = index;
+		this.hashStore[ hash ] = index;
 	}
 	return index;
 };
@@ -12437,10 +12561,10 @@ ve.dm.IndexValueStore.prototype.index = function ( value, hash, overwrite ) {
  *
  * @method
  * @param {Object|string|Array} hash Value hash.
- * @returns {number|null} The index of the value in the store, or undefined if it is not found
+ * @return {number|null} The index of the value in the store, or undefined if it is not found
  */
 ve.dm.IndexValueStore.prototype.indexOfHash = function ( hash ) {
-	return hash in this.hashStore ? this.hashStore[hash] : null;
+	return hash in this.hashStore ? this.hashStore[ hash ] : null;
 };
 
 /**
@@ -12450,12 +12574,12 @@ ve.dm.IndexValueStore.prototype.indexOfHash = function ( hash ) {
  *
  * @method
  * @param {Object[]} values Values to lookup or store
- * @returns {Array} The indexes of the values in the store
+ * @return {Array} The indexes of the values in the store
  */
 ve.dm.IndexValueStore.prototype.indexes = function ( values ) {
 	var i, length, indexes = [];
 	for ( i = 0, length = values.length; i < length; i++ ) {
-		indexes.push( this.index( values[i] ) );
+		indexes.push( this.index( values[ i ] ) );
 	}
 	return indexes;
 };
@@ -12465,10 +12589,10 @@ ve.dm.IndexValueStore.prototype.indexes = function ( values ) {
  *
  * @method
  * @param {number} index Index to lookup
- * @returns {Object|undefined} Value at this index, or undefined if out of bounds
+ * @return {Object|undefined} Value at this index, or undefined if out of bounds
  */
 ve.dm.IndexValueStore.prototype.value = function ( index ) {
-	return this.valueStore[index];
+	return this.valueStore[ index ];
 };
 
 /**
@@ -12477,13 +12601,13 @@ ve.dm.IndexValueStore.prototype.value = function ( index ) {
  * Same as value but with arrays.
  *
  * @method
- * @param {number[]} index Index to lookup
- * @returns {Array} Values at these indexes, or undefined if out of bounds
+ * @param {number[]} indexes Indices to lookup
+ * @return {Array} Values at these indexes, or undefined if out of bounds
  */
 ve.dm.IndexValueStore.prototype.values = function ( indexes ) {
 	var i, length, values = [];
 	for ( i = 0, length = indexes.length; i < length; i++ ) {
-		values.push( this.value( indexes[i] ) );
+		values.push( this.value( indexes[ i ] ) );
 	}
 	return values;
 };
@@ -12495,13 +12619,13 @@ ve.dm.IndexValueStore.prototype.values = function ( indexes ) {
  * the values inside them are copied by reference. These values are supposed to be immutable,
  * though.
  *
- * @returns {ve.dm.IndexValueStore} New store with the same contents as this one
+ * @return {ve.dm.IndexValueStore} New store with the same contents as this one
  */
 ve.dm.IndexValueStore.prototype.clone = function () {
 	var key, clone = new this.constructor();
 	clone.valueStore = this.valueStore.slice();
 	for ( key in this.hashStore ) {
-		clone.hashStore[key] = this.hashStore[key];
+		clone.hashStore[ key ] = this.hashStore[ key ];
 	}
 	return clone;
 };
@@ -12516,16 +12640,16 @@ ve.dm.IndexValueStore.prototype.clone = function () {
  * Objects added to the store are added by reference, not cloned like in .index()
  *
  * @param {ve.dm.IndexValueStore} other Store to merge into this one
- * @returns {Object} Object in which the keys are indexes in other and the values are the corresponding keys in this
+ * @return {Object} Object in which the keys are indexes in other and the values are the corresponding keys in this
  */
 ve.dm.IndexValueStore.prototype.merge = function ( other ) {
 	var key, index, mapping = {};
 	for ( key in other.hashStore ) {
 		if ( !Object.prototype.hasOwnProperty.call( this.hashStore, key ) ) {
-			index = this.valueStore.push( other.valueStore[other.hashStore[key]] ) - 1;
-			this.hashStore[key] = index;
+			index = this.valueStore.push( other.valueStore[ other.hashStore[ key ] ] ) - 1;
+			this.hashStore[ key ] = index;
 		}
-		mapping[other.hashStore[key]] = this.hashStore[key];
+		mapping[ other.hashStore[ key ] ] = this.hashStore[ key ];
 	}
 	return mapping;
 };
@@ -12578,7 +12702,7 @@ ve.dm.Converter.computedAttributes = [ 'href', 'src' ];
  * @static
  * @param {string} text Plain text to convert
  * @param {ve.dm.AnnotationSet} [annotations] Annotations to apply
- * @returns {Array} Linear model data, one element per character
+ * @return {Array} Linear model data, one element per character
  */
 ve.dm.Converter.getDataContentFromText = function ( text, annotations ) {
 	var i, len,
@@ -12590,7 +12714,7 @@ ve.dm.Converter.getDataContentFromText = function ( text, annotations ) {
 	// Apply annotations to characters
 	for ( i = 0, len = characters.length; i < len; i++ ) {
 		// Just store the annotations' indexes from the index-value store
-		characters[i] = [ characters[i], annotations.getIndexes().slice() ];
+		characters[ i ] = [ characters[ i ], annotations.getIndexes().slice() ];
 	}
 	return characters;
 };
@@ -12681,38 +12805,38 @@ ve.dm.Converter.renderHtmlAttributeList = function ( originalDomElements, target
 	}
 
 	for ( i = 0, ilen = originalDomElements.length; i < ilen; i++ ) {
-		if ( !targetDomElements[i] ) {
+		if ( !targetDomElements[ i ] ) {
 			continue;
 		}
-		attrs = originalDomElements[i].attributes;
+		attrs = originalDomElements[ i ].attributes;
 		if ( !attrs ) {
 			continue;
 		}
 		for ( j = 0, jlen = attrs.length; j < jlen; j++ ) {
 			if (
-				!targetDomElements[i].hasAttribute( attrs[j].name ) &&
-				( filter === true || filter( attrs[j].name ) )
+				!targetDomElements[ i ].hasAttribute( attrs[ j ].name ) &&
+				( filter === true || filter( attrs[ j ].name ) )
 			) {
-				if ( computed && ve.dm.Converter.computedAttributes.indexOf( attrs[j].name ) !== -1 ) {
-					value = originalDomElements[i][attrs[j].name];
+				if ( computed && ve.dm.Converter.computedAttributes.indexOf( attrs[ j ].name ) !== -1 ) {
+					value = originalDomElements[ i ][ attrs[ j ].name ];
 				} else {
-					value = attrs[j].value;
+					value = attrs[ j ].value;
 				}
-				targetDomElements[i].setAttribute( attrs[j].name, value );
+				targetDomElements[ i ].setAttribute( attrs[ j ].name, value );
 			}
 
-			if ( filter === true || filter( attrs[j].name ) ) {
-				value = computed && ve.dm.Converter.computedAttributes.indexOf( attrs[j].name ) !== -1 ?
-					originalDomElements[i][attrs[j].name] :
-					attrs[j].value;
+			if ( filter === true || filter( attrs[ j ].name ) ) {
+				value = computed && ve.dm.Converter.computedAttributes.indexOf( attrs[ j ].name ) !== -1 ?
+					originalDomElements[ i ][ attrs[ j ].name ] :
+					attrs[ j ].value;
 			}
 		}
 
 		// Descend into element children only (skipping text nodes and comment nodes)
-		if ( deep && originalDomElements[i].children.length > 0 ) {
+		if ( deep && originalDomElements[ i ].children.length > 0 ) {
 			ve.dm.Converter.renderHtmlAttributeList(
-				originalDomElements[i].children,
-				targetDomElements[i].children,
+				originalDomElements[ i ].children,
+				targetDomElements[ i ].children,
 				filter,
 				computed,
 				true
@@ -12727,7 +12851,7 @@ ve.dm.Converter.renderHtmlAttributeList = function ( originalDomElements, target
  * Check whether this converter instance is currently inside a getModelFromDom() conversion.
  *
  * @method
- * @returns {boolean} Whether we're converting
+ * @return {boolean} Whether we're converting
  */
 ve.dm.Converter.prototype.isConverting = function () {
 	return this.contextStack !== null;
@@ -12737,7 +12861,7 @@ ve.dm.Converter.prototype.isConverting = function () {
  * Get the IndexValueStore used for the current conversion.
  *
  * @method
- * @returns {ve.dm.IndexValueStore|null} Current store, or null if not converting
+ * @return {ve.dm.IndexValueStore|null} Current store, or null if not converting
  */
 ve.dm.Converter.prototype.getStore = function () {
 	return this.store;
@@ -12747,7 +12871,7 @@ ve.dm.Converter.prototype.getStore = function () {
  * Get the HTML document currently being converted
  *
  * @method
- * @returns {HTMLDocument|null} HTML document being converted, or null if not converting
+ * @return {HTMLDocument|null} HTML document being converted, or null if not converting
  */
 ve.dm.Converter.prototype.getHtmlDocument = function () {
 	return this.doc;
@@ -12757,7 +12881,7 @@ ve.dm.Converter.prototype.getHtmlDocument = function () {
  * Get the HTML document we are converting data for
  *
  * @method
- * @returns {HTMLDocument|null} HTML document being converted for, or null if not converting
+ * @return {HTMLDocument|null} HTML document being converted for, or null if not converting
  */
 ve.dm.Converter.prototype.getTargetHtmlDocument = function () {
 	return this.targetDoc;
@@ -12767,7 +12891,7 @@ ve.dm.Converter.prototype.getTargetHtmlDocument = function () {
  * Is the current conversion for the clipboard
  *
  * @method
- * @returns {boolean|null} The conversion is for the clipboard, or null if not converting
+ * @return {boolean|null} The conversion is for the clipboard, or null if not converting
  */
 ve.dm.Converter.prototype.isForClipboard = function () {
 	return this.forClipboard;
@@ -12777,7 +12901,7 @@ ve.dm.Converter.prototype.isForClipboard = function () {
  * Is the current conversion from the clipboard
  *
  * @method
- * @returns {boolean|null} The conversion is from the clipboard, or null if not converting
+ * @return {boolean|null} The conversion is from the clipboard, or null if not converting
  */
 ve.dm.Converter.prototype.isFromClipboard = function () {
 	return this.fromClipboard;
@@ -12787,10 +12911,10 @@ ve.dm.Converter.prototype.isFromClipboard = function () {
  * Get the current conversion context. This is the recursion state of getDataFromDomSubtree().
  *
  * @method
- * @returns {Object|null} Context object, or null if not converting
+ * @return {Object|null} Context object, or null if not converting
  */
 ve.dm.Converter.prototype.getCurrentContext = function () {
-	return this.contextStack === null ? null : this.contextStack[this.contextStack.length - 1];
+	return this.contextStack === null ? null : this.contextStack[ this.contextStack.length - 1 ];
 };
 
 /**
@@ -12798,7 +12922,7 @@ ve.dm.Converter.prototype.getCurrentContext = function () {
  * the current recursion level.
  *
  * @method
- * @returns {ve.dm.AnnotationSet|null} Annotation set, or null if not converting
+ * @return {ve.dm.AnnotationSet|null} Annotation set, or null if not converting
  */
 ve.dm.Converter.prototype.getActiveAnnotations = function () {
 	var context = this.getCurrentContext();
@@ -12810,7 +12934,7 @@ ve.dm.Converter.prototype.getActiveAnnotations = function () {
  * recursion level.
  *
  * @method
- * @returns {boolean|null} Boolean indicating whether content is expected, or null if not converting
+ * @return {boolean|null} Boolean indicating whether content is expected, or null if not converting
  */
 ve.dm.Converter.prototype.isExpectingContent = function () {
 	var context = this.getCurrentContext();
@@ -12822,7 +12946,7 @@ ve.dm.Converter.prototype.isExpectingContent = function () {
  *
  * @method
  * @param {string} nodeType
- * @returns {boolean|null} Whether the node type is valid, or null if not converting
+ * @return {boolean|null} Whether the node type is valid, or null if not converting
  */
 ve.dm.Converter.prototype.isValidChildNodeType = function ( nodeType ) {
 	var childTypes,
@@ -12839,7 +12963,7 @@ ve.dm.Converter.prototype.isValidChildNodeType = function ( nodeType ) {
  * Note that this is specific to the current recursion level.
  *
  * @method
- * @returns {boolean|null} Boolean indicating whether we're wrapping, or null if not converting
+ * @return {boolean|null} Boolean indicating whether we're wrapping, or null if not converting
  */
 ve.dm.Converter.prototype.isInWrapper = function () {
 	var context = this.getCurrentContext();
@@ -12851,7 +12975,7 @@ ve.dm.Converter.prototype.isInWrapper = function () {
  * level. If there is no active wrapper, this returns false.
  *
  * @method
- * @returns {boolean|null} Boolean indicating whether the wrapper can be closed, or null if not converting
+ * @return {boolean|null} Boolean indicating whether the wrapper can be closed, or null if not converting
  */
 ve.dm.Converter.prototype.canCloseWrapper = function () {
 	var context = this.getCurrentContext();
@@ -12864,14 +12988,14 @@ ve.dm.Converter.prototype.canCloseWrapper = function () {
  * This invokes the toDomElements function registered for the element type.
  *
  * @method
- * @param {Object|Array} dataElement Linear model element or data slice
+ * @param {Object|Array} dataElements Linear model element or data slice
  * @param {HTMLDocument} doc Document to create DOM elements in
  * @param {Node[]} [childDomElements] Array of child DOM elements to pass in (annotations only)
- * @returns {Node|boolean} DOM element, or false if the element cannot be converted
+ * @return {Node|boolean} DOM element, or false if the element cannot be converted
  */
 ve.dm.Converter.prototype.getDomElementsFromDataElement = function ( dataElements, doc, childDomElements ) {
 	var domElements,
-		dataElement = Array.isArray( dataElements ) ? dataElements[0] : dataElements,
+		dataElement = Array.isArray( dataElements ) ? dataElements[ 0 ] : dataElements,
 		nodeClass = this.modelRegistry.lookup( dataElement.type );
 
 	if ( !nodeClass ) {
@@ -12903,9 +13027,10 @@ ve.dm.Converter.prototype.getDomElementsFromDataElement = function ( dataElement
 
 /**
  * Create a data element from a DOM element.
+ *
  * @param {ve.dm.Model} modelClass Model class to use for conversion
  * @param {Node[]} domElements DOM elements to convert
- * @returns {Object|Array|null} Data element or array of linear model data, or null to alienate
+ * @return {Object|Array|null} Data element or array of linear model data, or null to alienate
  */
 ve.dm.Converter.prototype.createDataElements = function ( modelClass, domElements ) {
 	var dataElements = modelClass.static.toDataElement( domElements, this );
@@ -12916,7 +13041,7 @@ ve.dm.Converter.prototype.createDataElements = function ( modelClass, domElement
 	if ( !Array.isArray( dataElements ) ) {
 		dataElements = [ dataElements ];
 	}
-	dataElements[0].originalDomElements = domElements;
+	dataElements[ 0 ].originalDomElements = domElements;
 	return dataElements;
 };
 
@@ -12925,7 +13050,7 @@ ve.dm.Converter.prototype.createDataElements = function ( modelClass, domElement
  *
  * @method
  * @param {Object} dataAnnotation Annotation object
- * @returns {HTMLElement} HTML DOM node
+ * @return {HTMLElement} HTML DOM node
  */
 ve.dm.Converter.prototype.getDomElementFromDataAnnotation = function ( dataAnnotation, doc ) {
 	var htmlData = dataAnnotation.toHtml(),
@@ -12937,15 +13062,16 @@ ve.dm.Converter.prototype.getDomElementFromDataAnnotation = function ( dataAnnot
 
 /**
  * Convert an HTML document to a document model.
+ *
  * @param {HTMLDocument} doc HTML document to convert
  * @param {Object} options Conversion options
  * @param {HTMLDocument} [options.targetDoc=doc] Target HTML document we are converting for, if different from doc
  * @param {boolean} [options.fromClipboard=false] Conversion is from clipboard
  * @param {string} [options.lang] Document language code
  * @param {string} [options.dir] Document directionality (ltr/rtl)
- * @returns {ve.dm.Document} Document model
+ * @return {ve.dm.Document} Document model
  */
-ve.dm.Converter.prototype.getModelFromDom = function ( doc, options, documentFactory ) {
+ve.dm.Converter.prototype.getModelFromDom = function ( doc, options ) {
 	var linearData, refData, innerWhitespace,
 		store = new ve.dm.IndexValueStore(),
 		internalList = new ve.dm.InternalList();
@@ -12978,11 +13104,7 @@ ve.dm.Converter.prototype.getModelFromDom = function ( doc, options, documentFac
 	this.internalList = null;
 	this.contextStack = null;
 
-	if (documentFactory) {
-		return documentFactory.createDocument(linearData, this.nodeFactory, doc, undefined, internalList, innerWhitespace, options.lang, options.dir);
-	} else {
-		return new ve.dm.Document( linearData, this.nodeFactory, doc, undefined, internalList, innerWhitespace, options.lang, options.dir );
-	}
+	return new ve.dm.Document( linearData, doc, undefined, internalList, innerWhitespace, options.lang, options.dir );
 };
 
 /**
@@ -12995,7 +13117,7 @@ ve.dm.Converter.prototype.getModelFromDom = function ( doc, options, documentFac
  * @param {HTMLElement} domElement HTML element to convert
  * @param {Object} [wrapperElement] Data element to wrap the returned data in
  * @param {ve.dm.AnnotationSet} [annotationSet] Override the set of annotations to use
- * @returns {Array} Linear model data
+ * @return {Array} Linear model data
  */
 ve.dm.Converter.prototype.getDataFromDomClean = function ( domElement, wrapperElement, annotationSet ) {
 	var result, contextStack = this.contextStack;
@@ -13013,9 +13135,22 @@ ve.dm.Converter.prototype.getDataFromDomClean = function ( domElement, wrapperEl
  * @param {HTMLElement} domElement HTML element to convert
  * @param {Object} [wrapperElement] Data element to wrap the returned data in
  * @param {ve.dm.AnnotationSet} [annotationSet] Override the set of annotations to use
- * @returns {Array} Linear model data
+ * @return {Array} Linear model data
  */
 ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapperElement, annotationSet ) {
+	var i, childNode, childNodes, childDataElements, text, matches,
+		wrappingParagraph, prevElement, childAnnotations, modelName, modelClass,
+		annotation, childIsContent, aboutGroup, emptyParagraph,
+		modelRegistry = this.modelRegistry,
+		data = [],
+		nextWhitespace = '',
+		wrappedWhitespace = '',
+		wrappedWhitespaceIndex,
+		wrappedMetaItems = [],
+		context = {},
+		prevContext = this.contextStack.length ?
+			this.contextStack[ this.contextStack.length - 1 ] : null;
+
 	/**
 	 * Add whitespace to an element at a specific offset.
 	 *
@@ -13038,7 +13173,7 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 		if ( !element.internal.whitespace ) {
 			element.internal.whitespace = [];
 		}
-		element.internal.whitespace[index] = whitespace;
+		element.internal.whitespace[ index ] = whitespace;
 	}
 	function processNextWhitespace( element ) {
 		// This function uses and changes nextWhitespace in the outer function's scope,
@@ -13055,20 +13190,20 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 			prev = wrappingParagraph;
 
 		for ( i = 0, len = wrappedMetaItems.length; i < len; i++ ) {
-			if ( wrappedMetaItems[i].type && wrappedMetaItems[i].type.charAt( 0 ) !== '/' ) {
-				if ( wrappedMetaItems[i].internal && wrappedMetaItems[i].internal.whitespace ) {
+			if ( wrappedMetaItems[ i ].type && wrappedMetaItems[ i ].type.charAt( 0 ) !== '/' ) {
+				if ( wrappedMetaItems[ i ].internal && wrappedMetaItems[ i ].internal.whitespace ) {
 					if ( whitespaceTreatment === 'restore' ) {
 						toInsert = toInsert.concat( ve.dm.Converter.getDataContentFromText(
-								wrappedMetaItems[i].internal.whitespace[0], context.annotations
+								wrappedMetaItems[ i ].internal.whitespace[ 0 ], context.annotations
 						) );
-						delete wrappedMetaItems[i].internal;
+						delete wrappedMetaItems[ i ].internal;
 					} else if ( whitespaceTreatment === 'fixup' ) {
-						addWhitespace( prev, 3, wrappedMetaItems[i].internal.whitespace[0] );
+						addWhitespace( prev, 3, wrappedMetaItems[ i ].internal.whitespace[ 0 ] );
 					}
 				}
-				prev = wrappedMetaItems[i];
+				prev = wrappedMetaItems[ i ];
 			}
-			toInsert.push( wrappedMetaItems[i] );
+			toInsert.push( wrappedMetaItems[ i ] );
 		}
 		if ( wrappedWhitespace !== '' && whitespaceTreatment === 'restore' ) {
 			// If we have wrapped whitespace, insert the wrapped meta items before it
@@ -13097,7 +13232,7 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 			// Remove wrappedWhitespace from data
 			data.splice( wrappedWhitespaceIndex, wrappedWhitespace.length );
 			// Add whitespace to the last sibling: either the last meta item or the wrapper paragraph
-			addWhitespace( wrappedMetaItems.length > 0 ? wrappedMetaItems[wrappedMetaItems.length - 2] : wrappingParagraph, 3, wrappedWhitespace );
+			addWhitespace( wrappedMetaItems.length > 0 ? wrappedMetaItems[ wrappedMetaItems.length - 2 ] : wrappingParagraph, 3, wrappedWhitespace );
 			nextWhitespace = wrappedWhitespace;
 		}
 		data.push( { type: '/paragraph' } );
@@ -13136,7 +13271,7 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 	function isAllInstanceOf( data, targetClass ) {
 		var i, type, itemClass;
 		for ( i = data.length - 1; i >= 0; i-- ) {
-			type = ve.dm.LinearData.static.getType( data[i] );
+			type = ve.dm.LinearData.static.getType( data[ i ] );
 			if ( type ) {
 				itemClass = modelRegistry.lookup( type ) || ve.dm.AlienNode;
 				if ( !( itemClass.prototype === targetClass.prototype || itemClass.prototype instanceof targetClass ) ) {
@@ -13148,19 +13283,6 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 		}
 		return true;
 	}
-
-	var i, childNode, childNodes, childDataElements, text, matches,
-		wrappingParagraph, prevElement, childAnnotations, modelName, modelClass,
-		annotation, childIsContent, aboutGroup, emptyParagraph,
-		modelRegistry = this.modelRegistry,
-		data = [],
-		nextWhitespace = '',
-		wrappedWhitespace = '',
-		wrappedWhitespaceIndex,
-		wrappedMetaItems = [],
-		context = {},
-		prevContext = this.contextStack.length ?
-			this.contextStack[this.contextStack.length - 1] : null;
 
 	context.annotations = annotationSet || (
 		prevContext ? prevContext.annotations.clone() : new ve.dm.AnnotationSet( this.store )
@@ -13181,7 +13303,7 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 	}
 	// Add contents
 	for ( i = 0; i < domElement.childNodes.length; i++ ) {
-		childNode = domElement.childNodes[i];
+		childNode = domElement.childNodes[ i ];
 		switch ( childNode.nodeType ) {
 			case Node.ELEMENT_NODE:
 			case Node.COMMENT_NODE:
@@ -13211,12 +13333,12 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 					childDataElements = this.createDataElements( modelClass, childNodes );
 				} else {
 					// Update modelClass to reflect the type we got back
-					modelClass = this.modelRegistry.lookup( childDataElements[0].type );
+					modelClass = this.modelRegistry.lookup( childDataElements[ 0 ].type );
 				}
 
 				// Now take the appropriate action based on that
 				if ( modelClass.prototype instanceof ve.dm.Annotation ) {
-					annotation = this.annotationFactory.createFromElement( childDataElements[0] );
+					annotation = this.annotationFactory.createFromElement( childDataElements[ 0 ] );
 					// Start wrapping if needed
 					if ( !context.inWrapper && !context.expectingContent ) {
 						startWrapping();
@@ -13230,10 +13352,10 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 					if ( !childDataElements.length || isAllInstanceOf( childDataElements, ve.dm.AlienMetaItem ) ) {
 						// Empty annotation, create a meta item
 						childDataElements = this.createDataElements( ve.dm.AlienMetaItem, childNodes );
-						childDataElements.push( { type: '/' + childDataElements[0].type } );
+						childDataElements.push( { type: '/' + childDataElements[ 0 ].type } );
 						// Annotate meta item
 						if ( !context.annotations.isEmpty() ) {
-							childDataElements[0].annotations = context.annotations.getIndexes().slice();
+							childDataElements[ 0 ].annotations = context.annotations.getIndexes().slice();
 						}
 					}
 					outputWrappedMetaItems( 'restore' );
@@ -13246,11 +13368,11 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 						// No additional processing needed
 						// Write to data and continue
 						if ( childDataElements.length === 1 ) {
-							childDataElements.push( { type: '/' + childDataElements[0].type } );
+							childDataElements.push( { type: '/' + childDataElements[ 0 ].type } );
 						}
 						// Annotate meta item
 						if ( !context.annotations.isEmpty() ) {
-							childDataElements[0].annotations = context.annotations.getIndexes().slice();
+							childDataElements[ 0 ].annotations = context.annotations.getIndexes().slice();
 						}
 						// Queue wrapped meta items only if it's actually possible for us to move them out
 						// of the wrapper
@@ -13258,22 +13380,22 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 							wrappedMetaItems = wrappedMetaItems.concat( childDataElements );
 							if ( wrappedWhitespace !== '' ) {
 								data.splice( wrappedWhitespaceIndex, wrappedWhitespace.length );
-								addWhitespace( childDataElements[0], 0, wrappedWhitespace );
+								addWhitespace( childDataElements[ 0 ], 0, wrappedWhitespace );
 								nextWhitespace = wrappedWhitespace;
 								wrappedWhitespace = '';
 							}
 						} else {
 							outputWrappedMetaItems( 'restore' );
 							data = data.concat( childDataElements );
-							processNextWhitespace( childDataElements[0] );
-							prevElement = childDataElements[0];
+							processNextWhitespace( childDataElements[ 0 ] );
+							prevElement = childDataElements[ 0 ];
 						}
 						// In case we consumed multiple childNodes, adjust i accordingly
 						i += childNodes.length - 1;
 						break;
 					}
 
-					childIsContent = this.nodeFactory.isNodeContent( childDataElements[0].type );
+					childIsContent = this.nodeFactory.isNodeContent( childDataElements[ 0 ].type );
 
 					// If childIsContent isn't what we expect, adjust
 					if ( !context.expectingContent && childIsContent ) {
@@ -13288,7 +13410,7 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 							childNodes = modelClass.static.enableAboutGrouping ?
 								aboutGroup : [ childNode ];
 							childDataElements = this.createDataElements( modelClass, childNodes );
-							childIsContent = this.nodeFactory.isNodeContent( childDataElements[0].type );
+							childIsContent = this.nodeFactory.isNodeContent( childDataElements[ 0 ].type );
 						}
 					}
 
@@ -13303,34 +13425,34 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 
 					// Annotate child
 					if ( childIsContent && !context.annotations.isEmpty() ) {
-						childDataElements[0].annotations = context.annotations.getIndexes().slice();
+						childDataElements[ 0 ].annotations = context.annotations.getIndexes().slice();
 					}
 
 					// Output child and process children if needed
 					if (
 						childDataElements.length === 1 &&
 						childNodes.length === 1 &&
-						this.nodeFactory.canNodeHaveChildren( childDataElements[0].type ) &&
-						!this.nodeFactory.doesNodeHandleOwnChildren( childDataElements[0].type )
+						this.nodeFactory.canNodeHaveChildren( childDataElements[ 0 ].type ) &&
+						!this.nodeFactory.doesNodeHandleOwnChildren( childDataElements[ 0 ].type )
 					) {
 						// Recursion
 						// Opening and closing elements are added by the recursion too
 						outputWrappedMetaItems( 'restore' );
 						data = data.concat(
-							this.getDataFromDomSubtree( childNode, childDataElements[0],
+							this.getDataFromDomSubtree( childNode, childDataElements[ 0 ],
 								new ve.dm.AnnotationSet( this.store )
 							)
 						);
 					} else {
 						if ( childDataElements.length === 1 ) {
-							childDataElements.push( { type: '/' + childDataElements[0].type } );
+							childDataElements.push( { type: '/' + childDataElements[ 0 ].type } );
 						}
 						// Write childDataElements directly
 						outputWrappedMetaItems( 'restore' );
 						data = data.concat( childDataElements );
 					}
-					processNextWhitespace( childDataElements[0] );
-					prevElement = childDataElements[0];
+					processNextWhitespace( childDataElements[ 0 ] );
+					prevElement = childDataElements[ 0 ];
 
 					// In case we consumed multiple childNodes, adjust i accordingly
 					i += childNodes.length - 1;
@@ -13387,32 +13509,32 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 
 							// Only store leading whitespace if we just
 							// started wrapping
-							if ( matches[1] !== '' ) {
+							if ( matches[ 1 ] !== '' ) {
 								if ( !prevElement ) {
 									if ( wrapperElement ) {
 										// First child, store as inner
 										// whitespace in the parent
-										addWhitespace( wrapperElement, 1, matches[1] );
+										addWhitespace( wrapperElement, 1, matches[ 1 ] );
 									}
 									// Else, WTF?!? This is not supposed to
 									// happen, but it's not worth
 									// throwing an exception over.
 								} else {
-									addWhitespace( prevElement, 3, matches[1] );
+									addWhitespace( prevElement, 3, matches[ 1 ] );
 								}
-								addWhitespace( wrappingParagraph, 0, matches[1] );
+								addWhitespace( wrappingParagraph, 0, matches[ 1 ] );
 							}
 						} else {
 							outputWrappedMetaItems( 'restore' );
 							// We were already wrapping in a paragraph,
 							// so the leading whitespace must be output
 							data = data.concat(
-								ve.dm.Converter.getDataContentFromText( matches[1], context.annotations )
+								ve.dm.Converter.getDataContentFromText( matches[ 1 ], context.annotations )
 							);
 						}
 						// Output the text sans whitespace
 						data = data.concat(
-							ve.dm.Converter.getDataContentFromText( matches[2], context.annotations )
+							ve.dm.Converter.getDataContentFromText( matches[ 2 ], context.annotations )
 						);
 
 						// Don't store this in wrappingParagraph.internal.whitespace[3]
@@ -13422,7 +13544,7 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 						// for now and undo that if it turns out this was
 						// the last text node. We can't output it later
 						// because we have to apply the correct annotations.
-						wrappedWhitespace = matches[3];
+						wrappedWhitespace = matches[ 3 ];
 						wrappedWhitespaceIndex = data.length;
 						data = data.concat(
 							ve.dm.Converter.getDataContentFromText( wrappedWhitespace, context.annotations )
@@ -13441,9 +13563,9 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 				) {
 					// Strip leading whitespace from the first child
 					matches = text.match( /^\s+/ );
-					if ( matches && matches[0] !== '' ) {
-						addWhitespace( wrapperElement, 1, matches[0] );
-						text = text.slice( matches[0].length );
+					if ( matches && matches[ 0 ] !== '' ) {
+						addWhitespace( wrapperElement, 1, matches[ 0 ] );
+						text = text.slice( matches[ 0 ].length );
 					}
 				}
 				if (
@@ -13454,9 +13576,9 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 				) {
 					// Strip trailing whitespace from the last child
 					matches = text.match( /\s+$/ );
-					if ( matches && matches[0] !== '' ) {
-						addWhitespace( wrapperElement, 2, matches[0] );
-						text = text.slice( 0, text.length - matches[0].length );
+					if ( matches && matches[ 0 ] !== '' ) {
+						addWhitespace( wrapperElement, 2, matches[ 0 ] );
+						text = text.slice( 0, text.length - matches[ 0 ].length );
 					}
 				}
 
@@ -13476,7 +13598,7 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 
 	// If we're closing a node that doesn't have any children, but could contain a paragraph,
 	// add a paragraph. This prevents things like empty list items
-	if ( context.branchType !== 'paragraph' && wrapperElement && data[data.length - 1] === wrapperElement &&
+	if ( context.branchType !== 'paragraph' && wrapperElement && data[ data.length - 1 ] === wrapperElement &&
 		!context.inWrapper && !this.nodeFactory.canNodeContainContent( context.branchType ) &&
 		!this.nodeFactory.isNodeContent( context.branchType ) &&
 		this.isValidChildNodeType( 'paragraph' )
@@ -13492,7 +13614,7 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
 		// Add the whitespace after the last child to the parent as innerPost
 		// But don't do this if the parent is empty, because in that case we've already put that
 		// whitespace in innerPre
-		if ( nextWhitespace !== '' && data[data.length - 1] !== wrapperElement ) {
+		if ( nextWhitespace !== '' && data[ data.length - 1 ] !== wrapperElement ) {
 			addWhitespace( wrapperElement, 2, nextWhitespace );
 			nextWhitespace = '';
 		}
@@ -13514,7 +13636,7 @@ ve.dm.Converter.prototype.getDataFromDomSubtree = function ( domElement, wrapper
  * Get inner whitespace from linear data
  *
  * @param {ve.dm.FlatLinearData} data Linear model data
- * @returns {Array} innerWhitespace Inner whitespace
+ * @return {Array} innerWhitespace Inner whitespace
  */
 ve.dm.Converter.prototype.getInnerWhitespace = function ( data ) {
 	var whitespace,
@@ -13524,7 +13646,7 @@ ve.dm.Converter.prototype.getInnerWhitespace = function ( data ) {
 
 	if ( data.isOpenElementData( 0 ) ) {
 		whitespace = ve.getProp( data.getData( 0 ), 'internal', 'whitespace' );
-		innerWhitespace[0] = whitespace ? whitespace[0] : undefined;
+		innerWhitespace[ 0 ] = whitespace ? whitespace[ 0 ] : undefined;
 	}
 	if ( data.isCloseElementData( last ) ) {
 		// Find matching opening tag of the last close tag
@@ -13540,7 +13662,7 @@ ve.dm.Converter.prototype.getInnerWhitespace = function ( data ) {
 			}
 		}
 		whitespace = ve.getProp( data.getData( last ), 'internal', 'whitespace' );
-		innerWhitespace[1] = whitespace ? whitespace[3] : undefined;
+		innerWhitespace[ 1 ] = whitespace ? whitespace[ 3 ] : undefined;
 	}
 	return innerWhitespace;
 };
@@ -13551,7 +13673,7 @@ ve.dm.Converter.prototype.getInnerWhitespace = function ( data ) {
  * @method
  * @param {ve.dm.Document} model Document model
  * @param {boolean} [forClipboard=false] Conversion is for clipboard
- * @returns {HTMLDocument} Document containing the resulting HTML
+ * @return {HTMLDocument} Document containing the resulting HTML
  */
 ve.dm.Converter.prototype.getDomFromModel = function ( model, forClipboard ) {
 	var doc = ve.createDocumentFromHtml( '' );
@@ -13602,8 +13724,7 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 		conv = this,
 		doc = container.ownerDocument,
 		domElement = container,
-		annotationStack = new ve.dm.AnnotationSet( this.store ),
-		nodeFactory = this.nodeFactory;
+		annotationStack = new ve.dm.AnnotationSet( this.store );
 
 	// TODO this whole function should be rewritten with a domElementStack and ascend() and
 	// descend() functions, to build the whole DOM bottom-up rather than top-down. That would make
@@ -13624,8 +13745,8 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 			matches, first, last,
 			leading = '',
 			trailing = '',
-			origElementText = annotation.getOriginalDomElements()[0] &&
-				annotation.getOriginalDomElements()[0].textContent ||
+			origElementText = annotation.getOriginalDomElements()[ 0 ] &&
+				annotation.getOriginalDomElements()[ 0 ].textContent ||
 				'';
 
 		// Add text if needed
@@ -13635,49 +13756,49 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 		}
 
 		annotatedChildDomElements = annotatedDomElementStack.pop();
-		annotatedDomElements = annotatedDomElementStack[annotatedDomElementStack.length - 1];
+		annotatedDomElements = annotatedDomElementStack[ annotatedDomElementStack.length - 1 ];
 
 		// HACK: Move any leading and trailing whitespace out of the annotation, but only if the
 		// annotation didn't originally have leading/trailing whitespace
-		first = annotatedChildDomElements[0];
+		first = annotatedChildDomElements[ 0 ];
 		while (
 			first &&
 			first.nodeType === Node.TEXT_NODE &&
 			( matches = first.data.match( /^\s+/ ) ) &&
 			!origElementText.match( /^\s/ )
 		) {
-			leading += matches[0];
-			first.deleteData( 0, matches[0].length );
+			leading += matches[ 0 ];
+			first.deleteData( 0, matches[ 0 ].length );
 			if ( first.data.length !== 0 ) {
 				break;
 			}
 			// Remove empty text node
 			annotatedChildDomElements.shift();
 			// Process next text node to see if it also has whitespace
-			first = annotatedChildDomElements[0];
+			first = annotatedChildDomElements[ 0 ];
 		}
-		last = annotatedChildDomElements[annotatedChildDomElements.length - 1];
+		last = annotatedChildDomElements[ annotatedChildDomElements.length - 1 ];
 		while (
 			last &&
 			last.nodeType === Node.TEXT_NODE &&
 			( matches = last.data.match( /\s+$/ ) ) &&
 			!origElementText.match( /\s$/ )
 		) {
-			trailing = matches[0] + trailing;
-			last.deleteData( last.data.length - matches[0].length, matches[0].length );
+			trailing = matches[ 0 ] + trailing;
+			last.deleteData( last.data.length - matches[ 0 ].length, matches[ 0 ].length );
 			if ( last.data.length !== 0 ) {
 				break;
 			}
 			// Remove empty text node
 			annotatedChildDomElements.pop();
 			// Process next text node to see if it also has whitespace
-			last = annotatedChildDomElements[annotatedChildDomElements.length - 1];
+			last = annotatedChildDomElements[ annotatedChildDomElements.length - 1 ];
 		}
 
 		if ( annotatedChildDomElements.length ) {
 			annotationElement = conv.getDomElementsFromDataElement(
 				annotation.getElement(), doc, annotatedChildDomElements
-			)[0];
+			)[ 0 ];
 		}
 
 		if ( leading ) {
@@ -13685,12 +13806,12 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 		}
 		if ( annotationElement ) {
 			for ( i = 0, len = annotatedChildDomElements.length; i < len; i++ ) {
-				annotationElement.appendChild( annotatedChildDomElements[i] );
+				annotationElement.appendChild( annotatedChildDomElements[ i ] );
 			}
 			annotatedDomElements.push( annotationElement );
 		} else {
 			for ( i = 0, len = annotatedChildDomElements.length; i < len; i++ ) {
-				annotatedDomElements.push( annotatedChildDomElements[i] );
+				annotatedDomElements.push( annotatedChildDomElements[ i ] );
 			}
 		}
 		if ( trailing ) {
@@ -13701,8 +13822,8 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 	function findEndOfNode( i ) {
 		var j, depth;
 		for ( j = i + 1, depth = 1; j < dataLen && depth > 0; j++ ) {
-			if ( data[j].type ) {
-				depth += data[j].type.charAt( 0 ) === '/' ? -1 : 1;
+			if ( data[ j ].type ) {
+				depth += data[ j ].type.charAt( 0 ) === '/' ? -1 : 1;
 			}
 		}
 		if ( depth !== 0 ) {
@@ -13714,12 +13835,12 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 	function getDataElementOrSlice() {
 		var dataSlice;
 		if (
-			nodeFactory.lookup( data[i].type ) &&
-			nodeFactory.doesNodeHandleOwnChildren( data[i].type )
+			ve.dm.nodeFactory.lookup( data[ i ].type ) &&
+			ve.dm.nodeFactory.doesNodeHandleOwnChildren( data[ i ].type )
 		) {
 			dataSlice = data.slice( i, findEndOfNode( i ) );
 		} else {
-			dataSlice = data[i];
+			dataSlice = data[ i ];
 		}
 		return dataSlice;
 	}
@@ -13730,9 +13851,9 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 		// Removing it here prevents unwanted interactions with whitespace preservation
 		for ( i = 0; i < dataLen; i++ ) {
 			if (
-				data[i].type && data[i].type.charAt( 0 ) !== '/' &&
-				nodeFactory.lookup( data[i].type ) &&
-				nodeFactory.isNodeInternal( data[i].type )
+				data[ i ].type && data[ i ].type.charAt( 0 ) !== '/' &&
+				ve.dm.nodeFactory.lookup( data[ i ].type ) &&
+				ve.dm.nodeFactory.isNodeInternal( data[ i ].type )
 			) {
 				// Copy data if we haven't already done so
 				if ( !dataCopy ) {
@@ -13754,19 +13875,19 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 	removeInternalNodes();
 
 	for ( i = 0; i < dataLen; i++ ) {
-		if ( typeof data[i] === 'string' ) {
+		if ( typeof data[ i ] === 'string' ) {
 			// Text
 			text = '';
 			isStart = i > 0 &&
-				ve.dm.LinearData.static.isOpenElementData( data[i - 1] ) &&
-				!nodeFactory.doesNodeHaveSignificantWhitespace(
-					ve.dm.LinearData.static.getType( data[i - 1] )
+				ve.dm.LinearData.static.isOpenElementData( data[ i - 1 ] ) &&
+				!ve.dm.nodeFactory.doesNodeHaveSignificantWhitespace(
+					ve.dm.LinearData.static.getType( data[ i - 1 ] )
 				);
 			// Continue forward as far as the plain text goes
-			while ( typeof data[i] === 'string' ) {
+			while ( typeof data[ i ] === 'string' ) {
 				// HACK: Skip over leading whitespace (bug 51462) in non-whitespace-preserving tags
-				if ( !( isStart && data[i].match( /\s/ ) ) ) {
-					text += data[i];
+				if ( !( isStart && data[ i ].match( /\s/ ) ) ) {
+					text += data[ i ];
 					isStart = false;
 				}
 				i++;
@@ -13778,11 +13899,11 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 				domElement.appendChild( doc.createTextNode( text ) );
 			}
 		} else if (
-			Array.isArray( data[i] ) ||
+			Array.isArray( data[ i ] ) ||
 			(
-				data[i].annotations !== undefined && (
-					this.metaItemFactory.lookup( data[i].type ) ||
-					this.nodeFactory.isNodeContent( data[i].type )
+				data[ i ].annotations !== undefined && (
+					this.metaItemFactory.lookup( data[ i ].type ) ||
+					this.nodeFactory.isNodeContent( data[ i ].type )
 				)
 			)
 		) {
@@ -13791,26 +13912,26 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 			annotatedDomElements = [];
 			annotatedDomElementStack = [ annotatedDomElements ];
 			while (
-				data[i] !== undefined && (
-					Array.isArray( data[i] ) ||
+				data[ i ] !== undefined && (
+					Array.isArray( data[ i ] ) ||
 					(
-						data[i].annotations !== undefined && (
-							this.metaItemFactory.lookup( data[i].type ) ||
-							this.nodeFactory.isNodeContent( data[i].type )
+						data[ i ].annotations !== undefined && (
+							this.metaItemFactory.lookup( data[ i ].type ) ||
+							this.nodeFactory.isNodeContent( data[ i ].type )
 						)
 					)
 				)
 			) {
 				annotations = new ve.dm.AnnotationSet(
-					this.store, data[i].annotations || data[i][1]
+					this.store, data[ i ].annotations || data[ i ][ 1 ]
 				);
 				ve.dm.Converter.openAndCloseAnnotations( annotationStack, annotations,
 					openAnnotation, closeAnnotation
 				);
 
-				if ( data[i].annotations === undefined ) {
+				if ( data[ i ].annotations === undefined ) {
 					// Annotated text
-					text += data[i][0];
+					text += data[ i ][ 0 ];
 				} else {
 					// Annotated node
 					// Add text if needed
@@ -13822,7 +13943,7 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 					dataElementOrSlice = getDataElementOrSlice();
 					childDomElements = this.getDomElementsFromDataElement( dataElementOrSlice, doc );
 					for ( j = 0; j < childDomElements.length; j++ ) {
-						annotatedDomElements.push( childDomElements[j] );
+						annotatedDomElements.push( childDomElements[ j ] );
 					}
 					if ( Array.isArray( dataElementOrSlice ) ) {
 						i += dataElementOrSlice.length - 1;
@@ -13846,17 +13967,17 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 			);
 			// Put the annotated nodes in the DOM
 			for ( j = 0; j < annotatedDomElements.length; j++ ) {
-				domElement.appendChild( annotatedDomElements[j] );
+				domElement.appendChild( annotatedDomElements[ j ] );
 			}
-		} else if ( data[i].type !== undefined ) {
-			dataElement = data[i];
+		} else if ( data[ i ].type !== undefined ) {
+			dataElement = data[ i ];
 			// Element
 			if ( dataElement.type.charAt( 0 ) === '/' ) {
 				// Close element
 				parentDomElement = domElement.parentNode;
-				type = data[i].type.slice( 1 );
+				type = data[ i ].type.slice( 1 );
 				if ( this.metaItemFactory.lookup( type ) ) {
-					isContentNode = canContainContentStack[canContainContentStack.length - 1];
+					isContentNode = canContainContentStack[ canContainContentStack.length - 1 ];
 				} else {
 					isContentNode = this.nodeFactory.isNodeContent( type );
 					canContainContentStack.pop();
@@ -13872,7 +13993,7 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 					// Process inner whitespace. innerPre is for sure legitimate
 					// whitespace that should be inserted; if it was a duplicate
 					// of our child's outerPre, we would have cleared it.
-					pre = domElement.veInternal.whitespace[1];
+					pre = domElement.veInternal.whitespace[ 1 ];
 					if ( pre ) {
 						if (
 							domElement.firstChild &&
@@ -13892,10 +14013,10 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 					}
 					lastChild = domElement.veInternal.childDomElements ?
 						domElement.veInternal
-							.childDomElements[domElement.veInternal.childDomElements.length - 1]
+							.childDomElements[ domElement.veInternal.childDomElements.length - 1 ]
 							.lastChild :
 						domElement.lastChild;
-					ours = domElement.veInternal.whitespace[2];
+					ours = domElement.veInternal.whitespace[ 2 ];
 					if ( domElement.lastOuterPost === undefined ) {
 						// This node didn't have any structural children
 						// (i.e. it's a content-containing node), so there's
@@ -13918,7 +14039,7 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 						}
 					}
 					// Tell the parent about our outerPost
-					parentDomElement.lastOuterPost = domElement.veInternal.whitespace[3] || '';
+					parentDomElement.lastOuterPost = domElement.veInternal.whitespace[ 3 ] || '';
 				} else if ( !isContentNode ) {
 					// Use empty string, because undefined means there were no
 					// structural children
@@ -13945,7 +14066,7 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 									// then check that we are the last child
 									// before unwrapping (and therefore destroying)
 									i === data.length - 1 ||
-									data[i + 1].type.charAt( 0 ) === '/'
+									data[ i + 1 ].type.charAt( 0 ) === '/'
 								)
 							) {
 								doUnwrap = true;
@@ -13960,7 +14081,7 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 							// Note: previousSiblings includes the current element
 							// so we only go up to length - 2
 							for ( j = previousSiblings.length - 2; j >= 0; j-- ) {
-								sibling = previousSiblings[j];
+								sibling = previousSiblings[ j ];
 								if ( sibling.nodeType === Node.TEXT_NODE && !sibling.veIsWhitespace ) {
 									// we've found an unwrapped paragraph so don't unwrap
 									doUnwrap = false;
@@ -13997,20 +14118,20 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 				delete domElement.lastOuterPost;
 				// Ascend to parent node, except if this is an internal node
 				// TODO: It's not covered with unit tests.
-				if ( !nodeFactory.lookup( type ) || !nodeFactory.isNodeInternal( type ) ) {
+				if ( !ve.dm.nodeFactory.lookup( type ) || !ve.dm.nodeFactory.isNodeInternal( type ) ) {
 					domElement = parentDomElement;
 				}
 			} else {
 				// Create node from data
-				if ( this.metaItemFactory.lookup( data[i].type ) ) {
-					isContentNode = canContainContentStack[canContainContentStack.length - 1];
+				if ( this.metaItemFactory.lookup( data[ i ].type ) ) {
+					isContentNode = canContainContentStack[ canContainContentStack.length - 1 ];
 				} else {
 					canContainContentStack.push(
 						// if the last item was true then this item must inherit it
-						canContainContentStack[canContainContentStack.length - 1] ||
-						this.nodeFactory.canNodeContainContent( data[i].type )
+						canContainContentStack[ canContainContentStack.length - 1 ] ||
+						this.nodeFactory.canNodeContainContent( data[ i ].type )
 					);
-					isContentNode = this.nodeFactory.isNodeContent( data[i].type );
+					isContentNode = this.nodeFactory.isNodeContent( data[ i ].type );
 				}
 
 				dataElementOrSlice = getDataElementOrSlice();
@@ -14022,17 +14143,17 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 				} else if ( childDomElements ) {
 					// Add clone of internal data; we use a clone rather than a reference because
 					// we modify .veInternal.whitespace[1] in some cases
-					childDomElements[0].veInternal = ve.extendObject(
+					childDomElements[ 0 ].veInternal = ve.extendObject(
 						{ childDomElements: childDomElements },
 						dataElement.internal ? ve.copy( dataElement.internal ) : {}
 					);
 					// Add elements
 					for ( j = 0; j < childDomElements.length; j++ ) {
-						domElement.appendChild( childDomElements[j] );
+						domElement.appendChild( childDomElements[ j ] );
 					}
 					// Descend into the first child node
 					parentDomElement = domElement;
-					domElement = childDomElements[0];
+					domElement = childDomElements[ 0 ];
 
 					// Process outer whitespace
 					// Every piece of outer whitespace is duplicated somewhere:
@@ -14045,23 +14166,23 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 					// whitespace.
 					if ( domElement.veInternal && domElement.veInternal.whitespace ) {
 						// Process this node's outerPre
-						ours = domElement.veInternal.whitespace[0];
+						ours = domElement.veInternal.whitespace[ 0 ];
 						theirs = undefined;
 						if ( domElement.previousSibling ) {
 							// Get previous sibling's outerPost
 							theirs = parentDomElement.lastOuterPost;
 						} else if ( parentDomElement === container ) {
 							// outerPre of the very first node in the document, check against body innerWhitespace
-							theirs = innerWhitespace ? innerWhitespace[0] : ours;
+							theirs = innerWhitespace ? innerWhitespace[ 0 ] : ours;
 						} else {
 							// First child, get parent's innerPre
 							if (
 								parentDomElement.veInternal &&
 								parentDomElement.veInternal.whitespace
 							) {
-								theirs = parentDomElement.veInternal.whitespace[1];
+								theirs = parentDomElement.veInternal.whitespace[ 1 ];
 								// Clear parent's innerPre so it's not used again
-								parentDomElement.veInternal.whitespace[1] = undefined;
+								parentDomElement.veInternal.whitespace[ 1 ] = undefined;
 							}
 							// else theirs=undefined
 						}
@@ -14084,7 +14205,7 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 						// outerPre (since we didn't have any whitespace set at all).
 						// Except if this is a content node, because content nodes
 						// don't have whitespace annotated on them *sigh*
-						parentDomElement.veInternal.whitespace[1] = undefined;
+						parentDomElement.veInternal.whitespace[ 1 ] = undefined;
 					}
 				}
 
@@ -14097,7 +14218,7 @@ ve.dm.Converter.prototype.getDomSubtreeFromData = function ( data, container, in
 	// Check outerPost whitespace of the very last node against body innerWhitespace
 	if (
 		container.lastOuterPost !== undefined &&
-		( !innerWhitespace || container.lastOuterPost === innerWhitespace[1] )
+		( !innerWhitespace || container.lastOuterPost === innerWhitespace[ 1 ] )
 	) {
 		if ( container.lastChild && container.lastChild.nodeType === Node.TEXT_NODE ) {
 			// Last child is a TextNode, append to it
@@ -14231,7 +14352,7 @@ ve.dm.LinearSelection.prototype.getRanges = function () {
 /**
  * Get the range for this selection
  *
- * @returns {ve.Range} Range
+ * @return {ve.Range} Range
  */
 ve.dm.LinearSelection.prototype.getRange = function () {
 	return this.range;
@@ -14441,7 +14562,7 @@ ve.dm.TableSelection.prototype.expand = function () {
 
 	while ( cells.length > lastCellCount ) {
 		for ( i = 0; i < cells.length; i++ ) {
-			cell = cells[i];
+			cell = cells[ i ];
 			startCol = Math.min( startCol, cell.col );
 			startRow = Math.min( startRow, cell.row );
 			endCol = Math.max( endCol, cell.col + cell.node.getColspan() - 1 );
@@ -14531,7 +14652,7 @@ ve.dm.TableSelection.prototype.getRanges = function () {
 	var i, l, ranges = [],
 		cells = this.getMatrixCells();
 	for ( i = 0, l = cells.length; i < l; i++ ) {
-		ranges.push( cells[i].node.getRange() );
+		ranges.push( cells[ i ].node.getRange() );
 	}
 	return ranges;
 };
@@ -14545,7 +14666,7 @@ ve.dm.TableSelection.prototype.getOuterRanges = function () {
 	var i, l, ranges = [],
 		cells = this.getMatrixCells();
 	for ( i = 0, l = cells.length; i < l; i++ ) {
-		ranges.push( cells[i].node.getOuterRange() );
+		ranges.push( cells[ i ].node.getOuterRange() );
 	}
 	return ranges;
 };
@@ -14554,7 +14675,7 @@ ve.dm.TableSelection.prototype.getOuterRanges = function () {
  * Retrieves all cells (no placeholders) within a given selection.
  *
  * @param {boolean} [includePlaceholders] Include placeholders in result
- * @returns {ve.dm.TableMatrixCell[]} List of table cells
+ * @return {ve.dm.TableMatrixCell[]} List of table cells
  */
 ve.dm.TableSelection.prototype.getMatrixCells = function ( includePlaceholders ) {
 	var row, col, cell,
@@ -14571,9 +14692,9 @@ ve.dm.TableSelection.prototype.getMatrixCells = function ( includePlaceholders )
 			if ( !includePlaceholders && cell.isPlaceholder() ) {
 				cell = cell.owner;
 			}
-			if ( !visited[cell.key] ) {
+			if ( !visited[ cell.key ] ) {
 				cells.push( cell );
-				visited[cell.key] = true;
+				visited[ cell.key ] = true;
 			}
 		}
 	}
@@ -14604,6 +14725,7 @@ ve.dm.TableSelection.prototype.translateByTransaction = function ( tx, excludeIn
 
 /**
  * Check if the selection spans a single cell
+ *
  * @return {boolean} The selection spans a single cell
  */
 ve.dm.TableSelection.prototype.isSingleCell = function () {
@@ -14757,12 +14879,6 @@ ve.dm.TableSelection.prototype.isFullCol = function () {
 	return this.getRowCount() === matrix.getRowCount();
 };
 
-ve.dm.TableSelection.prototype.isFullTable = function () {
-	var matrix = this.getTableNode().getMatrix();
-	return (this.startCol === 0 && this.endCol === matrix.getColCount()-1 &&
-		this.startRow === 0 && this.endRow === matrix.getRowCount()-1)
-};
-
 /* Registration */
 
 ve.dm.selectionFactory.register( ve.dm.TableSelection );
@@ -14796,10 +14912,11 @@ OO.inheritClass( ve.dm.FlatLinearData, ve.dm.LinearData );
 /* Methods */
 
 /**
- * Get the type of the element at a specified offset
+ * Get the type of the element at a specified offset.
+ *
  * @method
  * @param {number} offset Data offset
- * @returns {string} Type of the element
+ * @return {string} Type of the element
  */
 ve.dm.FlatLinearData.prototype.getType = function ( offset ) {
 	return ve.dm.LinearData.static.getType( this.getData( offset ) );
@@ -14807,9 +14924,10 @@ ve.dm.FlatLinearData.prototype.getType = function ( offset ) {
 
 /**
  * Check if data at a given offset is an element.
+ *
  * @method
  * @param {number} offset Data offset
- * @returns {boolean} Data at offset is an element
+ * @return {boolean} Data at offset is an element
  */
 ve.dm.FlatLinearData.prototype.isElementData = function ( offset ) {
 	return ve.dm.LinearData.static.isElementData( this.getData( offset ) );
@@ -14822,7 +14940,7 @@ ve.dm.FlatLinearData.prototype.isElementData = function ( offset ) {
  * Elements are discovered by iterating through the entire data array (backwards).
  *
  * @method
- * @returns {boolean} At least one elements exists in data
+ * @return {boolean} At least one elements exists in data
  */
 ve.dm.FlatLinearData.prototype.containsElementData = function () {
 	var i = this.getLength();
@@ -14836,9 +14954,10 @@ ve.dm.FlatLinearData.prototype.containsElementData = function () {
 
 /**
  * Checks if data at a given offset is an open element.
+ *
  * @method
  * @param {number} offset Data offset
- * @returns {boolean} Data at offset is an open element
+ * @return {boolean} Data at offset is an open element
  */
 ve.dm.FlatLinearData.prototype.isOpenElementData = function ( offset ) {
 	return ve.dm.LinearData.static.isOpenElementData( this.getData( offset ) );
@@ -14846,9 +14965,10 @@ ve.dm.FlatLinearData.prototype.isOpenElementData = function ( offset ) {
 
 /**
  * Checks if data at a given offset is a close element.
+ *
  * @method
  * @param {number} offset Data offset
- * @returns {boolean} Data at offset is a close element
+ * @return {boolean} Data at offset is a close element
  */
 ve.dm.FlatLinearData.prototype.isCloseElementData = function ( offset ) {
 	return ve.dm.LinearData.static.isCloseElementData( this.getData( offset ) );
@@ -14871,11 +14991,9 @@ ve.dm.FlatLinearData.prototype.isCloseElementData = function ( offset ) {
  * @param {ve.dm.IndexValueStore} store Index-value store
  * @param {Array} [data] Linear data
  */
-ve.dm.ElementLinearData = function VeDmElementLinearData( store, data, nodeFactory ) {
+ve.dm.ElementLinearData = function VeDmElementLinearData() {
 	// Parent constructor
 	ve.dm.ElementLinearData.super.apply( this, arguments );
-
-	this.nodeFactory = nodeFactory || ve.dm.nodeFactory;
 };
 
 /* Inheritance */
@@ -14902,21 +15020,21 @@ ve.dm.ElementLinearData.static.endWordRegExp = new RegExp(
  *
  * @param {Object|Array|string} a First element
  * @param {Object|Array|string} b Second element
- * @returns {boolean} Elements are comparable
+ * @return {boolean} Elements are comparable
  */
 ve.dm.ElementLinearData.static.compareElements = function ( a, b ) {
+	var aPlain = a,
+		bPlain = b;
+
 	if ( a === undefined || b === undefined ) {
 		return false;
 	}
 
-	var aPlain = a,
-		bPlain = b;
-
 	if ( Array.isArray( a ) ) {
-		aPlain = a[0];
+		aPlain = a[ 0 ];
 	}
 	if ( Array.isArray( b ) ) {
-		bPlain = b[0];
+		bPlain = b[ 0 ];
 	}
 	if ( a && a.type ) {
 		aPlain = {
@@ -14952,16 +15070,17 @@ ve.dm.ElementLinearData.static.compareElements = function ( a, b ) {
  *
  * @method
  * @param {number} offset Document offset
- * @returns {boolean} Content can be inserted at offset
+ * @return {boolean} Content can be inserted at offset
  */
 ve.dm.ElementLinearData.prototype.isContentOffset = function ( offset ) {
+	var left, right, factory;
 	// Edges are never content
 	if ( offset === 0 || offset === this.getLength() ) {
 		return false;
 	}
-	var left = this.getData( offset - 1 ),
-		right = this.getData( offset ),
-		factory = this.nodeFactory;
+	left = this.getData( offset - 1 );
+	right = this.getData( offset );
+	factory = ve.dm.nodeFactory;
 	return (
 		// Data exists at offsets
 		( left !== undefined && right !== undefined ) &&
@@ -15038,17 +15157,18 @@ ve.dm.ElementLinearData.prototype.isContentOffset = function ( offset ) {
  * @method
  * @param {number} offset Document offset
  * @param {boolean} [unrestricted] Only return true if any kind of element can be inserted at offset
- * @returns {boolean} Structure can be inserted at offset
+ * @return {boolean} Structure can be inserted at offset
  */
 ve.dm.ElementLinearData.prototype.isStructuralOffset = function ( offset, unrestricted ) {
+	var left, right, factory;
 	// Edges are always structural
 	if ( offset === 0 || offset === this.getLength() ) {
 		return true;
 	}
 	// Offsets must be within range and both sides must be elements
-	var left = this.getData( offset - 1 ),
-		right = this.getData( offset ),
-		factory = this.nodeFactory;
+	left = this.getData( offset - 1 );
+	right = this.getData( offset );
+	factory = ve.dm.nodeFactory;
 	return (
 		(
 			left !== undefined &&
@@ -15120,7 +15240,7 @@ ve.dm.ElementLinearData.prototype.isStructuralOffset = function ( offset, unrest
  * Elements are discovered by iterating through the entire data array.
  *
  * @method
- * @returns {boolean} True if all elements in data are content elements
+ * @return {boolean} True if all elements in data are content elements
  */
 ve.dm.ElementLinearData.prototype.isContentData = function () {
 	var item, i = this.getLength();
@@ -15128,7 +15248,7 @@ ve.dm.ElementLinearData.prototype.isContentData = function () {
 		item = this.getData( i );
 		if ( item.type !== undefined &&
 			item.type.charAt( 0 ) !== '/' &&
-			!this.nodeFactory.isNodeContent( item.type )
+			!ve.dm.nodeFactory.isNodeContent( item.type )
 		) {
 			return false;
 		}
@@ -15142,10 +15262,11 @@ ve.dm.ElementLinearData.prototype.isContentData = function () {
  * @method
  * @param {number} offset Offset to get annotations for
  * @param {boolean} [ignoreClose] Ignore annotations on close elements
- * @returns {number[]} An array of annotation store indexes the offset is covered by
+ * @return {number[]} An array of annotation store indexes the offset is covered by
  * @throws {Error} offset out of bounds
  */
 ve.dm.ElementLinearData.prototype.getAnnotationIndexesFromOffset = function ( offset, ignoreClose ) {
+	var element;
 	if ( offset < 0 || offset > this.getLength() ) {
 		throw new Error( 'offset ' + offset + ' out of bounds' );
 	}
@@ -15155,19 +15276,19 @@ ve.dm.ElementLinearData.prototype.getAnnotationIndexesFromOffset = function ( of
 	if (
 		!ignoreClose &&
 		this.isCloseElementData( offset ) &&
-		!this.nodeFactory.canNodeHaveChildren( this.getType( offset ) ) // leaf node
+		!ve.dm.nodeFactory.canNodeHaveChildren( this.getType( offset ) ) // leaf node
 	) {
 		offset = this.getRelativeContentOffset( offset, -1 );
 	}
 
-	var element = this.getData( offset );
+	element = this.getData( offset );
 
 	if ( element === undefined || typeof element === 'string' ) {
 		return [];
 	} else if ( element.annotations ) {
 		return element.annotations.slice();
-	} else if ( element[1] ) {
-		return element[1].slice();
+	} else if ( element[ 1 ] ) {
+		return element[ 1 ].slice();
 	} else {
 		return [];
 	}
@@ -15181,7 +15302,7 @@ ve.dm.ElementLinearData.prototype.getAnnotationIndexesFromOffset = function ( of
  * @method
  * @param {number} offset Offset to get annotations for
  * @param {boolean} [ignoreClose] Ignore annotations on close elements
- * @returns {ve.dm.AnnotationSet} A set of all annotation objects offset is covered by
+ * @return {ve.dm.AnnotationSet} A set of all annotation objects offset is covered by
  * @throws {Error} offset out of bounds
  */
 ve.dm.ElementLinearData.prototype.getAnnotationsFromOffset = function ( offset, ignoreClose ) {
@@ -15250,7 +15371,7 @@ ve.dm.ElementLinearData.prototype.setAttributeAtOffset = function ( offset, key,
 	if ( value === undefined ) {
 		// Clear
 		if ( item.attributes ) {
-			delete item.attributes[key];
+			delete item.attributes[ key ];
 		}
 	} else {
 		// Automatically initialize attributes object
@@ -15258,7 +15379,7 @@ ve.dm.ElementLinearData.prototype.setAttributeAtOffset = function ( offset, key,
 			item.attributes = {};
 		}
 		// Set
-		item.attributes[key] = value;
+		item.attributes[ key ] = value;
 	}
 };
 
@@ -15270,7 +15391,7 @@ ve.dm.ElementLinearData.prototype.setAttributeAtOffset = function ( offset, key,
  */
 ve.dm.ElementLinearData.prototype.getCharacterData = function ( offset ) {
 	var item = this.getData( offset ),
-		data = Array.isArray( item ) ? item[0] : item;
+		data = Array.isArray( item ) ? item[ 0 ] : item;
 	return typeof data === 'string' ? data : '';
 };
 
@@ -15280,7 +15401,7 @@ ve.dm.ElementLinearData.prototype.getCharacterData = function ( offset ) {
  * @method
  * @param {number} offset Offset to begin looking forward and backward from
  * @param {Object} annotation Annotation to test for coverage with
- * @returns {ve.Range|null} Range of content covered by annotation, or null if offset is not covered
+ * @return {ve.Range|null} Range of content covered by annotation, or null if offset is not covered
  */
 ve.dm.ElementLinearData.prototype.getAnnotatedRangeFromOffset = function ( offset, annotation ) {
 	var start = offset,
@@ -15308,9 +15429,9 @@ ve.dm.ElementLinearData.prototype.getAnnotatedRangeFromOffset = function ( offse
  * Get the range of an annotation found within a range.
  *
  * @method
- * @param {number} offset Offset to begin looking forward and backward from
+ * @param {ve.Range} range Range to begin looking forward and backward from
  * @param {ve.dm.Annotation} annotation Annotation to test for coverage with
- * @returns {ve.Range|null} Range of content covered by annotation, or a copy of the range
+ * @return {ve.Range|null} Range of content covered by annotation, or a copy of the range
  */
 ve.dm.ElementLinearData.prototype.getAnnotatedRangeFromSelection = function ( range, annotation ) {
 	var start = range.start,
@@ -15337,18 +15458,18 @@ ve.dm.ElementLinearData.prototype.getAnnotatedRangeFromSelection = function ( ra
  * @method
  * @param {ve.Range} range Range to get annotations for
  * @param {boolean} [all=false] Get all annotations found within the range, not just those that cover it
- * @returns {ve.dm.AnnotationSet} All annotation objects range is covered by
+ * @return {ve.dm.AnnotationSet} All annotation objects range is covered by
  */
 ve.dm.ElementLinearData.prototype.getAnnotationsFromRange = function ( range, all ) {
 	var i, left, right, ignoreChildrenDepth = 0;
 	// Iterator over the range, looking for annotations, starting at the 2nd character
 	for ( i = range.start; i < range.end; i++ ) {
 		if ( this.isElementData( i ) ) {
-			if ( this.nodeFactory.shouldIgnoreChildren( this.getType( i ) ) ) {
+			if ( ve.dm.nodeFactory.shouldIgnoreChildren( this.getType( i ) ) ) {
 				ignoreChildrenDepth += this.isOpenElementData( i ) ? 1 : -1;
 			}
 			// Skip non-content data
-			if ( !this.nodeFactory.isNodeContent( this.getType( i ) ) ) {
+			if ( !ve.dm.nodeFactory.isNodeContent( this.getType( i ) ) ) {
 				continue;
 			}
 		}
@@ -15389,7 +15510,8 @@ ve.dm.ElementLinearData.prototype.getAnnotationsFromRange = function ( range, al
  * Check if the range has any annotations
  *
  * @method
- * @returns {boolean} The range contains at least one annotation
+ * @param {ve.Range} range Range to check for annotations
+ * @return {boolean} The range contains at least one annotation
  */
 ve.dm.ElementLinearData.prototype.hasAnnotationsInRange = function ( range ) {
 	var i;
@@ -15406,7 +15528,7 @@ ve.dm.ElementLinearData.prototype.hasAnnotationsInRange = function ( range ) {
  *
  * @method
  * @param {ve.Range} range Range to trim
- * @returns {Object} Trimmed range
+ * @return {Object} Trimmed range
  */
 ve.dm.ElementLinearData.prototype.trimOuterSpaceFromRange = function ( range ) {
 	var start = range.start,
@@ -15463,8 +15585,8 @@ ve.dm.ElementLinearData.prototype.getText = function ( maintainIndices, range ) 
  * @param {number} distance Number of valid offsets to move
  * @param {Function} callback Function to call to check if an offset is valid which will be
  * given initial argument of offset
- * @param {Mixed...} [args] Additional arguments to pass to the callback
- * @returns {number} Relative valid offset or -1 if there are no valid offsets in data
+ * @param {...Mixed} [args] Additional arguments to pass to the callback
+ * @return {number} Relative valid offset or -1 if there are no valid offsets in data
  * @throws {Error} offset was inside an ignoreChildren node
  */
 ve.dm.ElementLinearData.prototype.getRelativeOffset = function ( offset, distance, callback ) {
@@ -15503,7 +15625,7 @@ ve.dm.ElementLinearData.prototype.getRelativeOffset = function ( offset, distanc
 		dataOffset = i + ( direction > 0 ? -1 : 0 );
 		if (
 			this.isElementData( dataOffset ) &&
-			this.nodeFactory.shouldIgnoreChildren( this.getType( dataOffset ) )
+			ve.dm.nodeFactory.shouldIgnoreChildren( this.getType( dataOffset ) )
 		) {
 			isOpen = this.isOpenElementData( dataOffset );
 			// We have entered a node if we step right over an open, or left over a close.
@@ -15559,7 +15681,7 @@ ve.dm.ElementLinearData.prototype.getRelativeOffset = function ( offset, distanc
  * @method
  * @param {number} offset Offset to start from
  * @param {number} distance Number of content offsets to move
- * @returns {number} Relative content offset or -1 if there are no valid offsets in data
+ * @return {number} Relative content offset or -1 if there are no valid offsets in data
  */
 ve.dm.ElementLinearData.prototype.getRelativeContentOffset = function ( offset, distance ) {
 	return this.getRelativeOffset( offset, distance, this.constructor.prototype.isContentOffset );
@@ -15577,15 +15699,17 @@ ve.dm.ElementLinearData.prototype.getRelativeContentOffset = function ( offset, 
  * @method
  * @param {number} offset Offset to start from
  * @param {number} [direction] Direction to prefer matching offset in, -1 for left and 1 for right
- * @returns {number} Nearest content offset or -1 if there are no valid offsets in data
+ * @return {number} Nearest content offset or -1 if there are no valid offsets in data
  */
 ve.dm.ElementLinearData.prototype.getNearestContentOffset = function ( offset, direction ) {
+	var left, right;
+
 	if ( this.isContentOffset( offset ) ) {
 		return offset;
 	}
 	if ( direction === undefined ) {
-		var left = this.getRelativeContentOffset( offset, -1 ),
-			right = this.getRelativeContentOffset( offset, 1 );
+		left = this.getRelativeContentOffset( offset, -1 );
+		right = this.getRelativeContentOffset( offset, 1 );
 		return offset - left < right - offset ? left : right;
 	} else {
 		return this.getRelativeContentOffset( offset, direction > 0 ? 1 : -1 );
@@ -15602,7 +15726,7 @@ ve.dm.ElementLinearData.prototype.getNearestContentOffset = function ( offset, d
  * @param {number} offset Offset to start from
  * @param {number} distance Number of structural offsets to move
  * @param {boolean} [unrestricted] Only consider offsets where any kind of element can be inserted
- * @returns {number} Relative structural offset
+ * @return {number} Relative structural offset
  */
 ve.dm.ElementLinearData.prototype.getRelativeStructuralOffset = function ( offset, distance, unrestricted ) {
 	// Optimization: start and end are always unrestricted structural offsets
@@ -15627,15 +15751,16 @@ ve.dm.ElementLinearData.prototype.getRelativeStructuralOffset = function ( offse
  * @param {number} offset Offset to start from
  * @param {number} [direction] Direction to prefer matching offset in, -1 for left and 1 for right
  * @param {boolean} [unrestricted] Only consider offsets where any kind of element can be inserted
- * @returns {number} Nearest structural offset
+ * @return {number} Nearest structural offset
  */
 ve.dm.ElementLinearData.prototype.getNearestStructuralOffset = function ( offset, direction, unrestricted ) {
+	var left, right;
 	if ( this.isStructuralOffset( offset, unrestricted ) ) {
 		return offset;
 	}
 	if ( !direction ) {
-		var left = this.getRelativeStructuralOffset( offset, -1, unrestricted ),
-			right = this.getRelativeStructuralOffset( offset, 1, unrestricted );
+		left = this.getRelativeStructuralOffset( offset, -1, unrestricted );
+		right = this.getRelativeStructuralOffset( offset, 1, unrestricted );
 		return offset - left < right - offset ? left : right;
 	} else {
 		return this.getRelativeStructuralOffset( offset, direction > 0 ? 1 : -1, unrestricted );
@@ -15653,7 +15778,7 @@ ve.dm.ElementLinearData.prototype.getNearestStructuralOffset = function ( offset
  *
  * @method
  * @param {number} offset Offset to start from; must not be inside a surrogate pair
- * @returns {ve.Range} Boundaries of the adjacent word (else offset as collapsed range)
+ * @return {ve.Range} Boundaries of the adjacent word (else offset as collapsed range)
  */
 ve.dm.ElementLinearData.prototype.getWordRange = function ( offset ) {
 	var dataString = new ve.dm.DataString( this.getData() );
@@ -15704,7 +15829,7 @@ ve.dm.ElementLinearData.prototype.getWordRange = function ( offset ) {
  *
  * @method
  * @param {ve.Range} [range] Optional range to get store values for
- * @returns {Object} Object containing all store values, indexed by store index
+ * @return {Object} Object containing all store values, indexed by store index
  */
 ve.dm.ElementLinearData.prototype.getUsedStoreValues = function ( range ) {
 	var i, index, indexes, j,
@@ -15718,9 +15843,9 @@ ve.dm.ElementLinearData.prototype.getUsedStoreValues = function ( range ) {
 		indexes = this.getAnnotationIndexesFromOffset( i, true );
 		j = indexes.length;
 		while ( j-- ) {
-			index = indexes[j];
+			index = indexes[ j ];
 			if ( !Object.prototype.hasOwnProperty.call( valueStore, index ) ) {
-				valueStore[index] = this.getStore().value( index );
+				valueStore[ index ] = this.getStore().value( index );
 			}
 		}
 	}
@@ -15740,12 +15865,12 @@ ve.dm.ElementLinearData.prototype.remapStoreIndexes = function ( mapping ) {
 	for ( i = 0, ilen = this.data.length; i < ilen; i++ ) {
 		indexes = this.getAnnotationIndexesFromOffset( i, true );
 		for ( j = 0, jlen = indexes.length; j < jlen; j++ ) {
-			indexes[j] = mapping[indexes[j]];
+			indexes[ j ] = mapping[ indexes[ j ] ];
 		}
 		this.setAnnotationIndexesAtOffset( i, indexes );
 		if ( this.isOpenElementData( i ) ) {
-			nodeClass = this.nodeFactory.lookup( this.getType( i ) );
-			nodeClass.static.remapStoreIndexes( this.data[i], mapping );
+			nodeClass = ve.dm.nodeFactory.lookup( this.getType( i ) );
+			nodeClass.static.remapStoreIndexes( this.data[ i ], mapping );
 		}
 	}
 };
@@ -15764,8 +15889,8 @@ ve.dm.ElementLinearData.prototype.remapInternalListIndexes = function ( mapping,
 	var i, ilen, nodeClass;
 	for ( i = 0, ilen = this.data.length; i < ilen; i++ ) {
 		if ( this.isOpenElementData( i ) ) {
-			nodeClass = this.nodeFactory.lookup( this.getType( i ) );
-			nodeClass.static.remapInternalListIndexes( this.data[i], mapping, internalList );
+			nodeClass = ve.dm.nodeFactory.lookup( this.getType( i ) );
+			nodeClass.static.remapInternalListIndexes( this.data[ i ], mapping, internalList );
 		}
 	}
 };
@@ -15782,8 +15907,8 @@ ve.dm.ElementLinearData.prototype.remapInternalListKeys = function ( internalLis
 	var i, ilen, nodeClass;
 	for ( i = 0, ilen = this.data.length; i < ilen; i++ ) {
 		if ( this.isOpenElementData( i ) ) {
-			nodeClass = this.nodeFactory.lookup( this.getType( i ) );
-			nodeClass.static.remapInternalListKeys( this.data[i], internalList );
+			nodeClass = ve.dm.nodeFactory.lookup( this.getType( i ) );
+			nodeClass.static.remapInternalListKeys( this.data[ i ], internalList );
 		}
 	}
 };
@@ -15795,14 +15920,14 @@ ve.dm.ElementLinearData.prototype.remapInternalListKeys = function ( internalLis
  * @param {string[]} [rules.blacklist] Blacklist of model types which aren't allowed
  * @param {Object} [rules.conversions] Model type conversions to apply, e.g. { heading: 'paragraph' }
  * @param {boolean} [rules.removeOriginalDomElements] Remove references to DOM elements data was converted from
- * @param {boolean} [plainText=false] Remove all formatting for plain text import
+ * @param {boolean} [rules.plainText] Remove all formatting for plain text import
  * @param {boolean} [keepEmptyContentBranches=false] Preserve empty content branch nodes
  */
-ve.dm.ElementLinearData.prototype.sanitize = function ( rules, plainText, keepEmptyContentBranches ) {
+ve.dm.ElementLinearData.prototype.sanitize = function ( rules, keepEmptyContentBranches ) {
 	var i, len, annotations, emptySet, setToRemove, type,
 		allAnnotations = this.getAnnotationsFromRange( new ve.Range( 0, this.getLength() ), true );
 
-	if ( plainText ) {
+	if ( rules.plainText ) {
 		emptySet = new ve.dm.AnnotationSet( this.getStore() );
 	} else {
 		if ( rules.removeOriginalDomElements ) {
@@ -15825,12 +15950,12 @@ ve.dm.ElementLinearData.prototype.sanitize = function ( rules, plainText, keepEm
 		if ( this.isElementData( i ) ) {
 			type = this.getType( i );
 			// Apply type conversions
-			if ( rules.conversions && rules.conversions[type] ) {
-				type = rules.conversions[type];
+			if ( rules.conversions && rules.conversions[ type ] ) {
+				type = rules.conversions[ type ];
 				this.getData( i ).type = ( this.isCloseElementData( i ) ? '/' : '' ) + type;
 			}
 			// Convert content-containing non-paragraph nodes to paragraphs in plainText mode
-			if ( plainText && type !== 'paragraph' && this.nodeFactory.canNodeContainContent( type ) ) {
+			if ( rules.plainText && type !== 'paragraph' && ve.dm.nodeFactory.canNodeContainContent( type ) ) {
 				type = 'paragraph';
 				this.setData( i, {
 					type: ( this.isCloseElementData( i ) ? '/' : '' ) + type
@@ -15839,7 +15964,7 @@ ve.dm.ElementLinearData.prototype.sanitize = function ( rules, plainText, keepEm
 			// Remove blacklisted nodes
 			if (
 				( rules.blacklist && rules.blacklist.indexOf( type ) !== -1 ) ||
-				( plainText && type !== 'paragraph' && type !== 'internalList' )
+				( rules.plainText && type !== 'paragraph' && type !== 'internalList' )
 			) {
 				this.splice( i, 1 );
 				// Make sure you haven't just unwrapped a wrapper paragraph
@@ -15857,7 +15982,7 @@ ve.dm.ElementLinearData.prototype.sanitize = function ( rules, plainText, keepEm
 			if (
 				!keepEmptyContentBranches &&
 				i > 0 && this.isCloseElementData( i ) && this.isOpenElementData( i - 1 ) &&
-				this.nodeFactory.canNodeContainContent( type )
+				ve.dm.nodeFactory.canNodeContainContent( type )
 			) {
 				this.splice( i - 1, 2 );
 				i -= 2;
@@ -15867,7 +15992,7 @@ ve.dm.ElementLinearData.prototype.sanitize = function ( rules, plainText, keepEm
 		}
 		annotations = this.getAnnotationsFromOffset( i, true );
 		if ( !annotations.isEmpty() ) {
-			if ( plainText ) {
+			if ( rules.plainText ) {
 				this.setAnnotationsAtOffset( i, emptySet );
 			} else if ( setToRemove.getLength() ) {
 				// Remove blacklisted annotations
@@ -15901,15 +16026,16 @@ ve.dm.ElementLinearData.prototype.cloneElements = function ( preserveGenerated )
 /**
  * Counts all elements that aren't between internalList and /internalList
  *
- * @returns {number} Number of elements that aren't in an internalList
+ * @param {number} [limit] Number of elements after which to stop counting
+ * @return {number} Number of elements that aren't in an internalList
  */
-ve.dm.ElementLinearData.prototype.countNonInternalElements = function () {
+ve.dm.ElementLinearData.prototype.countNonInternalElements = function ( limit ) {
 	var i, l, type,
 		internalDepth = 0,
 		count = 0;
 	for ( i = 0, l = this.getLength(); i < l; i++ ) {
 		type = this.getType( i );
-		if ( type && this.nodeFactory.isNodeInternal( type ) ) {
+		if ( type && ve.dm.nodeFactory.isNodeInternal( type ) ) {
 			if ( this.isOpenElementData( i ) ) {
 				internalDepth++;
 			} else {
@@ -15917,9 +16043,25 @@ ve.dm.ElementLinearData.prototype.countNonInternalElements = function () {
 			}
 		} else if ( !internalDepth ) {
 			count++;
+			if ( limit && count >= limit ) {
+				return count;
+			}
 		}
 	}
 	return count;
+};
+
+/**
+ * Returns true if the document has content that's not part of an
+ * internalList.
+ *
+ * @return {boolean}
+ *   True iff there are at least 3 elements that aren't in an internalList.
+ */
+ve.dm.ElementLinearData.prototype.hasContent = function () {
+	// Two or less elements (<p>, </p>) is considered an empty document
+	// For performance, abort the count when we reach 3.
+	return this.countNonInternalElements( 3 ) > 2;
 };
 
 /*!
@@ -15971,16 +16113,16 @@ OO.inheritClass( ve.dm.MetaLinearData, ve.dm.LinearData );
  *
  * @static
  * @param {Array} data Meta linear data arrays
- * @returns {Array} Merged data
+ * @return {Array} Merged data
  */
 ve.dm.MetaLinearData.static.merge = function ( data ) {
 	var i,
 		merged = [],
 		allUndefined = true;
 	for ( i = 0; i < data.length; i++ ) {
-		if ( data[i] !== undefined ) {
+		if ( data[ i ] !== undefined ) {
 			allUndefined = false;
-			merged = merged.concat( data[i] );
+			merged = merged.concat( data[ i ] );
 		}
 	}
 	return allUndefined ? [ undefined ] : [ merged ];
@@ -15996,15 +16138,15 @@ ve.dm.MetaLinearData.static.merge = function ( data ) {
  * @method
  * @param {number} [offset] Offset to get data from
  * @param {number} [metadataOffset] Index to get data from
- * @returns {Object|Array} Data from index(es), or all data (by reference)
+ * @return {Object|Array} Data from index(es), or all data (by reference)
  */
 ve.dm.MetaLinearData.prototype.getData = function ( offset, metadataOffset ) {
 	if ( offset === undefined ) {
 		return this.data;
 	} else if ( metadataOffset === undefined ) {
-		return this.data[offset];
+		return this.data[ offset ];
 	} else {
-		return this.data[offset] === undefined ? undefined : this.data[offset][metadataOffset];
+		return this.data[ offset ] === undefined ? undefined : this.data[ offset ][ metadataOffset ];
 	}
 };
 
@@ -16013,17 +16155,17 @@ ve.dm.MetaLinearData.prototype.getData = function ( offset, metadataOffset ) {
  *
  * @method
  * @param {number} offset Offset to count metadata at
- * @returns {number} Number of metadata elements at specified offset
+ * @return {number} Number of metadata elements at specified offset
  */
 ve.dm.MetaLinearData.prototype.getDataLength = function ( offset ) {
-	return this.data[offset] === undefined ? 0 : this.data[offset].length;
+	return this.data[ offset ] === undefined ? 0 : this.data[ offset ].length;
 };
 
 /**
  * Gets number of metadata elements in the entire object.
  *
  * @method
- * @returns {number} Number of metadata elements in the entire object
+ * @return {number} Number of metadata elements in the entire object
  */
 ve.dm.MetaLinearData.prototype.getTotalDataLength = function () {
 	var n = 0,
@@ -16039,11 +16181,11 @@ ve.dm.MetaLinearData.prototype.getTotalDataLength = function () {
  *
  * @method
  * @see ve#batchSplice
- * @param offset {number} Splice into the metadata array for this offset
- * @param index {number} Index in the metadata array to insert/remove at
- * @param remove {number} Number of items to remove
- * @param insert {Array} Items to insert
- * @returns {Array} Removed items
+ * @param {number} offset Splice into the metadata array for this offset
+ * @param {number} index Index in the metadata array to insert/remove at
+ * @param {number} remove Number of items to remove
+ * @param {Array} insert Items to insert
+ * @return {Array} Removed items
  */
 ve.dm.MetaLinearData.prototype.spliceMetadataAtOffset = function ( offset, index, remove, insert ) {
 	var items = this.getData( offset );
@@ -16061,7 +16203,7 @@ ve.dm.MetaLinearData.prototype.spliceMetadataAtOffset = function ( offset, index
  * @method
  * @param {number} offset Offset to get annotations for
  * @param {number} index Index to get annotations for
- * @returns {number[]} An array of annotation store indexes the offset is covered by
+ * @return {number[]} An array of annotation store indexes the offset is covered by
  */
 ve.dm.MetaLinearData.prototype.getAnnotationIndexesFromOffsetAndIndex = function ( offset, index ) {
 	var item = this.getData( offset, index );
@@ -16076,7 +16218,7 @@ ve.dm.MetaLinearData.prototype.getAnnotationIndexesFromOffsetAndIndex = function
  * @method
  * @param {number} offset Offset to get annotations for
  * @param {number} index Index to get annotations for
- * @returns {ve.dm.AnnotationSet} A set of all annotation objects offset is covered by
+ * @return {ve.dm.AnnotationSet} A set of all annotation objects offset is covered by
  */
 ve.dm.MetaLinearData.prototype.getAnnotationsFromOffsetAndIndex = function ( offset, index ) {
 	return new ve.dm.AnnotationSet( this.getStore(), this.getAnnotationIndexesFromOffsetAndIndex( offset, index ) );
@@ -16089,11 +16231,11 @@ ve.dm.MetaLinearData.prototype.getAnnotationsFromOffsetAndIndex = function ( off
  *
  * @method
  * @param {number} offset Offset to set annotations at
- * @param {number} metadataOffset Index to set annotations at
+ * @param {number} metadataIndex Index to set annotations at
  * @param {ve.dm.AnnotationSet} annotations Annotations to set
  */
-ve.dm.MetaLinearData.prototype.setAnnotationsAtOffsetAndIndex = function ( offset, index, annotations ) {
-	var item = this.getData( offset, index );
+ve.dm.MetaLinearData.prototype.setAnnotationsAtOffsetAndIndex = function ( offset, metadataIndex, annotations ) {
+	var item = this.getData( offset, metadataIndex );
 	if ( annotations.isEmpty() ) {
 		// Clean up
 		delete item.annotations;
@@ -16127,11 +16269,12 @@ OO.initClass( ve.dm.GeneratedContentNode );
 
 /**
  * Store HTML of DOM elements, hashed on data element
+ *
  * @static
  * @param {Object} dataElement Data element
  * @param {Object|string|Array} generatedContents Generated contents
  * @param {ve.dm.IndexValueStore} store Index-value store
- * @returns {number} Index of stored data
+ * @return {number} Index of stored data
  */
 ve.dm.GeneratedContentNode.static.storeGeneratedContents = function ( dataElement, generatedContents, store ) {
 	var hash = OO.getHash( [ this.getHashObject( dataElement ), undefined ] );
@@ -16151,6 +16294,7 @@ ve.dm.GeneratedContentNode.static.storeGeneratedContents = function ( dataElemen
  * @abstract
  * @extends ve.dm.LeafNode
  * @mixins ve.dm.FocusableNode
+ * @mixins ve.dm.TableCellableNode
  *
  * @constructor
  * @param {Object} [element] Reference to element in linear model
@@ -16161,6 +16305,7 @@ ve.dm.AlienNode = function VeDmAlienNode() {
 
 	// Mixin constructors
 	ve.dm.FocusableNode.call( this );
+	ve.dm.TableCellableNode.call( this );
 };
 
 /* Inheritance */
@@ -16168,6 +16313,8 @@ ve.dm.AlienNode = function VeDmAlienNode() {
 OO.inheritClass( ve.dm.AlienNode, ve.dm.LeafNode );
 
 OO.mixinClass( ve.dm.AlienNode, ve.dm.FocusableNode );
+
+OO.mixinClass( ve.dm.AlienNode, ve.dm.TableCellableNode );
 
 /* Static members */
 
@@ -16180,14 +16327,41 @@ ve.dm.AlienNode.static.enableAboutGrouping = true;
 ve.dm.AlienNode.static.matchRdfaTypes = [ 've:Alien' ];
 
 ve.dm.AlienNode.static.toDataElement = function ( domElements, converter ) {
-	var isInline = this.isHybridInline( domElements, converter ),
+	var element,
+		isInline = this.isHybridInline( domElements, converter ),
 		type = isInline ? 'alienInline' : 'alienBlock';
 
-	return { type: type };
+	element = { type: type };
+
+	if ( domElements.length === 1 && [ 'td', 'th' ].indexOf( domElements[ 0 ].nodeName.toLowerCase() ) !== -1 ) {
+		element.attributes = { cellable: true };
+		ve.dm.TableCellableNode.static.setAttributes( element.attributes, domElements );
+	}
+	return element;
 };
 
 ve.dm.AlienNode.static.toDomElements = function ( dataElement, doc ) {
 	return ve.copyDomElements( dataElement.originalDomElements, doc );
+};
+
+/**
+ * @inheritdoc
+ */
+ve.dm.AlienNode.static.getHashObject = function ( dataElement ) {
+	return {
+		type: dataElement.type,
+		attributes: dataElement.attributes,
+		originalDomElements: dataElement.originalDomElements &&
+			dataElement.originalDomElements.map( function ( el ) {
+				return el.outerHTML;
+			} ).join( '' )
+	};
+};
+
+/* Methods */
+
+ve.dm.AlienNode.prototype.isCellable = function () {
+	return !!this.getAttribute( 'cellable' );
 };
 
 /* Concrete subclasses */
@@ -16381,7 +16555,7 @@ ve.dm.DefinitionListItemNode.static.defaultAttributes = {
 ve.dm.DefinitionListItemNode.static.matchTagNames = [ 'dt', 'dd' ];
 
 ve.dm.DefinitionListItemNode.static.toDataElement = function ( domElements ) {
-	var style = domElements[0].nodeName.toLowerCase() === 'dt' ? 'term' : 'definition';
+	var style = domElements[ 0 ].nodeName.toLowerCase() === 'dt' ? 'term' : 'definition';
 	return { type: this.name, attributes: { style: style } };
 };
 
@@ -16553,7 +16727,7 @@ ve.dm.HeadingNode.static.toDataElement = function ( domElements ) {
 			h5: 5,
 			h6: 6
 		},
-		level = levels[domElements[0].nodeName.toLowerCase()];
+		level = levels[ domElements[ 0 ].nodeName.toLowerCase() ];
 	return { type: this.name, attributes: { level: level } };
 };
 
@@ -16719,7 +16893,7 @@ ve.dm.ListNode.static.defaultAttributes = {
 ve.dm.ListNode.static.matchTagNames = [ 'ul', 'ol' ];
 
 ve.dm.ListNode.static.toDataElement = function ( domElements ) {
-	var style = domElements[0].nodeName.toLowerCase() === 'ol' ? 'number' : 'bullet';
+	var style = domElements[ 0 ].nodeName.toLowerCase() === 'ol' ? 'number' : 'bullet';
 	return { type: this.name, attributes: { style: style } };
 };
 
@@ -16862,6 +17036,7 @@ ve.dm.modelRegistry.register( ve.dm.TableCaptionNode );
  *
  * @class
  * @extends ve.dm.BranchNode
+ * @mixins ve.dm.TableCellableNode
  *
  * @constructor
  * @param {Object} [element] Reference to element in linear model
@@ -16870,6 +17045,9 @@ ve.dm.modelRegistry.register( ve.dm.TableCaptionNode );
 ve.dm.TableCellNode = function VeDmTableCellNode() {
 	// Parent constructor
 	ve.dm.TableCellNode.super.apply( this, arguments );
+
+	// Mixin constructor
+	ve.dm.TableCellableNode.call( this );
 
 	// Events
 	this.connect( this, {
@@ -16881,6 +17059,8 @@ ve.dm.TableCellNode = function VeDmTableCellNode() {
 
 OO.inheritClass( ve.dm.TableCellNode, ve.dm.BranchNode );
 
+OO.mixinClass( ve.dm.TableCellNode, ve.dm.TableCellableNode );
+
 /* Static Properties */
 
 ve.dm.TableCellNode.static.name = 'tableCell';
@@ -16891,6 +17071,8 @@ ve.dm.TableCellNode.static.defaultAttributes = { style: 'data' };
 
 ve.dm.TableCellNode.static.matchTagNames = [ 'td', 'th' ];
 
+ve.dm.TableCellNode.static.isCellEditable = true;
+
 // Blacklisting 'colspan' and 'rowspan' as they are managed explicitly
 ve.dm.TableCellNode.static.preserveHtmlAttributes = function ( attribute ) {
 	return attribute !== 'colspan' && attribute !== 'rowspan';
@@ -16899,23 +17081,9 @@ ve.dm.TableCellNode.static.preserveHtmlAttributes = function ( attribute ) {
 /* Static Methods */
 
 ve.dm.TableCellNode.static.toDataElement = function ( domElements ) {
-	var attributes = { style: domElements[0].nodeName.toLowerCase() === 'th' ? 'header' : 'data' },
-		colspan = domElements[0].getAttribute( 'colspan' ),
-		rowspan = domElements[0].getAttribute( 'rowspan' );
+	var attributes = {};
 
-	if ( colspan !== null ) {
-		attributes.originalColspan = colspan;
-		if ( colspan !== '' && !isNaN( Number( colspan ) ) ) {
-			attributes.colspan = Number( colspan );
-		}
-	}
-
-	if ( rowspan !== null ) {
-		attributes.originalRowspan = rowspan;
-		if ( rowspan !== '' && !isNaN( Number( rowspan ) ) ) {
-			attributes.rowspan = Number( rowspan );
-		}
-	}
+	ve.dm.TableCellableNode.static.setAttributes( attributes, domElements );
 
 	return {
 		type: this.name,
@@ -16926,31 +17094,9 @@ ve.dm.TableCellNode.static.toDataElement = function ( domElements ) {
 ve.dm.TableCellNode.static.toDomElements = function ( dataElement, doc ) {
 	var tag = dataElement.attributes && dataElement.attributes.style === 'header' ? 'th' : 'td',
 		domElement = doc.createElement( tag ),
-		attributes = dataElement.attributes,
-		spans = {
-			colspan: attributes.colspan,
-			rowspan: attributes.rowspan
-		};
+		attributes = dataElement.attributes;
 
-	// Ignore spans of 1 unless they were in the original HTML
-	if ( attributes.colspan === 1 && Number( attributes.originalColspan ) !== 1 ) {
-		spans.colspan = null;
-	}
-
-	if ( attributes.rowspan === 1 && Number( attributes.originalRowspan ) !== 1 ) {
-		spans.rowspan = null;
-	}
-
-	// Use original value if the numerical value didn't change, or if we didn't set one
-	if ( attributes.colspan === undefined || attributes.colspan === Number( attributes.originalColspan ) ) {
-		spans.colspan = attributes.originalColspan;
-	}
-
-	if ( attributes.rowspan === undefined || attributes.rowspan === Number( attributes.originalRowspan ) ) {
-		spans.rowspan = attributes.originalRowspan;
-	}
-
-	ve.setDomAttributes( domElement, spans );
+	ve.dm.TableCellableNode.static.applyAttributes( attributes, domElement );
 
 	return [ domElement ];
 };
@@ -16984,45 +17130,6 @@ ve.dm.TableCellNode.static.createData = function ( options ) {
 };
 
 /* Methods */
-
-/**
- * Get the number of rows the cell spans
- *
- * @return {number} Rows spanned
- */
-ve.dm.TableCellNode.prototype.getRowspan = function () {
-	return this.element.attributes.rowspan || 1;
-};
-
-/**
- * Get the number of columns the cell spans
- *
- * @return {number} Columns spanned
- */
-ve.dm.TableCellNode.prototype.getColspan = function () {
-	return this.element.attributes.colspan || 1;
-};
-
-/**
- * Get number of columns and rows the cell spans
- *
- * @return {Object} Object containing 'col' and 'row'
- */
-ve.dm.TableCellNode.prototype.getSpans = function () {
-	return {
-		col: this.getColspan(),
-		row: this.getRowspan()
-	};
-};
-
-/**
- * Get the style of the cell
- *
- * @return {string} Style, 'header' or 'data'
- */
-ve.dm.TableCellNode.prototype.getStyle = function () {
-	return this.element.attributes.style || 'data';
-};
 
 /**
  * Handle attributes changes
@@ -17110,8 +17217,8 @@ ve.dm.TableNode.prototype.getMatrix = function () {
 ve.dm.TableNode.prototype.getCaptionNode = function () {
 	var i, l;
 	for ( i = 0, l = this.children.length; i < l; i++ ) {
-		if ( this.children[i] instanceof ve.dm.TableCaptionNode ) {
-			return this.children[i];
+		if ( this.children[ i ] instanceof ve.dm.TableCaptionNode ) {
+			return this.children[ i ];
 		}
 	}
 	return null;
@@ -17143,7 +17250,7 @@ ve.dm.modelRegistry.register( ve.dm.TableNode );
  * @constructor
  * @param {ve.dm.TableNode} tableNode Table node to iterate through
  */
-ve.dm.TableNodeCellIterator = function VeCeTableNodeCellIterator( tableNode ) {
+ve.dm.TableNodeCellIterator = function VeDmTableNodeCellIterator( tableNode ) {
 	// Mixin constructors
 	OO.EventEmitter.call( this );
 
@@ -17185,7 +17292,7 @@ OO.mixinClass( ve.dm.TableNodeCellIterator, OO.EventEmitter );
 /**
  * Check if the iterator has finished iterating over the cells of a table node.
  *
- * @returns {boolean} Iterator is finished
+ * @return {boolean} Iterator is finished
  */
 ve.dm.TableNodeCellIterator.prototype.isFinished = function () {
 	return this.finished;
@@ -17211,6 +17318,7 @@ ve.dm.TableNodeCellIterator.prototype.next = function () {
  * @fires newSection
  */
 ve.dm.TableNodeCellIterator.prototype.nextSection = function () {
+	var sectionNode;
 	// If there are no sections left, finish
 	if ( this.sectionIndex >= this.sectionCount ) {
 		this.finished = true;
@@ -17218,7 +17326,7 @@ ve.dm.TableNodeCellIterator.prototype.nextSection = function () {
 		return;
 	}
 	// Get the next node and make sure it's a section node (and not an alien node)
-	var sectionNode = this.table.children[this.sectionIndex];
+	sectionNode = this.table.children[ this.sectionIndex ];
 	this.sectionIndex++;
 	this.rowIndex = 0;
 	if ( sectionNode instanceof ve.dm.TableSectionNode ) {
@@ -17237,6 +17345,7 @@ ve.dm.TableNodeCellIterator.prototype.nextSection = function () {
  * @fires newRow
  */
 ve.dm.TableNodeCellIterator.prototype.nextRow = function () {
+	var rowNode;
 	// If there are no rows left, go to the next section
 	if ( this.rowIndex >= this.rowCount ) {
 		this.nextSection();
@@ -17246,7 +17355,7 @@ ve.dm.TableNodeCellIterator.prototype.nextRow = function () {
 		}
 	}
 	// Get the next node and make sure it's a row node (and not an alien node)
-	var rowNode = this.sectionNode.children[this.rowIndex];
+	rowNode = this.sectionNode.children[ this.rowIndex ];
 	this.rowIndex++;
 	this.cellIndex = 0;
 	if ( rowNode instanceof ve.dm.TableRowNode ) {
@@ -17263,6 +17372,7 @@ ve.dm.TableNodeCellIterator.prototype.nextRow = function () {
  * Move to the next table cell
  */
 ve.dm.TableNodeCellIterator.prototype.nextCell = function () {
+	var cellNode;
 	// For the first read, sectionNode and rowNode will be empty
 	if ( !this.sectionNode ) {
 		this.nextSection();
@@ -17280,8 +17390,8 @@ ve.dm.TableNodeCellIterator.prototype.nextCell = function () {
 		}
 	}
 	// Get the next node and make sure it's a cell node (and not an alien node)
-	var cellNode = this.rowNode.children[this.cellIndex];
-	this.cellNode = cellNode instanceof ve.dm.TableCellNode ? cellNode : null;
+	cellNode = this.rowNode.children[ this.cellIndex ];
+	this.cellNode = cellNode && cellNode.isCellable() ? cellNode : null;
 	this.cellIndex++;
 };
 
@@ -17334,10 +17444,12 @@ ve.dm.TableRowNode.static.matchTagNames = [ 'tr' ];
  * @return {Array} Model data for a new table row
  */
 ve.dm.TableRowNode.static.createData = function ( options ) {
+	var i, cellCount,
+		data = [];
+
 	options = options || {};
 
-	var i, data = [],
-		cellCount = options.cellCount || 1;
+	cellCount = options.cellCount || 1;
 
 	data.push( { type: 'tableRow' } );
 	for ( i = 0; i < cellCount; i++ ) {
@@ -17410,7 +17522,7 @@ ve.dm.TableSectionNode.static.toDataElement = function ( domElements ) {
 			tbody: 'body',
 			tfoot: 'footer'
 		},
-		style = styles[domElements[0].nodeName.toLowerCase()] || 'body';
+		style = styles[ domElements[ 0 ].nodeName.toLowerCase() ] || 'body';
 	return { type: this.name, attributes: { style: style } };
 };
 
@@ -17420,7 +17532,7 @@ ve.dm.TableSectionNode.static.toDomElements = function ( dataElement, doc ) {
 			body: 'tbody',
 			footer: 'tfoot'
 		},
-		tag = tags[dataElement.attributes && dataElement.attributes.style || 'body'];
+		tag = tags[ dataElement.attributes && dataElement.attributes.style || 'body' ];
 	return [ doc.createElement( tag ) ];
 };
 
@@ -17595,6 +17707,8 @@ ve.dm.BlockImageNode.static.matchTagNames = [ 'figure' ];
 // ve.dm.BlockImageNode.static.blacklistedAnnotationTypes = [ 'link' ];
 
 ve.dm.BlockImageNode.static.toDataElement = function ( domElements, converter ) {
+	var dataElement, figure, classAttr, img, caption, attributes, width, height, altText;
+
 	// Workaround for jQuery's .children() being expensive due to
 	// https://github.com/jquery/sizzle/issues/311
 	function findChildren( parent, nodeNames ) {
@@ -17603,17 +17717,16 @@ ve.dm.BlockImageNode.static.toDataElement = function ( domElements, converter ) 
 		} );
 	}
 
-	var dataElement,
-		figure = domElements[0],
-		classAttr = figure.getAttribute( 'class' ),
-		img = findChildren( figure, 'img' )[0] || null,
-		caption = findChildren( figure, 'figcaption' )[0] || null,
-		attributes = {
-			src: img && img.getAttribute( 'src' )
-		},
-		width = img && img.getAttribute( 'width' ),
-		height = img && img.getAttribute( 'height' ),
-		altText = img && img.getAttribute( 'alt' );
+	figure = domElements[ 0 ];
+	classAttr = figure.getAttribute( 'class' );
+	img = findChildren( figure, 'img' )[ 0 ] || null;
+	caption = findChildren( figure, 'figcaption' )[ 0 ] || null;
+	attributes = {
+		src: img && img.getAttribute( 'src' )
+	};
+	width = img && img.getAttribute( 'width' );
+	height = img && img.getAttribute( 'height' );
+	altText = img && img.getAttribute( 'alt' );
 
 	if ( altText !== undefined ) {
 		attributes.alt = altText;
@@ -17633,7 +17746,7 @@ ve.dm.BlockImageNode.static.toDataElement = function ( domElements, converter ) 
 		return [
 			dataElement,
 			{ type: 'imageCaption' },
-			{ type: '/imageCaption' },
+			{ type: 'imageCaption' },
 			{ type: '/' + this.name }
 		];
 	} else {
@@ -17647,7 +17760,7 @@ ve.dm.BlockImageNode.static.toDataElement = function ( domElements, converter ) 
 // TODO: At this moment node is not resizable but when it will be then adding defaultSize class
 // should be more conditional.
 ve.dm.BlockImageNode.static.toDomElements = function ( data, doc, converter ) {
-	var dataElement = data[0],
+	var dataElement = data[ 0 ],
 		width = dataElement.attributes.width,
 		height = dataElement.attributes.height,
 		classAttr = this.getClassAttrFromAttributes( dataElement.attributes ),
@@ -17686,10 +17799,10 @@ ve.dm.BlockImageNode.static.toDomElements = function ( data, doc, converter ) {
  * Get the caption node of the image.
  *
  * @method
- * @returns {ve.dm.BlockImageCaptionNode|null} Caption node, if present
+ * @return {ve.dm.BlockImageCaptionNode|null} Caption node, if present
  */
 ve.dm.BlockImageNode.prototype.getCaptionNode = function () {
-	var node = this.children[0];
+	var node = this.children[ 0 ];
 	return node instanceof ve.dm.BlockImageCaptionNode ? node : null;
 };
 
@@ -17750,7 +17863,7 @@ ve.dm.modelRegistry.register( ve.dm.BlockImageCaptionNode );
  * @constructor
  * @param {Object} [element] Reference to element in linear model
  */
-ve.dm.InlineImageNode = function VeDmImageNode() {
+ve.dm.InlineImageNode = function VeDmInlineImageNode() {
 	// Parent constructor
 	ve.dm.InlineImageNode.super.apply( this, arguments );
 
@@ -17773,7 +17886,7 @@ ve.dm.InlineImageNode.static.isContent = true;
 ve.dm.InlineImageNode.static.matchTagNames = [ 'img' ];
 
 ve.dm.InlineImageNode.static.toDataElement = function ( domElements ) {
-	var $node = $( domElements[0] ),
+	var $node = $( domElements[ 0 ] ),
 		alt = $node.attr( 'alt' ),
 		width = $node.attr( 'width' ),
 		height = $node.attr( 'height' );
@@ -17842,8 +17955,8 @@ ve.dm.LanguageAnnotation.static.toDataElement = function ( domElements ) {
 	return {
 		type: this.name,
 		attributes: {
-			lang: domElements[0].getAttribute( 'lang' ),
-			dir: domElements[0].getAttribute( 'dir' )
+			lang: domElements[ 0 ].getAttribute( 'lang' ),
+			dir: domElements[ 0 ].getAttribute( 'dir' )
 		}
 	};
 };
@@ -17863,7 +17976,7 @@ ve.dm.LanguageAnnotation.static.toDomElements = function ( dataElement, doc ) {
 /* Methods */
 
 /**
- * @returns {Object}
+ * @return {Object}
  */
 ve.dm.LanguageAnnotation.prototype.getComparableObject = function () {
 	return {
@@ -17914,7 +18027,7 @@ ve.dm.LinkAnnotation.static.toDataElement = function ( domElements ) {
 	return {
 		type: this.name,
 		attributes: {
-			href: domElements[0].getAttribute( 'href' )
+			href: domElements[ 0 ].getAttribute( 'href' )
 		}
 	};
 };
@@ -17934,7 +18047,7 @@ ve.dm.LinkAnnotation.static.toDomElements = function ( dataElement, doc ) {
  * @method
  * @inheritable
  * @param {Object} dataElement Linear model element
- * @returns {string} Link href
+ * @return {string} Link href
  */
 ve.dm.LinkAnnotation.static.getHref = function ( dataElement ) {
 	return dataElement.attributes.href;
@@ -17944,11 +18057,23 @@ ve.dm.LinkAnnotation.static.getHref = function ( dataElement ) {
 
 /**
  * Convenience wrapper for .getHref() on the current element.
+ *
  * @see #static-getHref
- * @returns {string} Link href
+ * @return {string} Link href
  */
 ve.dm.LinkAnnotation.prototype.getHref = function () {
 	return this.constructor.static.getHref( this.element );
+};
+
+/**
+ * Get the display title for this link
+ *
+ * Can be overriden by special link types.
+ *
+ * @return {string} Display title
+ */
+ve.dm.LinkAnnotation.prototype.getDisplayTitle = function () {
+	return this.getHref();
 };
 
 /**
@@ -18005,7 +18130,7 @@ ve.dm.TextStyleAnnotation.static.name = 'textStyle';
 ve.dm.TextStyleAnnotation.static.matchTagNames = [];
 
 ve.dm.TextStyleAnnotation.static.toDataElement = function ( domElements, converter ) {
-	var nodeName = converter.isFromClipboard() ? this.matchTagNames[0] : domElements[0].nodeName.toLowerCase();
+	var nodeName = converter.isFromClipboard() ? this.matchTagNames[ 0 ] : domElements[ 0 ].nodeName.toLowerCase();
 	return {
 		type: this.name,
 		attributes: {
@@ -18017,13 +18142,13 @@ ve.dm.TextStyleAnnotation.static.toDataElement = function ( domElements, convert
 ve.dm.TextStyleAnnotation.static.toDomElements = function ( dataElement, doc ) {
 	var nodeName = ve.getProp( dataElement, 'attributes', 'nodeName' );
 
-	return [ doc.createElement( nodeName || this.matchTagNames[0] ) ];
+	return [ doc.createElement( nodeName || this.matchTagNames[ 0 ] ) ];
 };
 
 /* Methods */
 
 /**
- * @returns {Object}
+ * @return {Object}
  */
 ve.dm.TextStyleAnnotation.prototype.getComparableObject = function () {
 	return { type: this.getType() };
@@ -18816,11 +18941,11 @@ ve.dm.CommentNode.static.preserveHtmlAttributes = false;
 
 ve.dm.CommentNode.static.toDataElement = function ( domElements, converter ) {
 	var text;
-	if ( domElements[0].nodeType === Node.COMMENT_NODE ) {
+	if ( domElements[ 0 ].nodeType === Node.COMMENT_NODE ) {
 		// Decode HTML entities, safely (no elements permitted inside textarea)
-		text = $( '<textarea/>' ).html( domElements[0].data ).text();
+		text = $( '<textarea/>' ).html( domElements[ 0 ].data ).text();
 	} else {
-		text = domElements[0].getAttribute( 'data-ve-comment' );
+		text = domElements[ 0 ].getAttribute( 'data-ve-comment' );
 	}
 	return {
 		// Disallows comment nodes between table rows and such
@@ -18838,6 +18963,7 @@ ve.dm.CommentNode.static.toDomElements = function ( dataElement, doc, converter 
 		span = doc.createElement( 'span' );
 		span.setAttribute( 'rel', 've:Comment' );
 		span.setAttribute( 'data-ve-comment', dataElement.attributes.text );
+		span.appendChild( doc.createTextNode( '\u00a0' ) );
 		return [ span ];
 	} else {
 		// Real comment node

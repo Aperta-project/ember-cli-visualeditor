@@ -96,26 +96,68 @@
 
 		/**
 		 * General message loading API This can take a URL string for
-		 * the json formatted messages.
+		 * the json formatted messages. Example:
 		 * <code>load('path/to/all_localizations.json');</code>
 		 *
-		 * This can also load a localization file for a locale <code>
+		 * To load a localization file for a locale:
+		 * <code>
 		 * load('path/to/de-messages.json', 'de' );
 		 * </code>
+		 *
+		 * To load a localization file from a directory:
+		 * <code>
+		 * load('path/to/i18n/directory', 'de' );
+		 * </code>
+		 * The above method has the advantage of fallback resolution.
+		 * ie, it will automatically load the fallback locales for de.
+		 * For most usecases, this is the recommended method.
+		 * It is optional to have trailing slash at end.
+		 *
 		 * A data object containing message key- message translation mappings
-		 * can also be passed Eg:
+		 * can also be passed. Example:
 		 * <code>
 		 * load( { 'hello' : 'Hello' }, optionalLocale );
-		 * </code> If the data argument is
-		 * null/undefined/false,
+		 * </code>
+		 *
+		 * A source map containing key-value pair of languagename and locations
+		 * can also be passed. Example:
+		 * <code>
+		 * load( {
+		 * bn: 'i18n/bn.json',
+		 * he: 'i18n/he.json',
+		 * en: 'i18n/en.json'
+		 * } )
+		 * </code>
+		 *
+		 * If the data argument is null/undefined/false,
 		 * all cached messages for the i18n instance will get reset.
 		 *
 		 * @param {String|Object} source
 		 * @param {String} locale Language tag
-		 * @returns {jQuery.Promise}
+		 * @return {jQuery.Promise}
 		 */
 		load: function ( source, locale ) {
-			return this.messageStore.load( source, locale );
+			var fallbackLocales, locIndex, fallbackLocale, sourceMap = {};
+			if ( !source && !locale ) {
+				source = 'i18n/' + $.i18n().locale + '.json';
+				locale = $.i18n().locale;
+			}
+			if ( typeof source === 'string'	&&
+				source.split( '.' ).pop() !== 'json'
+			) {
+				// Load specified locale then check for fallbacks when directory is specified in load()
+				sourceMap[locale] = source + '/' + locale + '.json';
+				fallbackLocales = ( $.i18n.fallbacks[locale] || [] )
+					.concat( this.options.fallbackLocale );
+				for ( locIndex in fallbackLocales ) {
+					fallbackLocale = fallbackLocales[locIndex];
+					sourceMap[fallbackLocale] = source + '/' + fallbackLocale + '.json';
+				}
+				return this.load( sourceMap );
+			} else {
+				return this.messageStore.load( source, locale );
+			}
+
 		},
 
 		/**
@@ -131,7 +173,7 @@
 			// should probably not change the 'this.parser' but just
 			// pass it to the parser.
 			this.parser.language = $.i18n.languages[$.i18n().locale] || $.i18n.languages['default'];
-			if( message === '' ) {
+			if ( message === '' ) {
 				message = key;
 			}
 			return this.parser.parse( message, parameters );
@@ -334,7 +376,7 @@
 		 * @param locale
 		 * @param messages
 		 */
-		set: function( locale, messages ) {
+		set: function ( locale, messages ) {
 			if ( !this.messages[locale] ) {
 				this.messages[locale] = messages;
 			} else {
@@ -346,7 +388,7 @@
 		 *
 		 * @param locale
 		 * @param messageKey
-		 * @returns {Boolean}
+		 * @return {Boolean}
 		 */
 		get: function ( locale, messageKey ) {
 			return this.messages[locale] && this.messages[locale][messageKey];
@@ -354,9 +396,17 @@
 	};
 
 	function jsonMessageLoader( url ) {
-		return $.getJSON( url ).fail( function ( jqxhr, settings, exception ) {
-			$.i18n.log( 'Error in loading messages from ' + url + ' Exception: ' + exception );
-		} );
+		var deferred = $.Deferred();
+
+		$.getJSON( url )
+			.done( deferred.resolve )
+			.fail( function ( jqxhr, settings, exception ) {
+				$.i18n.log( 'Error in loading messages from ' + url + ' Exception: ' + exception );
+				// Ignore 404 exception, because we are handling fallabacks explicitly
+				deferred.resolve();
+			} );
+
+		return deferred.promise();
 	}
 
 	$.extend( $.i18n.messageStore, new MessageStore() );
@@ -417,7 +467,7 @@
 				pos = 0;
 
 			// Try parsers until one works, if none work return null
-			function choice ( parserSyntax ) {
+			function choice( parserSyntax ) {
 				return function () {
 					var i, result;
 
@@ -436,7 +486,7 @@
 			// Try several parserSyntax-es in a row.
 			// All must succeed; otherwise, return null.
 			// This is the only eager one.
-			function sequence ( parserSyntax ) {
+			function sequence( parserSyntax ) {
 				var i, res,
 					originalPos = pos,
 					result = [];
@@ -458,7 +508,7 @@
 
 			// Run the same parser over and over until it fails.
 			// Must succeed a minimum of n times; otherwise, return null.
-			function nOrMore ( n, p ) {
+			function nOrMore( n, p ) {
 				return function () {
 					var originalPos = pos,
 						result = [],
@@ -481,7 +531,7 @@
 
 			// Helpers -- just make parserSyntax out of simpler JS builtin types
 
-			function makeStringParser ( s ) {
+			function makeStringParser( s ) {
 				var len = s.length;
 
 				return function () {
@@ -496,7 +546,7 @@
 				};
 			}
 
-			function makeRegexParser ( regex ) {
+			function makeRegexParser( regex ) {
 				return function () {
 					var matches = message.substr( pos ).match( regex );
 
@@ -527,7 +577,7 @@
 			// But using this as a combinator seems to cause problems
 			// when combined with nOrMore().
 			// May be some scoping issue.
-			function transform ( p, fn ) {
+			function transform( p, fn ) {
 				return function () {
 					var result = p();
 
@@ -538,19 +588,19 @@
 			// Used to define "literals" within template parameters. The pipe
 			// character is the parameter delimeter, so by default
 			// it is not a literal in the parameter
-			function literalWithoutBar () {
+			function literalWithoutBar() {
 				var result = nOrMore( 1, escapedOrLiteralWithoutBar )();
 
 				return result === null ? null : result.join( '' );
 			}
 
-			function literal () {
+			function literal() {
 				var result = nOrMore( 1, escapedOrRegularLiteral )();
 
 				return result === null ? null : result.join( '' );
 			}
 
-			function escapedLiteral () {
+			function escapedLiteral() {
 				var result = sequence( [ backslash, anyCharacter ] );
 
 				return result === null ? null : result[1];
@@ -560,7 +610,7 @@
 			escapedOrLiteralWithoutBar = choice( [ escapedLiteral, regularLiteralWithoutBar ] );
 			escapedOrRegularLiteral = choice( [ escapedLiteral, regularLiteral ] );
 
-			function replacement () {
+			function replacement() {
 				var result = sequence( [ dollar, digits ] );
 
 				if ( result === null ) {
@@ -580,7 +630,7 @@
 				}
 			);
 
-			function templateParam () {
+			function templateParam() {
 				var expr,
 					result = sequence( [ pipe, nOrMore( 0, paramExpression ) ] );
 
@@ -595,13 +645,13 @@
 				return expr.length > 1 ? [ 'CONCAT' ].concat( expr ) : expr[0];
 			}
 
-			function templateWithReplacement () {
+			function templateWithReplacement() {
 				var result = sequence( [ templateName, colon, replacement ] );
 
 				return result === null ? null : [ result[0], result[2] ];
 			}
 
-			function templateWithOutReplacement () {
+			function templateWithOutReplacement() {
 				var result = sequence( [ templateName, colon, paramExpression ] );
 
 				return result === null ? null : [ result[0], result[2] ];
@@ -634,7 +684,7 @@
 			openTemplate = makeStringParser( '{{' );
 			closeTemplate = makeStringParser( '}}' );
 
-			function template () {
+			function template() {
 				var result = sequence( [ openTemplate, templateContents, closeTemplate ] );
 
 				return result === null ? null : result[1];
@@ -643,7 +693,7 @@
 			expression = choice( [ template, replacement, literal ] );
 			paramExpression = choice( [ template, replacement, literalWithoutBar ] );
 
-			function start () {
+			function start() {
 				var result = nOrMore( 0, expression )();
 
 				if ( result === null ) {
@@ -841,6 +891,95 @@
 	$.extend( $.i18n.parser.emitter, new MessageParserEmitter() );
 }( jQuery ) );
 
+/**
+ * BIDI embedding support for jQuery.i18n
+ *
+ * Copyright (C) 2015, David Chan
+ *
+ * This code is dual licensed GPLv2 or later and MIT. You don't have to do
+ * anything special to choose one license or the other and you don't have to
+ * notify anyone which license you are using. You are free to use this code
+ * in commercial projects as long as the copyright header is left intact.
+ * See files GPL-LICENSE and MIT-LICENSE for details.
+ *
+ * @licence GNU General Public Licence 2.0 or later
+ * @licence MIT License
+ */
+
+( function ( $ ) {
+	'use strict';
+	var strongDirRegExp;
+
+	/**
+	 * Matches the first strong directionality codepoint:
+	 * - in group 1 if it is LTR
+	 * - in group 2 if it is RTL
+	 * Does not match if there is no strong directionality codepoint.
+	 *
+	 * Generated by UnicodeJS (see tools/strongDir) from the UCD; see
+	 * https://git.wikimedia.org/summary/unicodejs.git .
+	 */
+	strongDirRegExp = new RegExp(
+		'(?:' +
+			'(' +
+				'[\u0041-\u005a\u0061-\u007a\u00aa\u00b5\u00ba\u00c0-\u00d6\u00d8-\u00f6\u00f8-\u02b8\u02bb-\u02c1\u02d0\u02d1\u02e0-\u02e4\u02ee\u0370-\u0373\u0376\u0377\u037a-\u037d\u037f\u0386\u0388-\u038a\u038c\u038e-\u03a1\u03a3-\u03f5\u03f7-\u0482\u048a-\u052f\u0531-\u0556\u0559-\u055f\u0561-\u0587\u0589\u0903-\u0939\u093b\u093d-\u0940\u0949-\u094c\u094e-\u0950\u0958-\u0961\u0964-\u0980\u0982\u0983\u0985-\u098c\u098f\u0990\u0993-\u09a8\u09aa-\u09b0\u09b2\u09b6-\u09b9\u09bd-\u09c0\u09c7\u09c8\u09cb\u09cc\u09ce\u09d7\u09dc\u09dd\u09df-\u09e1\u09e6-\u09f1\u09f4-\u09fa\u0a03\u0a05-\u0a0a\u0a0f\u0a10\u0a13-\u0a28\u0a2a-\u0a30\u0a32\u0a33\u0a35\u0a36\u0a38\u0a39\u0a3e-\u0a40\u0a59-\u0a5c\u0a5e\u0a66-\u0a6f\u0a72-\u0a74\u0a83\u0a85-\u0a8d\u0a8f-\u0a91\u0a93-\u0aa8\u0aaa-\u0ab0\u0ab2\u0ab3\u0ab5-\u0ab9\u0abd-\u0ac0\u0ac9\u0acb\u0acc\u0ad0\u0ae0\u0ae1\u0ae6-\u0af0\u0af9\u0b02\u0b03\u0b05-\u0b0c\u0b0f\u0b10\u0b13-\u0b28\u0b2a-\u0b30\u0b32\u0b33\u0b35-\u0b39\u0b3d\u0b3e\u0b40\u0b47\u0b48\u0b4b\u0b4c\u0b57\u0b5c\u0b5d\u0b5f-\u0b61\u0b66-\u0b77\u0b83\u0b85-\u0b8a\u0b8e-\u0b90\u0b92-\u0b95\u0b99\u0b9a\u0b9c\u0b9e\u0b9f\u0ba3\u0ba4\u0ba8-\u0baa\u0bae-\u0bb9\u0bbe\u0bbf\u0bc1\u0bc2\u0bc6-\u0bc8\u0bca-\u0bcc\u0bd0\u0bd7\u0be6-\u0bf2\u0c01-\u0c03\u0c05-\u0c0c\u0c0e-\u0c10\u0c12-\u0c28\u0c2a-\u0c39\u0c3d\u0c41-\u0c44\u0c58-\u0c5a\u0c60\u0c61\u0c66-\u0c6f\u0c7f\u0c82\u0c83\u0c85-\u0c8c\u0c8e-\u0c90\u0c92-\u0ca8\u0caa-\u0cb3\u0cb5-\u0cb9\u0cbd-\u0cc4\u0cc6-\u0cc8\u0cca\u0ccb\u0cd5\u0cd6\u0cde\u0ce0\u0ce1\u0ce6-\u0cef\u0cf1\u0cf2\u0d02\u0d03\u0d05-\u0d0c\u0d0e-\u0d10\u0d12-\u0d3a\u0d3d-\u0d40\u0d46-\u0d48\u0d4a-\u0d4c\u0d4e\u0d57\u0d5f-\u0d61\u0d66-\u0d75\u0d79-\u0d7f\u0d82\u0d83\u0d85-\u0d96\u0d9a-\u0db1\u0db3-\u0dbb\u0dbd\u0dc0-\u0dc6\u0dcf-\u0dd1\u0dd8-\u0ddf\u0de6-\u0def\u0df2-\u0df4\u0e01-\u0e30\u0e32\u0e33\u0e40-\u0e46\u0e4f-\u0e5b\u0e81\u0e82\u0e84\u0e87\u0e88\u0e8a\u0e8d\u0e94-\u0e97\u0e99-\u0e9f\u0ea1-\u0ea3\u0ea5\u0ea7\u0eaa\u0eab\u0ead-\u0eb0\u0eb2\u0eb3\u0ebd\u0ec0-\u0ec4\u0ec6\u0ed0-\u0ed9\u0edc-\u0edf\u0f00-\u0f17\u0f1a-\u0f34\u0f36\u0f38\u0f3e-\u0f47\u0f49-\u0f6c\u0f7f\u0f85\u0f88-\u0f8c\u0fbe-\u0fc5\u0fc7-\u0fcc\u0fce-\u0fda\u1000-\u102c\u1031\u1038\u103b\u103c\u103f-\u1057\u105a-\u105d\u1061-\u1070\u1075-\u1081\u1083\u1084\u1087-\u108c\u108e-\u109c\u109e-\u10c5\u10c7\u10cd\u10d0-\u1248\u124a-\u124d\u1250-\u1256\u1258\u125a-\u125d\u1260-\u1288\u128a-\u128d\u1290-\u12b0\u12b2-\u12b5\u12b8-\u12be\u12c0\u12c2-\u12c5\u12c8-\u12d6\u12d8-\u1310\u1312-\u1315\u1318-\u135a\u1360-\u137c\u1380-\u138f\u13a0-\u13f5\u13f8-\u13fd\u1401-\u167f\u1681-\u169a\u16a0-\u16f8\u1700-\u170c\u170e-\u1711\u1720-\u1731\u1735\u1736\u1740-\u1751\u1760-\u176c\u176e-\u1770\u1780-\u17b3\u17b6\u17be-\u17c5\u17c7\u17c8\u17d4-\u17da\u17dc\u17e0-\u17e9\u1810-\u1819\u1820-\u1877\u1880-\u18a8\u18aa\u18b0-\u18f5\u1900-\u191e\u1923-\u1926\u1929-\u192b\u1930\u1931\u1933-\u1938\u1946-\u196d\u1970-\u1974\u1980-\u19ab\u19b0-\u19c9\u19d0-\u19da\u1a00-\u1a16\u1a19\u1a1a\u1a1e-\u1a55\u1a57\u1a61\u1a63\u1a64\u1a6d-\u1a72\u1a80-\u1a89\u1a90-\u1a99\u1aa0-\u1aad\u1b04-\u1b33\u1b35\u1b3b\u1b3d-\u1b41\u1b43-\u1b4b\u1b50-\u1b6a\u1b74-\u1b7c\u1b82-\u1ba1\u1ba6\u1ba7\u1baa\u1bae-\u1be5\u1be7\u1bea-\u1bec\u1bee\u1bf2\u1bf3\u1bfc-\u1c2b\u1c34\u1c35\u1c3b-\u1c49\u1c4d-\u1c7f\u1cc0-\u1cc7\u1cd3\u1ce1\u1ce9-\u1cec\u1cee-\u1cf3\u1cf5\u1cf6\u1d00-\u1dbf\u1e00-\u1f15\u1f18-\u1f1d\u1f20-\u1f45\u1f48-\u1f4d\u1f50-\u1f57\u1f59\u1f5b\u1f5d\u1f5f-\u1f7d\u1f80-\u1fb4\u1fb6-\u1fbc\u1fbe\u1fc2-\u1fc4\u1fc6-\u1fcc\u1fd0-\u1fd3\u1fd6-\u1fdb\u1fe0-\u1fec\u1ff2-\u1ff4\u1ff6-\u1ffc\u200e\u2071\u207f\u2090-\u209c\u2102\u2107\u210a-\u2113\u2115\u2119-\u211d\u2124\u2126\u2128\u212a-\u212d\u212f-\u2139\u213c-\u213f\u2145-\u2149\u214e\u214f\u2160-\u2188\u2336-\u237a\u2395\u249c-\u24e9\u26ac\u2800-\u28ff\u2c00-\u2c2e\u2c30-\u2c5e\u2c60-\u2ce4\u2ceb-\u2cee\u2cf2\u2cf3\u2d00-\u2d25\u2d27\u2d2d\u2d30-\u2d67\u2d6f\u2d70\u2d80-\u2d96\u2da0-\u2da6\u2da8-\u2dae\u2db0-\u2db6\u2db8-\u2dbe\u2dc0-\u2dc6\u2dc8-\u2dce\u2dd0-\u2dd6\u2dd8-\u2dde\u3005-\u3007\u3021-\u3029\u302e\u302f\u3031-\u3035\u3038-\u303c\u3041-\u3096\u309d-\u309f\u30a1-\u30fa\u30fc-\u30ff\u3105-\u312d\u3131-\u318e\u3190-\u31ba\u31f0-\u321c\u3220-\u324f\u3260-\u327b\u327f-\u32b0\u32c0-\u32cb\u32d0-\u32fe\u3300-\u3376\u337b-\u33dd\u33e0-\u33fe\u3400-\u4db5\u4e00-\u9fd5\ua000-\ua48c\ua4d0-\ua60c\ua610-\ua62b\ua640-\ua66e\ua680-\ua69d\ua6a0-\ua6ef\ua6f2-\ua6f7\ua722-\ua787\ua789-\ua7ad\ua7b0-\ua7b7\ua7f7-\ua801\ua803-\ua805\ua807-\ua80a\ua80c-\ua824\ua827\ua830-\ua837\ua840-\ua873\ua880-\ua8c3\ua8ce-\ua8d9\ua8f2-\ua8fd\ua900-\ua925\ua92e-\ua946\ua952\ua953\ua95f-\ua97c\ua983-\ua9b2\ua9b4\ua9b5\ua9ba\ua9bb\ua9bd-\ua9cd\ua9cf-\ua9d9\ua9de-\ua9e4\ua9e6-\ua9fe\uaa00-\uaa28\uaa2f\uaa30\uaa33\uaa34\uaa40-\uaa42\uaa44-\uaa4b\uaa4d\uaa50-\uaa59\uaa5c-\uaa7b\uaa7d-\uaaaf\uaab1\uaab5\uaab6\uaab9-\uaabd\uaac0\uaac2\uaadb-\uaaeb\uaaee-\uaaf5\uab01-\uab06\uab09-\uab0e\uab11-\uab16\uab20-\uab26\uab28-\uab2e\uab30-\uab65\uab70-\uabe4\uabe6\uabe7\uabe9-\uabec\uabf0-\uabf9\uac00-\ud7a3\ud7b0-\ud7c6\ud7cb-\ud7fb\ue000-\ufa6d\ufa70-\ufad9\ufb00-\ufb06\ufb13-\ufb17\uff21-\uff3a\uff41-\uff5a\uff66-\uffbe\uffc2-\uffc7\uffca-\uffcf\uffd2-\uffd7\uffda-\uffdc]|\ud800[\udc00-\udc0b]|\ud800[\udc0d-\udc26]|\ud800[\udc28-\udc3a]|\ud800\udc3c|\ud800\udc3d|\ud800[\udc3f-\udc4d]|\ud800[\udc50-\udc5d]|\ud800[\udc80-\udcfa]|\ud800\udd00|\ud800\udd02|\ud800[\udd07-\udd33]|\ud800[\udd37-\udd3f]|\ud800[\uddd0-\uddfc]|\ud800[\ude80-\ude9c]|\ud800[\udea0-\uded0]|\ud800[\udf00-\udf23]|\ud800[\udf30-\udf4a]|\ud800[\udf50-\udf75]|\ud800[\udf80-\udf9d]|\ud800[\udf9f-\udfc3]|\ud800[\udfc8-\udfd5]|\ud801[\udc00-\udc9d]|\ud801[\udca0-\udca9]|\ud801[\udd00-\udd27]|\ud801[\udd30-\udd63]|\ud801\udd6f|\ud801[\ude00-\udf36]|\ud801[\udf40-\udf55]|\ud801[\udf60-\udf67]|\ud804\udc00|\ud804[\udc02-\udc37]|\ud804[\udc47-\udc4d]|\ud804[\udc66-\udc6f]|\ud804[\udc82-\udcb2]|\ud804\udcb7|\ud804\udcb8|\ud804[\udcbb-\udcc1]|\ud804[\udcd0-\udce8]|\ud804[\udcf0-\udcf9]|\ud804[\udd03-\udd26]|\ud804\udd2c|\ud804[\udd36-\udd43]|\ud804[\udd50-\udd72]|\ud804[\udd74-\udd76]|\ud804[\udd82-\uddb5]|\ud804[\uddbf-\uddc9]|\ud804\uddcd|\ud804[\uddd0-\udddf]|\ud804[\udde1-\uddf4]|\ud804[\ude00-\ude11]|\ud804[\ude13-\ude2e]|\ud804\ude32|\ud804\ude33|\ud804\ude35|\ud804[\ude38-\ude3d]|\ud804[\ude80-\ude86]|\ud804\ude88|\ud804[\ude8a-\ude8d]|\ud804[\ude8f-\ude9d]|\ud804[\ude9f-\udea9]|\ud804[\udeb0-\udede]|\ud804[\udee0-\udee2]|\ud804[\udef0-\udef9]|\ud804\udf02|\ud804\udf03|\ud804[\udf05-\udf0c]|\ud804\udf0f|\ud804\udf10|\ud804[\udf13-\udf28]|\ud804[\udf2a-\udf30]|\ud804\udf32|\ud804\udf33|\ud804[\udf35-\udf39]|\ud804[\udf3d-\udf3f]|\ud804[\udf41-\udf44]|\ud804\udf47|\ud804\udf48|\ud804[\udf4b-\udf4d]|\ud804\udf50|\ud804\udf57|\ud804[\udf5d-\udf63]|\ud805[\udc80-\udcb2]|\ud805\udcb9|\ud805[\udcbb-\udcbe]|\ud805\udcc1|\ud805[\udcc4-\udcc7]|\ud805[\udcd0-\udcd9]|\ud805[\udd80-\uddb1]|\ud805[\uddb8-\uddbb]|\ud805\uddbe|\ud805[\uddc1-\udddb]|\ud805[\ude00-\ude32]|\ud805\ude3b|\ud805\ude3c|\ud805\ude3e|\ud805[\ude41-\ude44]|\ud805[\ude50-\ude59]|\ud805[\ude80-\udeaa]|\ud805\udeac|\ud805\udeae|\ud805\udeaf|\ud805\udeb6|\ud805[\udec0-\udec9]|\ud805[\udf00-\udf19]|\ud805\udf20|\ud805\udf21|\ud805\udf26|\ud805[\udf30-\udf3f]|\ud806[\udca0-\udcf2]|\ud806\udcff|\ud806[\udec0-\udef8]|\ud808[\udc00-\udf99]|\ud809[\udc00-\udc6e]|\ud809[\udc70-\udc74]|\ud809[\udc80-\udd43]|\ud80c[\udc00-\udfff]|\ud80d[\udc00-\udc2e]|\ud811[\udc00-\ude46]|\ud81a[\udc00-\ude38]|\ud81a[\ude40-\ude5e]|\ud81a[\ude60-\ude69]|\ud81a\ude6e|\ud81a\ude6f|\ud81a[\uded0-\udeed]|\ud81a\udef5|\ud81a[\udf00-\udf2f]|\ud81a[\udf37-\udf45]|\ud81a[\udf50-\udf59]|\ud81a[\udf5b-\udf61]|\ud81a[\udf63-\udf77]|\ud81a[\udf7d-\udf8f]|\ud81b[\udf00-\udf44]|\ud81b[\udf50-\udf7e]|\ud81b[\udf93-\udf9f]|\ud82c\udc00|\ud82c\udc01|\ud82f[\udc00-\udc6a]|\ud82f[\udc70-\udc7c]|\ud82f[\udc80-\udc88]|\ud82f[\udc90-\udc99]|\ud82f\udc9c|\ud82f\udc9f|\ud834[\udc00-\udcf5]|\ud834[\udd00-\udd26]|\ud834[\udd29-\udd66]|\ud834[\udd6a-\udd72]|\ud834\udd83|\ud834\udd84|\ud834[\udd8c-\udda9]|\ud834[\uddae-\udde8]|\ud834[\udf60-\udf71]|\ud835[\udc00-\udc54]|\ud835[\udc56-\udc9c]|\ud835\udc9e|\ud835\udc9f|\ud835\udca2|\ud835\udca5|\ud835\udca6|\ud835[\udca9-\udcac]|\ud835[\udcae-\udcb9]|\ud835\udcbb|\ud835[\udcbd-\udcc3]|\ud835[\udcc5-\udd05]|\ud835[\udd07-\udd0a]|\ud835[\udd0d-\udd14]|\ud835[\udd16-\udd1c]|\ud835[\udd1e-\udd39]|\ud835[\udd3b-\udd3e]|\ud835[\udd40-\udd44]|\ud835\udd46|\ud835[\udd4a-\udd50]|\ud835[\udd52-\udea5]|\ud835[\udea8-\udeda]|\ud835[\udedc-\udf14]|\ud835[\udf16-\udf4e]|\ud835[\udf50-\udf88]|\ud835[\udf8a-\udfc2]|\ud835[\udfc4-\udfcb]|\ud836[\udc00-\uddff]|\ud836[\ude37-\ude3a]|\ud836[\ude6d-\ude74]|\ud836[\ude76-\ude83]|\ud836[\ude85-\ude8b]|\ud83c[\udd10-\udd2e]|\ud83c[\udd30-\udd69]|\ud83c[\udd70-\udd9a]|\ud83c[\udde6-\ude02]|\ud83c[\ude10-\ude3a]|\ud83c[\ude40-\ude48]|\ud83c\ude50|\ud83c\ude51|[\ud840-\ud868][\udc00-\udfff]|\ud869[\udc00-\uded6]|\ud869[\udf00-\udfff]|[\ud86a-\ud86c][\udc00-\udfff]|\ud86d[\udc00-\udf34]|\ud86d[\udf40-\udfff]|\ud86e[\udc00-\udc1d]|\ud86e[\udc20-\udfff]|[\ud86f-\ud872][\udc00-\udfff]|\ud873[\udc00-\udea1]|\ud87e[\udc00-\ude1d]|[\udb80-\udbbe][\udc00-\udfff]|\udbbf[\udc00-\udffd]|[\udbc0-\udbfe][\udc00-\udfff]|\udbff[\udc00-\udffd]' +
+			')|(' +
+				'[\u0590\u05be\u05c0\u05c3\u05c6\u05c8-\u05ff\u07c0-\u07ea\u07f4\u07f5\u07fa-\u0815\u081a\u0824\u0828\u082e-\u0858\u085c-\u089f\u200f\ufb1d\ufb1f-\ufb28\ufb2a-\ufb4f\u0608\u060b\u060d\u061b-\u064a\u066d-\u066f\u0671-\u06d5\u06e5\u06e6\u06ee\u06ef\u06fa-\u0710\u0712-\u072f\u074b-\u07a5\u07b1-\u07bf\u08a0-\u08e2\ufb50-\ufd3d\ufd40-\ufdcf\ufdf0-\ufdfc\ufdfe\ufdff\ufe70-\ufefe]|\ud802[\udc00-\udd1e]|\ud802[\udd20-\ude00]|\ud802\ude04|\ud802[\ude07-\ude0b]|\ud802[\ude10-\ude37]|\ud802[\ude3b-\ude3e]|\ud802[\ude40-\udee4]|\ud802[\udee7-\udf38]|\ud802[\udf40-\udfff]|\ud803[\udc00-\ude5f]|\ud803[\ude7f-\udfff]|\ud83a[\udc00-\udccf]|\ud83a[\udcd7-\udfff]|\ud83b[\udc00-\uddff]|\ud83b[\udf00-\udfff]|\ud83b[\udf00-\udfff]|\ud83b[\udf00-\udfff]|\ud83b[\udf00-\udfff]|\ud83b[\udf00-\udfff]|\ud83b[\udf00-\udfff]|\ud83b[\udf00-\udfff]|\ud83b[\udf00-\udfff]|\ud83b[\udf00-\udfff]|\ud83b[\udf00-\udfff]|\ud83b[\udf00-\udfff]|\ud83b[\udf00-\udfff]|\ud83b[\udf00-\udfff]|\ud83b[\ude00-\udeef]|\ud83b[\udef2-\udeff]' +
+			')' +
+		')'
+	);
+
+	/**
+	 * Gets directionality of the first strongly directional codepoint
+	 *
+	 * This is the rule the BIDI algorithm uses to determine the directionality of
+	 * paragraphs ( http://unicode.org/reports/tr9/#The_Paragraph_Level ) and
+	 * FSI isolates ( http://unicode.org/reports/tr9/#Explicit_Directional_Isolates ).
+	 *
+	 * TODO: Does not handle BIDI control characters inside the text.
+	 * TODO: Does not handle unallocated characters.
+	 */
+	function strongDirFromContent( text ) {
+		var m = text.match( strongDirRegExp );
+		if ( !m ) {
+			return null;
+		}
+		if ( m[2] === undefined ) {
+			return 'ltr';
+		}
+		return 'rtl';
+	}
+
+	$.extend( $.i18n.parser.emitter, {
+		/**
+		 * Wraps argument with unicode control characters for directionality safety
+		 *
+		 * This solves the problem where directionality-neutral characters at the edge of
+		 * the argument string get interpreted with the wrong directionality from the
+		 * enclosing context, giving renderings that look corrupted like "(Ben_(WMF".
+		 *
+		 * The wrapping is LRE...PDF or RLE...PDF, depending on the detected
+		 * directionality of the argument string, using the BIDI algorithm's own "First
+		 * strong directional codepoint" rule. Essentially, this works round the fact that
+		 * there is no embedding equivalent of U+2068 FSI (isolation with heuristic
+		 * direction inference). The latter is cleaner but still not widely supported.
+		 */
+		bidi: function ( nodes ) {
+			var dir = strongDirFromContent( nodes[0] );
+			if ( dir === 'ltr' ) {
+				// Wrap in LEFT-TO-RIGHT EMBEDDING ... POP DIRECTIONAL FORMATTING
+				return '\u202A' + nodes[0] + '\u202C';
+			}
+			if ( dir === 'rtl' ) {
+				// Wrap in RIGHT-TO-LEFT EMBEDDING ... POP DIRECTIONAL FORMATTING
+				return '\u202B' + nodes[0] + '\u202C';
+			}
+			// No strong directionality: do not wrap
+			return nodes[0];
+		}
+	} );
+}( jQuery ) );
+
 /*global pluralRuleParser */
 ( function ( $ ) {
 	'use strict';
@@ -848,261 +987,262 @@
 	var language = {
 		// CLDR plural rules generated using
 		// libs/CLDRPluralRuleParser/tools/PluralXML2JSON.html
-		'pluralRules': {
-			'ak': {
-				'one': 'n = 0..1'
-			},
-			'am': {
-				'one': 'i = 0 or n = 1'
-			},
-			'ar': {
-				'zero': 'n = 0',
-				'one': 'n = 1',
-				'two': 'n = 2',
-				'few': 'n % 100 = 3..10',
-				'many': 'n % 100 = 11..99'
-			},
-			'be': {
-				'one': 'n % 10 = 1 and n % 100 != 11',
-				'few': 'n % 10 = 2..4 and n % 100 != 12..14',
-				'many': 'n % 10 = 0 or n % 10 = 5..9 or n % 100 = 11..14'
-			},
-			'bh': {
-				'one': 'n = 0..1'
-			},
-			'bn': {
-				'one': 'i = 0 or n = 1'
-			},
-			'br': {
-				'one': 'n % 10 = 1 and n % 100 != 11,71,91',
-				'two': 'n % 10 = 2 and n % 100 != 12,72,92',
-				'few': 'n % 10 = 3..4,9 and n % 100 != 10..19,70..79,90..99',
-				'many': 'n != 0 and n % 1000000 = 0'
-			},
-			'bs': {
-				'one': 'v = 0 and i % 10 = 1 and i % 100 != 11 or f % 10 = 1 and f % 100 != 11',
-				'few': 'v = 0 and i % 10 = 2..4 and i % 100 != 12..14 or f % 10 = 2..4 and f % 100 != 12..14'
-			},
-			'cs': {
-				'one': 'i = 1 and v = 0',
-				'few': 'i = 2..4 and v = 0',
-				'many': 'v != 0'
-			},
-			'cy': {
-				'zero': 'n = 0',
-				'one': 'n = 1',
-				'two': 'n = 2',
-				'few': 'n = 3',
-				'many': 'n = 6'
-			},
-			'da': {
-				'one': 'n = 1 or t != 0 and i = 0,1'
-			},
-			'fa': {
-				'one': 'i = 0 or n = 1'
+		pluralRules: {
+			ak: {
+				one: 'n = 0..1'
+			},
+			am: {
+				one: 'i = 0 or n = 1'
+			},
+			ar: {
+				zero: 'n = 0',
+				one: 'n = 1',
+				two: 'n = 2',
+				few: 'n % 100 = 3..10',
+				many: 'n % 100 = 11..99'
+			},
+			be: {
+				one: 'n % 10 = 1 and n % 100 != 11',
+				few: 'n % 10 = 2..4 and n % 100 != 12..14',
+				many: 'n % 10 = 0 or n % 10 = 5..9 or n % 100 = 11..14'
+			},
+			bh: {
+				one: 'n = 0..1'
+			},
+			bn: {
+				one: 'i = 0 or n = 1'
+			},
+			br: {
+				one: 'n % 10 = 1 and n % 100 != 11,71,91',
+				two: 'n % 10 = 2 and n % 100 != 12,72,92',
+				few: 'n % 10 = 3..4,9 and n % 100 != 10..19,70..79,90..99',
+				many: 'n != 0 and n % 1000000 = 0'
+			},
+			bs: {
+				one: 'v = 0 and i % 10 = 1 and i % 100 != 11 or f % 10 = 1 and f % 100 != 11',
+				few: 'v = 0 and i % 10 = 2..4 and i % 100 != 12..14 or f % 10 = 2..4 and f % 100 != 12..14'
+			},
+			cs: {
+				one: 'i = 1 and v = 0',
+				few: 'i = 2..4 and v = 0',
+				many: 'v != 0'
+			},
+			cy: {
+				zero: 'n = 0',
+				one: 'n = 1',
+				two: 'n = 2',
+				few: 'n = 3',
+				many: 'n = 6'
+			},
+			da: {
+				one: 'n = 1 or t != 0 and i = 0,1'
+			},
+			fa: {
+				one: 'i = 0 or n = 1'
 			},
-			'ff': {
-				'one': 'i = 0,1'
+			ff: {
+				one: 'i = 0,1'
 			},
-			'fil': {
-				'one': 'i = 0..1 and v = 0'
-			},
-			'fr': {
-				'one': 'i = 0,1'
-			},
-			'ga': {
-				'one': 'n = 1',
-				'two': 'n = 2',
-				'few': 'n = 3..6',
-				'many': 'n = 7..10'
+			fil: {
+				one: 'i = 0..1 and v = 0'
+			},
+			fr: {
+				one: 'i = 0,1'
+			},
+			ga: {
+				one: 'n = 1',
+				two: 'n = 2',
+				few: 'n = 3..6',
+				many: 'n = 7..10'
 			},
-			'gd': {
-				'one': 'n = 1,11',
-				'two': 'n = 2,12',
-				'few': 'n = 3..10,13..19'
+			gd: {
+				one: 'n = 1,11',
+				two: 'n = 2,12',
+				few: 'n = 3..10,13..19'
 			},
-			'gu': {
-				'one': 'i = 0 or n = 1'
+			gu: {
+				one: 'i = 0 or n = 1'
 			},
-			'guw': {
-				'one': 'n = 0..1'
+			guw: {
+				one: 'n = 0..1'
 			},
-			'gv': {
-				'one': 'n % 10 = 1',
-				'two': 'n % 10 = 2',
-				'few': 'n % 100 = 0,20,40,60'
+			gv: {
+				one: 'n % 10 = 1',
+				two: 'n % 10 = 2',
+				few: 'n % 100 = 0,20,40,60'
 			},
-			'he': {
-				'one': 'i = 1 and v = 0',
-				'two': 'i = 2 and v = 0',
-				'many': 'v = 0 and n != 0..10 and n % 10 = 0'
+			he: {
+				one: 'i = 1 and v = 0',
+				two: 'i = 2 and v = 0',
+				many: 'v = 0 and n != 0..10 and n % 10 = 0'
 			},
-			'hi': {
-				'one': 'i = 0 or n = 1'
+			hi: {
+				one: 'i = 0 or n = 1'
 			},
-			'hr': {
-				'one': 'v = 0 and i % 10 = 1 and i % 100 != 11 or f % 10 = 1 and f % 100 != 11',
-				'few': 'v = 0 and i % 10 = 2..4 and i % 100 != 12..14 or f % 10 = 2..4 and f % 100 != 12..14'
+			hr: {
+				one: 'v = 0 and i % 10 = 1 and i % 100 != 11 or f % 10 = 1 and f % 100 != 11',
+				few: 'v = 0 and i % 10 = 2..4 and i % 100 != 12..14 or f % 10 = 2..4 and f % 100 != 12..14'
 			},
-			'hy': {
-				'one': 'i = 0,1'
+			hy: {
+				one: 'i = 0,1'
 			},
-			'is': {
-				'one': 't = 0 and i % 10 = 1 and i % 100 != 11 or t != 0'
+			is: {
+				one: 't = 0 and i % 10 = 1 and i % 100 != 11 or t != 0'
 			},
-			'iu': {
-				'one': 'n = 1',
-				'two': 'n = 2'
+			iu: {
+				one: 'n = 1',
+				two: 'n = 2'
 			},
-			'iw': {
-				'one': 'i = 1 and v = 0',
-				'two': 'i = 2 and v = 0',
-				'many': 'v = 0 and n != 0..10 and n % 10 = 0'
+			iw: {
+				one: 'i = 1 and v = 0',
+				two: 'i = 2 and v = 0',
+				many: 'v = 0 and n != 0..10 and n % 10 = 0'
 			},
-			'kab': {
-				'one': 'i = 0,1'
+			kab: {
+				one: 'i = 0,1'
 			},
-			'kn': {
-				'one': 'i = 0 or n = 1'
+			kn: {
+				one: 'i = 0 or n = 1'
 			},
-			'kw': {
-				'one': 'n = 1',
-				'two': 'n = 2'
+			kw: {
+				one: 'n = 1',
+				two: 'n = 2'
 			},
-			'lag': {
-				'zero': 'n = 0',
-				'one': 'i = 0,1 and n != 0'
+			lag: {
+				zero: 'n = 0',
+				one: 'i = 0,1 and n != 0'
 			},
-			'ln': {
-				'one': 'n = 0..1'
+			ln: {
+				one: 'n = 0..1'
 			},
-			'lt': {
-				'one': 'n % 10 = 1 and n % 100 != 11..19',
-				'few': 'n % 10 = 2..9 and n % 100 != 11..19',
-				'many': 'f != 0'
+			lt: {
+				one: 'n % 10 = 1 and n % 100 != 11..19',
+				few: 'n % 10 = 2..9 and n % 100 != 11..19',
+				many: 'f != 0'
 			},
-			'lv': {
-				'zero': 'n % 10 = 0 or n % 100 = 11..19 or v = 2 and f % 100 = 11..19',
-				'one': 'n % 10 = 1 and n % 100 != 11 or v = 2 and f % 10 = 1 and f % 100 != 11 or v != 2 and f % 10 = 1'
+			lv: {
+				zero: 'n % 10 = 0 or n % 100 = 11..19 or v = 2 and f % 100 = 11..19',
+				one: 'n % 10 = 1 and n % 100 != 11 or v = 2 and f % 10 = 1 and f % 100 != 11 or v != 2 and f % 10 = 1'
 			},
-			'mg': {
-				'one': 'n = 0..1'
+			mg: {
+				one: 'n = 0..1'
 			},
-			'mk': {
-				'one': 'v = 0 and i % 10 = 1 or f % 10 = 1'
+			mk: {
+				one: 'v = 0 and i % 10 = 1 or f % 10 = 1'
 			},
-			'mo': {
-				'one': 'i = 1 and v = 0',
-				'few': 'v != 0 or n = 0 or n != 1 and n % 100 = 1..19'
+			mo: {
+				one: 'i = 1 and v = 0',
+				few: 'v != 0 or n = 0 or n != 1 and n % 100 = 1..19'
 			},
-			'mr': {
-				'one': 'i = 0 or n = 1'
+			mr: {
+				one: 'i = 0 or n = 1'
 			},
-			'mt': {
-				'one': 'n = 1',
-				'few': 'n = 0 or n % 100 = 2..10',
-				'many': 'n % 100 = 11..19'
+			mt: {
+				one: 'n = 1',
+				few: 'n = 0 or n % 100 = 2..10',
+				many: 'n % 100 = 11..19'
 			},
-			'naq': {
-				'one': 'n = 1',
-				'two': 'n = 2'
+			naq: {
+				one: 'n = 1',
+				two: 'n = 2'
 			},
-			'nso': {
-				'one': 'n = 0..1'
+			nso: {
+				one: 'n = 0..1'
 			},
-			'pa': {
-				'one': 'n = 0..1'
+			pa: {
+				one: 'n = 0..1'
 			},
-			'pl': {
-				'one': 'i = 1 and v = 0',
-				'few': 'v = 0 and i % 10 = 2..4 and i % 100 != 12..14',
-				'many': 'v = 0 and i != 1 and i % 10 = 0..1 or v = 0 and i % 10 = 5..9 or v = 0 and i % 100 = 12..14'
+			pl: {
+				one: 'i = 1 and v = 0',
+				few: 'v = 0 and i % 10 = 2..4 and i % 100 != 12..14',
+				many: 'v = 0 and i != 1 and i % 10 = 0..1 or v = 0 and i % 10 = 5..9 or v = 0 and i % 100 = 12..14'
 			},
-			'pt': {
-				'one': 'i = 1 and v = 0 or i = 0 and t = 1'
+			pt: {
+				one: 'i = 1 and v = 0 or i = 0 and t = 1'
 			},
-			'pt_PT': {
-				'one': 'n = 1 and v = 0'
+			// jscs:disable requireCamelCaseOrUpperCaseIdentifiers
+			pt_PT: {
+				one: 'n = 1 and v = 0'
 			},
-			'ro': {
-				'one': 'i = 1 and v = 0',
-				'few': 'v != 0 or n = 0 or n != 1 and n % 100 = 1..19'
+			// jscs:enable requireCamelCaseOrUpperCaseIdentifiers
+			ro: {
+				one: 'i = 1 and v = 0',
+				few: 'v != 0 or n = 0 or n != 1 and n % 100 = 1..19'
 			},
-			'ru': {
-				'one': 'v = 0 and i % 10 = 1 and i % 100 != 11',
-				'many': 'v = 0 and i % 10 = 0 or v = 0 and i % 10 = 5..9 or v = 0 and i % 100 = 11..14'
+			ru: {
+				one: 'v = 0 and i % 10 = 1 and i % 100 != 11',
+				many: 'v = 0 and i % 10 = 0 or v = 0 and i % 10 = 5..9 or v = 0 and i % 100 = 11..14'
 			},
-			'se': {
-				'one': 'n = 1',
-				'two': 'n = 2'
+			se: {
+				one: 'n = 1',
+				two: 'n = 2'
 			},
-			'sh': {
-				'one': 'v = 0 and i % 10 = 1 and i % 100 != 11 or f % 10 = 1 and f % 100 != 11',
-				'few': 'v = 0 and i % 10 = 2..4 and i % 100 != 12..14 or f % 10 = 2..4 and f % 100 != 12..14'
+			sh: {
+				one: 'v = 0 and i % 10 = 1 and i % 100 != 11 or f % 10 = 1 and f % 100 != 11',
+				few: 'v = 0 and i % 10 = 2..4 and i % 100 != 12..14 or f % 10 = 2..4 and f % 100 != 12..14'
 			},
-			'shi': {
-				'one': 'i = 0 or n = 1',
-				'few': 'n = 2..10'
+			shi: {
+				one: 'i = 0 or n = 1',
+				few: 'n = 2..10'
 			},
-			'si': {
-				'one': 'n = 0,1 or i = 0 and f = 1'
+			si: {
+				one: 'n = 0,1 or i = 0 and f = 1'
 			},
-			'sk': {
-				'one': 'i = 1 and v = 0',
-				'few': 'i = 2..4 and v = 0',
-				'many': 'v != 0'
+			sk: {
+				one: 'i = 1 and v = 0',
+				few: 'i = 2..4 and v = 0',
+				many: 'v != 0'
 			},
-			'sl': {
-				'one': 'v = 0 and i % 100 = 1',
-				'two': 'v = 0 and i % 100 = 2',
-				'few': 'v = 0 and i % 100 = 3..4 or v != 0'
+			sl: {
+				one: 'v = 0 and i % 100 = 1',
+				two: 'v = 0 and i % 100 = 2',
+				few: 'v = 0 and i % 100 = 3..4 or v != 0'
 			},
-			'sma': {
-				'one': 'n = 1',
-				'two': 'n = 2'
+			sma: {
+				one: 'n = 1',
+				two: 'n = 2'
 			},
-			'smi': {
-				'one': 'n = 1',
-				'two': 'n = 2'
+			smi: {
+				one: 'n = 1',
+				two: 'n = 2'
 			},
-			'smj': {
-				'one': 'n = 1',
-				'two': 'n = 2'
+			smj: {
+				one: 'n = 1',
+				two: 'n = 2'
 			},
-			'smn': {
-				'one': 'n = 1',
-				'two': 'n = 2'
+			smn: {
+				one: 'n = 1',
+				two: 'n = 2'
 			},
-			'sms': {
-				'one': 'n = 1',
-				'two': 'n = 2'
+			sms: {
+				one: 'n = 1',
+				two: 'n = 2'
 			},
-			'sr': {
-				'one': 'v = 0 and i % 10 = 1 and i % 100 != 11 or f % 10 = 1 and f % 100 != 11',
-				'few': 'v = 0 and i % 10 = 2..4 and i % 100 != 12..14 or f % 10 = 2..4 and f % 100 != 12..14'
+			sr: {
+				one: 'v = 0 and i % 10 = 1 and i % 100 != 11 or f % 10 = 1 and f % 100 != 11',
+				few: 'v = 0 and i % 10 = 2..4 and i % 100 != 12..14 or f % 10 = 2..4 and f % 100 != 12..14'
 			},
-			'ti': {
-				'one': 'n = 0..1'
+			ti: {
+				one: 'n = 0..1'
 			},
-			'tl': {
-				'one': 'i = 0..1 and v = 0'
+			tl: {
+				one: 'i = 0..1 and v = 0'
 			},
-			'tzm': {
-				'one': 'n = 0..1 or n = 11..99'
+			tzm: {
+				one: 'n = 0..1 or n = 11..99'
 			},
-			'uk': {
-				'one': 'v = 0 and i % 10 = 1 and i % 100 != 11',
-				'few': 'v = 0 and i % 10 = 2..4 and i % 100 != 12..14',
-				'many': 'v = 0 and i % 10 = 0 or v = 0 and i % 10 = 5..9 or v = 0 and i % 100 = 11..14'
+			uk: {
+				one: 'v = 0 and i % 10 = 1 and i % 100 != 11',
+				few: 'v = 0 and i % 10 = 2..4 and i % 100 != 12..14',
+				many: 'v = 0 and i % 10 = 0 or v = 0 and i % 10 = 5..9 or v = 0 and i % 100 = 11..14'
 			},
-			'wa': {
-				'one': 'n = 0..1'
+			wa: {
+				one: 'n = 0..1'
 			},
-			'zu': {
-				'one': 'i = 0 or n = 1'
+			zu: {
+				one: 'i = 0 or n = 1'
 			}
 		},
-
 
 		/**
 		 * Plural form transformations, needed for some languages.
@@ -1117,7 +1257,7 @@
 			var pluralRules,
 				pluralFormIndex,
 				index,
-				explicitPluralPattern = new RegExp('\\d+=', 'i'),
+				explicitPluralPattern = new RegExp( '\\d+=', 'i' ),
 				formCount,
 				form;
 
@@ -1187,13 +1327,13 @@
 		 * @param {number} num Value to be converted
 		 * @param {boolean} integer Convert the return value to an integer
 		 */
-		'convertNumber': function ( num, integer ) {
+		convertNumber: function ( num, integer ) {
 			var tmp, item, i,
 				transformTable, numberString, convertedNumber;
 
 			// Set the target Transform table:
 			transformTable = this.digitTransformTable( $.i18n().locale );
-			numberString = '' + num;
+			numberString = String( num );
 			convertedNumber = '';
 
 			if ( !transformTable ) {
@@ -1254,7 +1394,7 @@
 		 *
 		 * @return string
 		 */
-		'gender': function ( gender, forms ) {
+		gender: function ( gender, forms ) {
 			if ( !forms || forms.length === 0 ) {
 				return '';
 			}
@@ -1278,7 +1418,7 @@
 		 * Get the digit transform table for the given language
 		 * See http://cldr.unicode.org/translation/numbering-systems
 		 * @param language
-		 * @returns {Array|boolean} List of digits in the passed language or false
+		 * @return {Array|boolean} List of digits in the passed language or false
 		 * representation, or boolean false if there is no information.
 		 */
 		digitTransformTable: function ( language ) {
@@ -1296,8 +1436,8 @@
 				my: '၀၁၂၃၄၅၆၇၈၉',
 				ta: '௦௧௨௩௪௫௬௭௮௯',
 				te: '౦౧౨౩౪౫౬౭౮౯',
-				th: '๐๑๒๓๔๕๖๗๘๙', //FIXME use iso 639 codes
-				bo: '༠༡༢༣༤༥༦༧༨༩' //FIXME use iso 639 codes
+				th: '๐๑๒๓๔๕๖๗๘๙', // FIXME use iso 639 codes
+				bo: '༠༡༢༣༤༥༦༧༨༩' // FIXME use iso 639 codes
 			};
 
 			if ( !tables[language] ) {
@@ -1309,7 +1449,7 @@
 	};
 
 	$.extend( $.i18n.languages, {
-		'default': language
+		default: language
 	} );
 }( jQuery ) );
 
@@ -1331,172 +1471,172 @@
 
 	$.i18n = $.i18n || {};
 	$.extend( $.i18n.fallbacks, {
-		'ab': ['ru'],
-		'ace': ['id'],
-		'aln': ['sq'],
+		ab: [ 'ru' ],
+		ace: [ 'id' ],
+		aln: [ 'sq' ],
 		// Not so standard - als is supposed to be Tosk Albanian,
 		// but in Wikipedia it's used for a Germanic language.
-		'als': ['gsw', 'de'],
-		'an': ['es'],
-		'anp': ['hi'],
-		'arn': ['es'],
-		'arz': ['ar'],
-		'av': ['ru'],
-		'ay': ['es'],
-		'ba': ['ru'],
-		'bar': ['de'],
-		'bat-smg': ['sgs', 'lt'],
-		'bcc': ['fa'],
-		'be-x-old': ['be-tarask'],
-		'bh': ['bho'],
-		'bjn': ['id'],
-		'bm': ['fr'],
-		'bpy': ['bn'],
-		'bqi': ['fa'],
-		'bug': ['id'],
-		'cbk-zam': ['es'],
-		'ce': ['ru'],
-		'crh': ['crh-latn'],
-		'crh-cyrl': ['ru'],
-		'csb': ['pl'],
-		'cv': ['ru'],
-		'de-at': ['de'],
-		'de-ch': ['de'],
-		'de-formal': ['de'],
-		'dsb': ['de'],
-		'dtp': ['ms'],
-		'egl': ['it'],
-		'eml': ['it'],
-		'ff': ['fr'],
-		'fit': ['fi'],
-		'fiu-vro': ['vro', 'et'],
-		'frc': ['fr'],
-		'frp': ['fr'],
-		'frr': ['de'],
-		'fur': ['it'],
-		'gag': ['tr'],
-		'gan': ['gan-hant', 'zh-hant', 'zh-hans'],
-		'gan-hans': ['zh-hans'],
-		'gan-hant': ['zh-hant', 'zh-hans'],
-		'gl': ['pt'],
-		'glk': ['fa'],
-		'gn': ['es'],
-		'gsw': ['de'],
-		'hif': ['hif-latn'],
-		'hsb': ['de'],
-		'ht': ['fr'],
-		'ii': ['zh-cn', 'zh-hans'],
-		'inh': ['ru'],
-		'iu': ['ike-cans'],
-		'jut': ['da'],
-		'jv': ['id'],
-		'kaa': ['kk-latn', 'kk-cyrl'],
-		'kbd': ['kbd-cyrl'],
-		'khw': ['ur'],
-		'kiu': ['tr'],
-		'kk': ['kk-cyrl'],
-		'kk-arab': ['kk-cyrl'],
-		'kk-latn': ['kk-cyrl'],
-		'kk-cn': ['kk-arab', 'kk-cyrl'],
-		'kk-kz': ['kk-cyrl'],
-		'kk-tr': ['kk-latn', 'kk-cyrl'],
-		'kl': ['da'],
-		'ko-kp': ['ko'],
-		'koi': ['ru'],
-		'krc': ['ru'],
-		'ks': ['ks-arab'],
-		'ksh': ['de'],
-		'ku': ['ku-latn'],
-		'ku-arab': ['ckb'],
-		'kv': ['ru'],
-		'lad': ['es'],
-		'lb': ['de'],
-		'lbe': ['ru'],
-		'lez': ['ru'],
-		'li': ['nl'],
-		'lij': ['it'],
-		'liv': ['et'],
-		'lmo': ['it'],
-		'ln': ['fr'],
-		'ltg': ['lv'],
-		'lzz': ['tr'],
-		'mai': ['hi'],
-		'map-bms': ['jv', 'id'],
-		'mg': ['fr'],
-		'mhr': ['ru'],
-		'min': ['id'],
-		'mo': ['ro'],
-		'mrj': ['ru'],
-		'mwl': ['pt'],
-		'myv': ['ru'],
-		'mzn': ['fa'],
-		'nah': ['es'],
-		'nap': ['it'],
-		'nds': ['de'],
-		'nds-nl': ['nl'],
-		'nl-informal': ['nl'],
-		'no': ['nb'],
-		'os': ['ru'],
-		'pcd': ['fr'],
-		'pdc': ['de'],
-		'pdt': ['de'],
-		'pfl': ['de'],
-		'pms': ['it'],
-		'pt': ['pt-br'],
-		'pt-br': ['pt'],
-		'qu': ['es'],
-		'qug': ['qu', 'es'],
-		'rgn': ['it'],
-		'rmy': ['ro'],
-		'roa-rup': ['rup'],
-		'rue': ['uk', 'ru'],
-		'ruq': ['ruq-latn', 'ro'],
-		'ruq-cyrl': ['mk'],
-		'ruq-latn': ['ro'],
-		'sa': ['hi'],
-		'sah': ['ru'],
-		'scn': ['it'],
-		'sg': ['fr'],
-		'sgs': ['lt'],
-		'sli': ['de'],
-		'sr': ['sr-ec'],
-		'srn': ['nl'],
-		'stq': ['de'],
-		'su': ['id'],
-		'szl': ['pl'],
-		'tcy': ['kn'],
-		'tg': ['tg-cyrl'],
-		'tt': ['tt-cyrl', 'ru'],
-		'tt-cyrl': ['ru'],
-		'ty': ['fr'],
-		'udm': ['ru'],
-		'ug': ['ug-arab'],
-		'uk': ['ru'],
-		'vec': ['it'],
-		'vep': ['et'],
-		'vls': ['nl'],
-		'vmf': ['de'],
-		'vot': ['fi'],
-		'vro': ['et'],
-		'wa': ['fr'],
-		'wo': ['fr'],
-		'wuu': ['zh-hans'],
-		'xal': ['ru'],
-		'xmf': ['ka'],
-		'yi': ['he'],
-		'za': ['zh-hans'],
-		'zea': ['nl'],
-		'zh': ['zh-hans'],
-		'zh-classical': ['lzh'],
-		'zh-cn': ['zh-hans'],
-		'zh-hant': ['zh-hans'],
-		'zh-hk': ['zh-hant', 'zh-hans'],
-		'zh-min-nan': ['nan'],
-		'zh-mo': ['zh-hk', 'zh-hant', 'zh-hans'],
-		'zh-my': ['zh-sg', 'zh-hans'],
-		'zh-sg': ['zh-hans'],
-		'zh-tw': ['zh-hant', 'zh-hans'],
-		'zh-yue': ['yue']
+		als: [ 'gsw', 'de' ],
+		an: [ 'es' ],
+		anp: [ 'hi' ],
+		arn: [ 'es' ],
+		arz: [ 'ar' ],
+		av: [ 'ru' ],
+		ay: [ 'es' ],
+		ba: [ 'ru' ],
+		bar: [ 'de' ],
+		'bat-smg': [ 'sgs', 'lt' ],
+		bcc: [ 'fa' ],
+		'be-x-old': [ 'be-tarask' ],
+		bh: [ 'bho' ],
+		bjn: [ 'id' ],
+		bm: [ 'fr' ],
+		bpy: [ 'bn' ],
+		bqi: [ 'fa' ],
+		bug: [ 'id' ],
+		'cbk-zam': [ 'es' ],
+		ce: [ 'ru' ],
+		crh: [ 'crh-latn' ],
+		'crh-cyrl': [ 'ru' ],
+		csb: [ 'pl' ],
+		cv: [ 'ru' ],
+		'de-at': [ 'de' ],
+		'de-ch': [ 'de' ],
+		'de-formal': [ 'de' ],
+		dsb: [ 'de' ],
+		dtp: [ 'ms' ],
+		egl: [ 'it' ],
+		eml: [ 'it' ],
+		ff: [ 'fr' ],
+		fit: [ 'fi' ],
+		'fiu-vro': [ 'vro', 'et' ],
+		frc: [ 'fr' ],
+		frp: [ 'fr' ],
+		frr: [ 'de' ],
+		fur: [ 'it' ],
+		gag: [ 'tr' ],
+		gan: [ 'gan-hant', 'zh-hant', 'zh-hans' ],
+		'gan-hans': [ 'zh-hans' ],
+		'gan-hant': [ 'zh-hant', 'zh-hans' ],
+		gl: [ 'pt' ],
+		glk: [ 'fa' ],
+		gn: [ 'es' ],
+		gsw: [ 'de' ],
+		hif: [ 'hif-latn' ],
+		hsb: [ 'de' ],
+		ht: [ 'fr' ],
+		ii: [ 'zh-cn', 'zh-hans' ],
+		inh: [ 'ru' ],
+		iu: [ 'ike-cans' ],
+		jut: [ 'da' ],
+		jv: [ 'id' ],
+		kaa: [ 'kk-latn', 'kk-cyrl' ],
+		kbd: [ 'kbd-cyrl' ],
+		khw: [ 'ur' ],
+		kiu: [ 'tr' ],
+		kk: [ 'kk-cyrl' ],
+		'kk-arab': [ 'kk-cyrl' ],
+		'kk-latn': [ 'kk-cyrl' ],
+		'kk-cn': [ 'kk-arab', 'kk-cyrl' ],
+		'kk-kz': [ 'kk-cyrl' ],
+		'kk-tr': [ 'kk-latn', 'kk-cyrl' ],
+		kl: [ 'da' ],
+		'ko-kp': [ 'ko' ],
+		koi: [ 'ru' ],
+		krc: [ 'ru' ],
+		ks: [ 'ks-arab' ],
+		ksh: [ 'de' ],
+		ku: [ 'ku-latn' ],
+		'ku-arab': [ 'ckb' ],
+		kv: [ 'ru' ],
+		lad: [ 'es' ],
+		lb: [ 'de' ],
+		lbe: [ 'ru' ],
+		lez: [ 'ru' ],
+		li: [ 'nl' ],
+		lij: [ 'it' ],
+		liv: [ 'et' ],
+		lmo: [ 'it' ],
+		ln: [ 'fr' ],
+		ltg: [ 'lv' ],
+		lzz: [ 'tr' ],
+		mai: [ 'hi' ],
+		'map-bms': [ 'jv', 'id' ],
+		mg: [ 'fr' ],
+		mhr: [ 'ru' ],
+		min: [ 'id' ],
+		mo: [ 'ro' ],
+		mrj: [ 'ru' ],
+		mwl: [ 'pt' ],
+		myv: [ 'ru' ],
+		mzn: [ 'fa' ],
+		nah: [ 'es' ],
+		nap: [ 'it' ],
+		nds: [ 'de' ],
+		'nds-nl': [ 'nl' ],
+		'nl-informal': [ 'nl' ],
+		no: [ 'nb' ],
+		os: [ 'ru' ],
+		pcd: [ 'fr' ],
+		pdc: [ 'de' ],
+		pdt: [ 'de' ],
+		pfl: [ 'de' ],
+		pms: [ 'it' ],
+		pt: [ 'pt-br' ],
+		'pt-br': [ 'pt' ],
+		qu: [ 'es' ],
+		qug: [ 'qu', 'es' ],
+		rgn: [ 'it' ],
+		rmy: [ 'ro' ],
+		'roa-rup': [ 'rup' ],
+		rue: [ 'uk', 'ru' ],
+		ruq: [ 'ruq-latn', 'ro' ],
+		'ruq-cyrl': [ 'mk' ],
+		'ruq-latn': [ 'ro' ],
+		sa: [ 'hi' ],
+		sah: [ 'ru' ],
+		scn: [ 'it' ],
+		sg: [ 'fr' ],
+		sgs: [ 'lt' ],
+		sli: [ 'de' ],
+		sr: [ 'sr-ec' ],
+		srn: [ 'nl' ],
+		stq: [ 'de' ],
+		su: [ 'id' ],
+		szl: [ 'pl' ],
+		tcy: [ 'kn' ],
+		tg: [ 'tg-cyrl' ],
+		tt: [ 'tt-cyrl', 'ru' ],
+		'tt-cyrl': [ 'ru' ],
+		ty: [ 'fr' ],
+		udm: [ 'ru' ],
+		ug: [ 'ug-arab' ],
+		uk: [ 'ru' ],
+		vec: [ 'it' ],
+		vep: [ 'et' ],
+		vls: [ 'nl' ],
+		vmf: [ 'de' ],
+		vot: [ 'fi' ],
+		vro: [ 'et' ],
+		wa: [ 'fr' ],
+		wo: [ 'fr' ],
+		wuu: [ 'zh-hans' ],
+		xal: [ 'ru' ],
+		xmf: [ 'ka' ],
+		yi: [ 'he' ],
+		za: [ 'zh-hans' ],
+		zea: [ 'nl' ],
+		zh: [ 'zh-hans' ],
+		'zh-classical': [ 'lzh' ],
+		'zh-cn': [ 'zh-hans' ],
+		'zh-hant': [ 'zh-hans' ],
+		'zh-hk': [ 'zh-hant', 'zh-hans' ],
+		'zh-min-nan': [ 'nan' ],
+		'zh-mo': [ 'zh-hk', 'zh-hant', 'zh-hans' ],
+		'zh-my': [ 'zh-sg', 'zh-hans' ],
+		'zh-sg': [ 'zh-hans' ],
+		'zh-tw': [ 'zh-hant', 'zh-hans' ],
+		'zh-yue': [ 'yue' ]
 	} );
 }( jQuery ) );
 
@@ -1918,22 +2058,20 @@
 			// Variable for ending
 			ending = '';
 
-			// Checking if the $word is in plural form
 			if ( word.match( /тæ$/i ) ) {
+				// Checking if the $word is in plural form
 				word = word.substring( 0, word.length - 1 );
 				endAllative = 'æм';
-			}
-			// Works if word is in singular form.
-			// Checking if word ends on one of the vowels: е, ё, и, о, ы, э, ю,
-			// я.
-			else if ( word.match( /[аæеёиоыэюя]$/i ) ) {
+			} else if ( word.match( /[аæеёиоыэюя]$/i ) ) {
+				// Works if word is in singular form.
+				// Checking if word ends on one of the vowels: е, ё, и, о, ы, э, ю,
+				// я.
 				jot = 'й';
-			}
-			// Checking if word ends on 'у'. 'У' can be either consonant 'W' or
-			// vowel 'U' in cyrillic Ossetic.
-			// Examples: {{grammar:genitive|аунеу}} = аунеуы,
-			// {{grammar:genitive|лæппу}} = лæппуйы.
-			else if ( word.match( /у$/i ) ) {
+			} else if ( word.match( /у$/i ) ) {
+				// Checking if word ends on 'у'. 'У' can be either consonant 'W' or
+				// vowel 'U' in cyrillic Ossetic.
+				// Examples: {{grammar:genitive|аунеу}} = аунеуы,
+				// {{grammar:genitive|лæппу}} = лæппуйы.
 				if ( !word.substring( word.length - 2, word.length - 1 )
 						.match( /[аæеёиоыэюя]$/i ) ) {
 					jot = 'й';
@@ -2865,14 +3003,14 @@
 }( jQuery ) );
 
 /*!
- * OOjs v1.1.7 optimised for jQuery
+ * OOjs v1.1.9 optimised for jQuery
  * https://www.mediawiki.org/wiki/OOjs
  *
  * Copyright 2011-2015 OOjs Team and other contributors.
  * Released under the MIT license
  * http://oojs.mit-license.org
  *
- * Date: 2015-04-29T01:13:49Z
+ * Date: 2015-08-25T21:35:29Z
  */
 ( function ( global ) {
 
@@ -2888,7 +3026,21 @@ var
 	oo = {},
 	// Optimisation: Local reference to Object.prototype.hasOwnProperty
 	hasOwn = oo.hasOwnProperty,
-	toString = oo.toString;
+	toString = oo.toString,
+	// Object.create() is impossible to fully polyfill, so don't require it
+	createObject = Object.create || ( function () {
+		// Reusable constructor function
+		function Empty() {}
+		return function ( prototype, properties ) {
+			var obj;
+			Empty.prototype = prototype;
+			obj = new Empty();
+			if ( properties && hasOwn.call( properties, 'constructor' ) ) {
+				obj.constructor = properties.constructor.value;
+			}
+			return obj;
+		};
+	} )();
 
 /* Class Methods */
 
@@ -2954,7 +3106,7 @@ oo.inheritClass = function ( targetFn, originFn ) {
 	// allows people to comply with their style guide.
 	targetFn['super'] = targetFn.parent = originFn;
 
-	targetFn.prototype = Object.create( originFn.prototype, {
+	targetFn.prototype = createObject( originFn.prototype, {
 		// Restore constructor property of targetFn
 		constructor: {
 			value: targetConstructor,
@@ -2966,7 +3118,7 @@ oo.inheritClass = function ( targetFn, originFn ) {
 
 	// Extend static properties - always initialize both sides
 	oo.initClass( originFn );
-	targetFn.static = Object.create( originFn.static );
+	targetFn.static = createObject( originFn.static );
 };
 
 /**
@@ -3108,7 +3260,7 @@ oo.setProp = function ( obj ) {
 oo.cloneObject = function ( origin ) {
 	var key, r;
 
-	r = Object.create( origin.constructor.prototype );
+	r = createObject( origin.constructor.prototype );
 
 	for ( key in origin ) {
 		if ( hasOwn.call( origin, key ) ) {
@@ -3564,12 +3716,9 @@ oo.isPlainObject = $.isPlainObject;
 	/**
 	 * Emit an event.
 	 *
-	 * TODO: Should this be chainable? What is the usefulness of the boolean
-	 * return value here?
-	 *
 	 * @param {string} event Type of event
 	 * @param {Mixed} args First in a list of variadic arguments passed to event handler (optional)
-	 * @return {boolean} If event was handled by at least one listener
+	 * @return {boolean} Whether the event was handled by at least one listener
 	 */
 	oo.EventEmitter.prototype.emit = function ( event ) {
 		var args = [],
@@ -3760,6 +3909,8 @@ oo.Registry.prototype.lookup = function ( name ) {
 	}
 };
 
+/*global createObject */
+
 /**
  * @class OO.Factory
  * @extends OO.Registry
@@ -3860,7 +4011,7 @@ oo.Factory.prototype.create = function ( name ) {
 	// the constructor's prototype (which also makes it an "instanceof" the constructor),
 	// then invoke the constructor with the object as context, and return it (ignoring
 	// the constructor's return value).
-	obj = Object.create( constructor.prototype );
+	obj = createObject( constructor.prototype );
 	constructor.apply( obj, args );
 	return obj;
 };
@@ -3875,14 +4026,14 @@ if ( typeof module !== 'undefined' && module.exports ) {
 }( this ) );
 
 /*!
- * OOjs UI v0.11.6
+ * OOjs UI v0.12.6
  * https://www.mediawiki.org/wiki/OOjs_UI
  *
- * Copyright 2011–2015 OOjs Team and other contributors.
+ * Copyright 2011–2015 OOjs UI Team and other contributors.
  * Released under the MIT license
  * http://oojs.mit-license.org
  *
- * Date: 2015-06-23T21:49:33Z
+ * Date: 2015-08-26T00:14:36Z
  */
 ( function ( OO ) {
 
@@ -3940,10 +4091,10 @@ OO.ui.generateElementId = function () {
  * Inspired from :focusable in jQueryUI v1.11.4 - 2015-04-14
  *
  * @param {jQuery} element Element to test
- * @return {Boolean} [description]
+ * @return {boolean}
  */
 OO.ui.isFocusableElement = function ( $element ) {
-	var node = $element[0],
+	var node = $element[ 0 ],
 		nodeName = node.nodeName.toLowerCase(),
 		// Check if the element have tabindex set
 		isInElementGroup = /^(input|select|textarea|button|object)$/.test( nodeName ),
@@ -3960,11 +4111,12 @@ OO.ui.isFocusableElement = function ( $element ) {
 			!$element.parents().addBack().filter( function () {
 				return $.css( this, 'visibility' ) === 'hidden';
 			} ).length
-		);
+		),
+		isTabOk = isNaN( $element.attr( 'tabindex' ) ) || +$element.attr( 'tabindex' ) >= 0;
 
 	return (
 		( isInElementGroup ? !node.disabled : isOtherElement ) &&
-		isVisible
+		isVisible && isTabOk
 	);
 };
 
@@ -4074,6 +4226,38 @@ OO.ui.debounce = function ( func, wait, immediate ) {
 };
 
 /**
+ * Proxy for `node.addEventListener( eventName, handler, true )`, if the browser supports it.
+ * Otherwise falls back to non-capturing event listeners.
+ *
+ * @param {HTMLElement} node
+ * @param {string} eventName
+ * @param {Function} handler
+ */
+OO.ui.addCaptureEventListener = function ( node, eventName, handler ) {
+	if ( node.addEventListener ) {
+		node.addEventListener( eventName, handler, true );
+	} else {
+		node.attachEvent( 'on' + eventName, handler );
+	}
+};
+
+/**
+ * Proxy for `node.removeEventListener( eventName, handler, true )`, if the browser supports it.
+ * Otherwise falls back to non-capturing event listeners.
+ *
+ * @param {HTMLElement} node
+ * @param {string} eventName
+ * @param {Function} handler
+ */
+OO.ui.removeCaptureEventListener = function ( node, eventName, handler ) {
+	if ( node.addEventListener ) {
+		node.removeEventListener( eventName, handler, true );
+	} else {
+		node.detachEvent( 'on' + eventName, handler );
+	}
+};
+
+/**
  * Reconstitute a JavaScript object corresponding to a widget created by
  * the PHP implementation.
  *
@@ -4126,6 +4310,8 @@ OO.ui.infuse = function ( idOrNode ) {
 		'ooui-selectfile-not-supported': 'File selection is not supported',
 		// Default placeholder for file selection widgets
 		'ooui-selectfile-placeholder': 'No file is selected',
+		// Default placeholder for file selection widgets when using drag drop UI
+		'ooui-selectfile-dragdrop-placeholder': 'Drop file here (or click to browse)',
 		// Semicolon separator
 		'ooui-semicolon-separator': '; '
 	};
@@ -4192,6 +4378,34 @@ OO.ui.infuse = function ( idOrNode ) {
 			return msg();
 		}
 		return msg;
+	};
+
+	/**
+	 * @param {string} url
+	 * @return {boolean}
+	 */
+	OO.ui.isSafeUrl = function ( url ) {
+		var protocol,
+			// Keep in sync with php/Tag.php
+			whitelist = [
+				'bitcoin:', 'ftp:', 'ftps:', 'geo:', 'git:', 'gopher:', 'http:', 'https:', 'irc:', 'ircs:',
+				'magnet:', 'mailto:', 'mms:', 'news:', 'nntp:', 'redis:', 'sftp:', 'sip:', 'sips:', 'sms:', 'ssh:',
+				'svn:', 'tel:', 'telnet:', 'urn:', 'worldwind:', 'xmpp:'
+			];
+
+		if ( url.indexOf( ':' ) === -1 ) {
+			// No protocol, safe
+			return true;
+		}
+
+		protocol = url.split( ':', 1 )[ 0 ] + ':';
+		if ( !protocol.match( /^([A-za-z0-9\+\.\-])+:/ ) ) {
+			// Not a valid protocol, safe
+			return true;
+		}
+
+		// Safe if in the whitelist
+		return whitelist.indexOf( protocol ) !== -1;
 	};
 
 } )();
@@ -4884,8 +5098,7 @@ OO.ui.Element = function OoUiElement( config ) {
 	this.$element = config.$element ||
 		$( document.createElement( this.getTagName() ) );
 	this.elementGroup = null;
-	this.debouncedUpdateThemeClassesHandler = this.debouncedUpdateThemeClasses.bind( this );
-	this.updateThemeClassesPending = false;
+	this.debouncedUpdateThemeClassesHandler = OO.ui.debounce( this.debouncedUpdateThemeClasses );
 
 	// Initialization
 	if ( Array.isArray( config.classes ) ) {
@@ -4952,7 +5165,7 @@ OO.ui.Element.static.tagName = 'div';
  *   DOM node.
  */
 OO.ui.Element.static.infuse = function ( idOrNode ) {
-	var obj = OO.ui.Element.static.unsafeInfuse( idOrNode, true );
+	var obj = OO.ui.Element.static.unsafeInfuse( idOrNode, false );
 	// Verify that the type matches up.
 	// FIXME: uncomment after T89721 is fixed (see T90929)
 	/*
@@ -4968,12 +5181,14 @@ OO.ui.Element.static.infuse = function ( idOrNode ) {
  * extra property so that only the top-level invocation touches the DOM.
  * @private
  * @param {string|HTMLElement|jQuery} idOrNode
- * @param {boolean} top True only for top-level invocation.
+ * @param {jQuery.Promise|boolean} domPromise A promise that will be resolved
+ *     when the top-level widget of this infusion is inserted into DOM,
+ *     replacing the original node; or false for top-level invocation.
  * @return {OO.ui.Element}
  */
-OO.ui.Element.static.unsafeInfuse = function ( idOrNode, top ) {
+OO.ui.Element.static.unsafeInfuse = function ( idOrNode, domPromise ) {
 	// look for a cached result of a previous infusion.
-	var id, $elem, data, cls, obj;
+	var id, $elem, data, cls, parts, parent, obj, top, state;
 	if ( typeof idOrNode === 'string' ) {
 		id = idOrNode;
 		$elem = $( document.getElementById( id ) );
@@ -4981,16 +5196,16 @@ OO.ui.Element.static.unsafeInfuse = function ( idOrNode, top ) {
 		$elem = $( idOrNode );
 		id = $elem.attr( 'id' );
 	}
-	data = $elem.data( 'ooui-infused' );
+	if ( !$elem.length ) {
+		throw new Error( 'Widget not found: ' + id );
+	}
+	data = $elem.data( 'ooui-infused' ) || $elem[ 0 ].oouiInfused;
 	if ( data ) {
 		// cached!
 		if ( data === true ) {
 			throw new Error( 'Circular dependency! ' + id );
 		}
 		return data;
-	}
-	if ( !$elem.length ) {
-		throw new Error( 'Widget not found: ' + id );
 	}
 	data = $elem.attr( 'data-ooui' );
 	if ( !data ) {
@@ -5008,16 +5223,43 @@ OO.ui.Element.static.unsafeInfuse = function ( idOrNode, top ) {
 		// Special case: this is a raw Tag; wrap existing node, don't rebuild.
 		return new OO.ui.Element( { $element: $elem } );
 	}
-	cls = OO.ui[data._];
-	if ( !cls ) {
-		throw new Error( 'Unknown widget type: ' + id );
+	parts = data._.split( '.' );
+	cls = OO.getProp.apply( OO, [ window ].concat( parts ) );
+	if ( cls === undefined ) {
+		// The PHP output might be old and not including the "OO.ui" prefix
+		// TODO: Remove this back-compat after next major release
+		cls = OO.getProp.apply( OO, [ OO.ui ].concat( parts ) );
+		if ( cls === undefined ) {
+			throw new Error( 'Unknown widget type: id: ' + id + ', class: ' + data._ );
+		}
+	}
+
+	// Verify that we're creating an OO.ui.Element instance
+	parent = cls.parent;
+
+	while ( parent !== undefined ) {
+		if ( parent === OO.ui.Element ) {
+			// Safe
+			break;
+		}
+
+		parent = parent.parent;
+	}
+
+	if ( parent !== OO.ui.Element ) {
+		throw new Error( 'Unknown widget type: id: ' + id + ', class: ' + data._ );
+	}
+
+	if ( domPromise === false ) {
+		top = $.Deferred();
+		domPromise = top.promise();
 	}
 	$elem.data( 'ooui-infused', true ); // prevent loops
 	data.id = id; // implicit
 	data = OO.copy( data, null, function deserialize( value ) {
 		if ( OO.isPlainObject( value ) ) {
 			if ( value.tag ) {
-				return OO.ui.Element.static.unsafeInfuse( value.tag, false );
+				return OO.ui.Element.static.unsafeInfuse( value.tag, domPromise );
 			}
 			if ( value.html ) {
 				return new OO.ui.HtmlSnippet( value.html );
@@ -5026,13 +5268,22 @@ OO.ui.Element.static.unsafeInfuse = function ( idOrNode, top ) {
 	} );
 	// jscs:disable requireCapitalizedConstructors
 	obj = new cls( data ); // rebuild widget
+	// pick up dynamic state, like focus, value of form inputs, scroll position, etc.
+	state = obj.gatherPreInfuseState( $elem );
 	// now replace old DOM with this new DOM.
 	if ( top ) {
 		$elem.replaceWith( obj.$element );
+		// This element is now gone from the DOM, but if anyone is holding a reference to it,
+		// let's allow them to OO.ui.infuse() it and do what they expect (T105828).
+		// Do not use jQuery.data(), as using it on detached nodes leaks memory in 1.x line by design.
+		$elem[ 0 ].oouiInfused = obj;
+		top.resolve();
 	}
 	obj.$element.data( 'ooui-infused', obj );
 	// set the 'data-ooui' attribute so we can identify infused widgets
 	obj.$element.attr( 'data-ooui', '' );
+	// restore dynamic state after the new element is inserted into DOM
+	domPromise.done( obj.restorePreInfuseState.bind( obj, state ) );
 	return obj;
 };
 
@@ -5089,6 +5340,8 @@ OO.ui.Element.static.getDocument = function ( obj ) {
  */
 OO.ui.Element.static.getWindow = function ( obj ) {
 	var doc = this.getDocument( obj );
+	// Support: IE 8
+	// Standard Document.defaultView is IE9+
 	return doc.parentWindow || doc.defaultView;
 };
 
@@ -5204,9 +5457,13 @@ OO.ui.Element.static.getRelativePosition = function ( $element, $anchor ) {
  */
 OO.ui.Element.static.getBorders = function ( el ) {
 	var doc = el.ownerDocument,
+		// Support: IE 8
+		// Standard Document.defaultView is IE9+
 		win = doc.parentWindow || doc.defaultView,
 		style = win && win.getComputedStyle ?
 			win.getComputedStyle( el, null ) :
+			// Support: IE 8
+			// Standard getComputedStyle() is IE9+
 			el.currentStyle,
 		$el = $( el ),
 		top = parseFloat( style ? style.borderTopWidth : $el.css( 'borderTopWidth' ) ) || 0,
@@ -5232,6 +5489,8 @@ OO.ui.Element.static.getBorders = function ( el ) {
 OO.ui.Element.static.getDimensions = function ( el ) {
 	var $el, $win,
 		doc = el.ownerDocument || el.document,
+		// Support: IE 8
+		// Standard Document.defaultView is IE9+
 		win = doc.parentWindow || doc.defaultView;
 
 	if ( win === el || el === doc.documentElement ) {
@@ -5312,11 +5571,12 @@ OO.ui.Element.static.getRootScrollableElement = function ( el ) {
  */
 OO.ui.Element.static.getClosestScrollableContainer = function ( el, dimension ) {
 	var i, val,
-		props = [ 'overflow' ],
+		// props = [ 'overflow' ] doesn't work due to https://bugzilla.mozilla.org/show_bug.cgi?id=889091
+		props = [ 'overflow-x', 'overflow-y' ],
 		$parent = $( el ).parent();
 
 	if ( dimension === 'x' || dimension === 'y' ) {
-		props.push( 'overflow-' + dimension );
+		props = [ 'overflow-' + dimension ];
 	}
 
 	while ( $parent.length ) {
@@ -5347,16 +5607,18 @@ OO.ui.Element.static.getClosestScrollableContainer = function ( el, dimension ) 
  * @param {Function} [config.complete] Function to call when scrolling completes
  */
 OO.ui.Element.static.scrollIntoView = function ( el, config ) {
+	var rel, anim, callback, sc, $sc, eld, scd, $win;
+
 	// Configuration initialization
 	config = config || {};
 
-	var rel, anim = {},
-		callback = typeof config.complete === 'function' && config.complete,
-		sc = this.getClosestScrollableContainer( el, config.direction ),
-		$sc = $( sc ),
-		eld = this.getDimensions( el ),
-		scd = this.getDimensions( sc ),
-		$win = $( this.getWindow( el ) );
+	anim = {};
+	callback = typeof config.complete === 'function' && config.complete;
+	sc = this.getClosestScrollableContainer( el, config.direction );
+	$sc = $( sc );
+	eld = this.getDimensions( el );
+	scd = this.getDimensions( sc );
+	$win = $( this.getWindow( el ) );
 
 	// Compute the distances between the edges of el and the edges of the scroll viewport
 	if ( $sc.is( 'html, body' ) ) {
@@ -5517,18 +5779,16 @@ OO.ui.Element.prototype.supports = function ( methods ) {
  *   guaranteeing that theme updates do not occur within an element's constructor
  */
 OO.ui.Element.prototype.updateThemeClasses = function () {
-	if ( !this.updateThemeClassesPending ) {
-		this.updateThemeClassesPending = true;
-		setTimeout( this.debouncedUpdateThemeClassesHandler );
-	}
+	this.debouncedUpdateThemeClassesHandler();
 };
 
 /**
  * @private
+ * @localdoc This method is called directly from the QUnit tests instead of #updateThemeClasses, to
+ *   make them synchronous.
  */
 OO.ui.Element.prototype.debouncedUpdateThemeClasses = function () {
 	OO.ui.theme.updateElementClasses( this );
-	this.updateThemeClassesPending = false;
 };
 
 /**
@@ -5606,11 +5866,40 @@ OO.ui.Element.prototype.scrollElementIntoView = function ( config ) {
 };
 
 /**
+ * Gather the dynamic state (focus, value of form inputs, scroll position, etc.) of a HTML DOM node
+ * (and its children) that represent an Element of the same type and configuration as the current
+ * one, generated by the PHP implementation.
+ *
+ * This method is called just before `node` is detached from the DOM. The return value of this
+ * function will be passed to #restorePreInfuseState after this widget's #$element is inserted into
+ * DOM to replace `node`.
+ *
+ * @protected
+ * @param {HTMLElement} node
+ * @return {Object}
+ */
+OO.ui.Element.prototype.gatherPreInfuseState = function () {
+	return {};
+};
+
+/**
+ * Restore the pre-infusion dynamic state for this widget.
+ *
+ * This method is called after #$element has been inserted into DOM. The parameter is the return
+ * value of #gatherPreInfuseState.
+ *
+ * @protected
+ * @param {Object} state
+ */
+OO.ui.Element.prototype.restorePreInfuseState = function () {
+};
+
+/**
  * Layouts are containers for elements and are used to arrange other widgets of arbitrary type in a way
  * that is centrally controlled and can be updated dynamically. Layouts can be, and usually are, combined.
  * See {@link OO.ui.FieldsetLayout FieldsetLayout}, {@link OO.ui.FieldLayout FieldLayout}, {@link OO.ui.FormLayout FormLayout},
  * {@link OO.ui.PanelLayout PanelLayout}, {@link OO.ui.StackLayout StackLayout}, {@link OO.ui.PageLayout PageLayout},
- * and {@link OO.ui.BookletLayout BookletLayout} for more information and examples.
+ * {@link OO.ui.HorizontalLayout HorizontalLayout}, and {@link OO.ui.BookletLayout BookletLayout} for more information and examples.
  *
  * @abstract
  * @class
@@ -5942,7 +6231,27 @@ OO.ui.Window.prototype.getManager = function () {
  * @return {string} Symbolic name of the size: `small`, `medium`, `large`, `larger`, `full`
  */
 OO.ui.Window.prototype.getSize = function () {
-	return this.size;
+	var viewport = OO.ui.Element.static.getDimensions( this.getElementWindow() ),
+		sizes = this.manager.constructor.static.sizes,
+		size = this.size;
+
+	if ( !sizes[ size ] ) {
+		size = this.manager.constructor.static.defaultSize;
+	}
+	if ( size !== 'full' && viewport.rect.right - viewport.rect.left < sizes[ size ].width ) {
+		size = 'full';
+	}
+
+	return size;
+};
+
+/**
+ * Get the size properties associated with the current window size
+ *
+ * @return {Object} Size properties
+ */
+OO.ui.Window.prototype.getSizeProperties = function () {
+	return this.manager.constructor.static.sizes[ this.getSize() ];
 };
 
 /**
@@ -6028,7 +6337,7 @@ OO.ui.Window.prototype.getBodyHeight = function () {
  * @return {string} Directionality: `'ltr'` or `'rtl'`
  */
 OO.ui.Window.prototype.getDir = function () {
-	return this.dir;
+	return OO.ui.Element.static.getDir( this.$content ) || 'ltr';
 };
 
 /**
@@ -6223,7 +6532,6 @@ OO.ui.Window.prototype.initialize = function () {
 	this.$head = $( '<div>' );
 	this.$body = $( '<div>' );
 	this.$foot = $( '<div>' );
-	this.dir = OO.ui.Element.static.getDir( this.$content ) || 'ltr';
 	this.$document = $( this.getElementDocument() );
 
 	// Events
@@ -6437,7 +6745,7 @@ OO.ui.Dialog = function OoUiDialog( config ) {
 	this.actions = new OO.ui.ActionSet();
 	this.attachedActions = [];
 	this.currentAction = null;
-	this.onDocumentKeyDownHandler = this.onDocumentKeyDown.bind( this );
+	this.onDialogKeyDownHandler = this.onDialogKeyDown.bind( this );
 
 	// Events
 	this.actions.connect( this, {
@@ -6520,7 +6828,7 @@ OO.ui.Dialog.static.escapable = true;
  * @private
  * @param {jQuery.Event} e Key down event
  */
-OO.ui.Dialog.prototype.onDocumentKeyDown = function ( e ) {
+OO.ui.Dialog.prototype.onDialogKeyDown = function ( e ) {
 	if ( e.which === OO.ui.Keys.ESCAPE ) {
 		this.close();
 		e.preventDefault();
@@ -6617,7 +6925,7 @@ OO.ui.Dialog.prototype.getSetupProcess = function ( data ) {
 			this.actions.add( this.getActionWidgets( actions ) );
 
 			if ( this.constructor.static.escapable ) {
-				this.$document.on( 'keydown', this.onDocumentKeyDownHandler );
+				this.$element.on( 'keydown', this.onDialogKeyDownHandler );
 			}
 		}, this );
 };
@@ -6630,7 +6938,7 @@ OO.ui.Dialog.prototype.getTeardownProcess = function ( data ) {
 	return OO.ui.Dialog.parent.prototype.getTeardownProcess.call( this, data )
 		.first( function () {
 			if ( this.constructor.static.escapable ) {
-				this.$document.off( 'keydown', this.onDocumentKeyDownHandler );
+				this.$element.off( 'keydown', this.onDialogKeyDownHandler );
 			}
 
 			this.actions.clear();
@@ -6642,10 +6950,12 @@ OO.ui.Dialog.prototype.getTeardownProcess = function ( data ) {
  * @inheritdoc
  */
 OO.ui.Dialog.prototype.initialize = function () {
+	var titleId;
+
 	// Parent method
 	OO.ui.Dialog.parent.prototype.initialize.call( this );
 
-	var titleId = OO.ui.generateElementId();
+	titleId = OO.ui.generateElementId();
 
 	// Properties
 	this.title = new OO.ui.LabelWidget( {
@@ -7271,25 +7581,18 @@ OO.ui.WindowManager.prototype.clearWindows = function () {
  * @chainable
  */
 OO.ui.WindowManager.prototype.updateWindowSize = function ( win ) {
+	var isFullscreen;
+
 	// Bypass for non-current, and thus invisible, windows
 	if ( win !== this.currentWindow ) {
 		return;
 	}
 
-	var viewport = OO.ui.Element.static.getDimensions( win.getElementWindow() ),
-		sizes = this.constructor.static.sizes,
-		size = win.getSize();
+	isFullscreen = win.getSize() === 'full';
 
-	if ( !sizes[ size ] ) {
-		size = this.constructor.static.defaultSize;
-	}
-	if ( size !== 'full' && viewport.rect.right - viewport.rect.left < sizes[ size ].width ) {
-		size = 'full';
-	}
-
-	this.$element.toggleClass( 'oo-ui-windowManager-fullscreen', size === 'full' );
-	this.$element.toggleClass( 'oo-ui-windowManager-floating', size !== 'full' );
-	win.setDimensions( sizes[ size ] );
+	this.$element.toggleClass( 'oo-ui-windowManager-fullscreen', isFullscreen );
+	this.$element.toggleClass( 'oo-ui-windowManager-floating', !isFullscreen );
+	win.setDimensions( win.getSizeProperties() );
 
 	this.emit( 'resize', win );
 
@@ -7304,13 +7607,13 @@ OO.ui.WindowManager.prototype.updateWindowSize = function ( win ) {
  * @chainable
  */
 OO.ui.WindowManager.prototype.toggleGlobalEvents = function ( on ) {
-	on = on === undefined ? !!this.globalEvents : !!on;
-
 	var scrollWidth, bodyMargin,
 		$body = $( this.getElementDocument().body ),
 		// We could have multiple window managers open so only modify
 		// the body css at the bottom of the stack
 		stackDepth = $body.data( 'windowManagerGlobalEvents' ) || 0 ;
+
+	on = on === undefined ? !!this.globalEvents : !!on;
 
 	if ( on ) {
 		if ( !this.globalEvents ) {
@@ -7824,11 +8127,11 @@ OO.ui.ToolFactory.prototype.extract = function ( collection, used ) {
  * @constructor
  */
 OO.ui.ToolGroupFactory = function OoUiToolGroupFactory() {
+	var i, l, defaultClasses;
 	// Parent constructor
 	OO.Factory.call( this );
 
-	var i, l,
-		defaultClasses = this.constructor.static.getDefaultClasses();
+	defaultClasses = this.constructor.static.getDefaultClasses();
 
 	// Register default toolgroups
 	for ( i = 0, l = defaultClasses.length; i < l; i++ ) {
@@ -7897,9 +8200,17 @@ OO.ui.Theme.prototype.getElementClasses = function ( /* element */ ) {
  * @return {Object.<string,string[]>} Categorized class names with `on` and `off` lists
  */
 OO.ui.Theme.prototype.updateElementClasses = function ( element ) {
-	var classes = this.getElementClasses( element );
+	var $elements = $( [] ),
+		classes = this.getElementClasses( element );
 
-	element.$element
+	if ( element.$icon ) {
+		$elements = $elements.add( element.$icon );
+	}
+	if ( element.$indicator ) {
+		$elements = $elements.add( element.$indicator );
+	}
+
+	$elements
 		.removeClass( classes.off.join( ' ' ) )
 		.addClass( classes.on.join( ' ' ) );
 };
@@ -8014,7 +8325,8 @@ OO.ui.mixin.TabIndexedElement.prototype.updateTabIndex = function () {
 			// Do not index over disabled elements
 			this.$tabIndexed.attr( {
 				tabindex: this.isDisabled() ? -1 : this.tabIndex,
-				// ChromeVox and NVDA do not seem to inherit this from parent elements
+				// Support: ChromeVox and NVDA
+				// These do not seem to inherit aria-disabled from parent elements
 				'aria-disabled': this.isDisabled().toString()
 			} );
 		} else {
@@ -8057,7 +8369,6 @@ OO.ui.mixin.TabIndexedElement.prototype.getTabIndex = function () {
  * @cfg {jQuery} [$button] The button element created by the class.
  *  If this configuration is omitted, the button element will use a generated `<a>`.
  * @cfg {boolean} [framed=true] Render the button with a frame
- * @cfg {string} [accessKey] Button's access key
  */
 OO.ui.mixin.ButtonElement = function OoUiMixinButtonElement( config ) {
 	// Configuration initialization
@@ -8066,7 +8377,6 @@ OO.ui.mixin.ButtonElement = function OoUiMixinButtonElement( config ) {
 	// Properties
 	this.$button = null;
 	this.framed = null;
-	this.accessKey = null;
 	this.active = false;
 	this.onMouseUpHandler = this.onMouseUp.bind( this );
 	this.onMouseDownHandler = this.onMouseDown.bind( this );
@@ -8078,7 +8388,6 @@ OO.ui.mixin.ButtonElement = function OoUiMixinButtonElement( config ) {
 	// Initialization
 	this.$element.addClass( 'oo-ui-buttonElement' );
 	this.toggleFramed( config.framed === undefined || config.framed );
-	this.setAccessKey( config.accessKey );
 	this.setButtonElement( config.$button || $( '<a>' ) );
 };
 
@@ -8136,7 +8445,7 @@ OO.ui.mixin.ButtonElement.prototype.setButtonElement = function ( $button ) {
 
 	this.$button = $button
 		.addClass( 'oo-ui-buttonElement-button' )
-		.attr( { role: 'button', accesskey: this.accessKey } )
+		.attr( { role: 'button' } )
 		.on( {
 			mousedown: this.onMouseDownHandler,
 			keydown: this.onKeyDownHandler,
@@ -8158,7 +8467,7 @@ OO.ui.mixin.ButtonElement.prototype.onMouseDown = function ( e ) {
 	this.$element.addClass( 'oo-ui-buttonElement-pressed' );
 	// Run the mouseup handler no matter where the mouse is when the button is let go, so we can
 	// reliably remove the pressed class
-	this.getElementDocument().addEventListener( 'mouseup', this.onMouseUpHandler, true );
+	OO.ui.addCaptureEventListener( this.getElementDocument(), 'mouseup', this.onMouseUpHandler );
 	// Prevent change of focus unless specifically configured otherwise
 	if ( this.constructor.static.cancelButtonMouseDownEvents ) {
 		return false;
@@ -8177,7 +8486,7 @@ OO.ui.mixin.ButtonElement.prototype.onMouseUp = function ( e ) {
 	}
 	this.$element.removeClass( 'oo-ui-buttonElement-pressed' );
 	// Stop listening for mouseup, since we only needed this once
-	this.getElementDocument().removeEventListener( 'mouseup', this.onMouseUpHandler, true );
+	OO.ui.removeCaptureEventListener( this.getElementDocument(), 'mouseup', this.onMouseUpHandler );
 };
 
 /**
@@ -8208,7 +8517,7 @@ OO.ui.mixin.ButtonElement.prototype.onKeyDown = function ( e ) {
 	this.$element.addClass( 'oo-ui-buttonElement-pressed' );
 	// Run the keyup handler no matter where the key is when the button is let go, so we can
 	// reliably remove the pressed class
-	this.getElementDocument().addEventListener( 'keyup', this.onKeyUpHandler, true );
+	OO.ui.addCaptureEventListener( this.getElementDocument(), 'keyup', this.onKeyUpHandler );
 };
 
 /**
@@ -8223,7 +8532,7 @@ OO.ui.mixin.ButtonElement.prototype.onKeyUp = function ( e ) {
 	}
 	this.$element.removeClass( 'oo-ui-buttonElement-pressed' );
 	// Stop listening for keyup, since we only needed this once
-	this.getElementDocument().removeEventListener( 'keyup', this.onKeyUpHandler, true );
+	OO.ui.removeCaptureEventListener( this.getElementDocument(), 'keyup', this.onKeyUpHandler );
 };
 
 /**
@@ -8264,29 +8573,6 @@ OO.ui.mixin.ButtonElement.prototype.toggleFramed = function ( framed ) {
 			.toggleClass( 'oo-ui-buttonElement-frameless', !framed )
 			.toggleClass( 'oo-ui-buttonElement-framed', framed );
 		this.updateThemeClasses();
-	}
-
-	return this;
-};
-
-/**
- * Set the button's access key.
- *
- * @param {string} accessKey Button's access key, use empty string to remove
- * @chainable
- */
-OO.ui.mixin.ButtonElement.prototype.setAccessKey = function ( accessKey ) {
-	accessKey = typeof accessKey === 'string' && accessKey.length ? accessKey : null;
-
-	if ( this.accessKey !== accessKey ) {
-		if ( this.$button ) {
-			if ( accessKey !== null ) {
-				this.$button.attr( 'accesskey', accessKey );
-			} else {
-				this.$button.removeAttr( 'accesskey' );
-			}
-		}
-		this.accessKey = accessKey;
 	}
 
 	return this;
@@ -8453,7 +8739,7 @@ OO.ui.mixin.GroupElement.prototype.aggregate = function ( events ) {
 				item = this.items[ i ];
 				if ( item.connect && item.disconnect ) {
 					remove = {};
-					remove[ itemEvent ] = [ 'emit', this.aggregateItemEvents[itemEvent], item ];
+					remove[ itemEvent ] = [ 'emit', this.aggregateItemEvents[ itemEvent ], item ];
 					item.disconnect( this, remove );
 				}
 			}
@@ -8496,7 +8782,7 @@ OO.ui.mixin.GroupElement.prototype.addItems = function ( items, index ) {
 		item = items[ i ];
 
 		// Check if item exists then remove it first, effectively "moving" it
-		currentIndex = $.inArray( item, this.items );
+		currentIndex = this.items.indexOf( item );
 		if ( currentIndex >= 0 ) {
 			this.removeItems( [ item ] );
 			// Adjust index to compensate for removal
@@ -8545,7 +8831,7 @@ OO.ui.mixin.GroupElement.prototype.removeItems = function ( items ) {
 	// Remove specific items
 	for ( i = 0, len = items.length; i < len; i++ ) {
 		item = items[ i ];
-		index = $.inArray( item, this.items );
+		index = this.items.indexOf( item );
 		if ( index !== -1 ) {
 			if (
 				item.connect && item.disconnect &&
@@ -8669,13 +8955,13 @@ OO.ui.mixin.DraggableElement.prototype.onDragStart = function ( e ) {
 	// Define drop effect
 	dataTransfer.dropEffect = 'none';
 	dataTransfer.effectAllowed = 'move';
+	// Support: Firefox
 	// We must set up a dataTransfer data property or Firefox seems to
 	// ignore the fact the element is draggable.
 	try {
 		dataTransfer.setData( 'application-x/OOjs-UI-draggable', this.getIndex() );
 	} catch ( err ) {
-		// The above is only for firefox. No need to set a catch clause
-		// if it fails, move on.
+		// The above is only for Firefox. Move on if it fails.
 	}
 	// Add dragging class
 	this.$element.addClass( 'oo-ui-draggableElement-dragging' );
@@ -8783,8 +9069,8 @@ OO.ui.mixin.DraggableGroupElement = function OoUiMixinDraggableGroupElement( con
 		itemDragEnd: 'onItemDragEnd'
 	} );
 	this.$element.on( {
-		dragover: $.proxy( this.onDragOver, this ),
-		dragleave: $.proxy( this.onDragLeave, this )
+		dragover: this.onDragOver.bind( this ),
+		dragleave: this.onDragLeave.bind( this )
 	} );
 
 	// Initialize
@@ -9114,6 +9400,8 @@ OO.ui.mixin.IconElement.prototype.setIconElement = function ( $icon ) {
 	if ( this.iconTitle !== null ) {
 		this.$icon.attr( 'title', this.iconTitle );
 	}
+
+	this.updateThemeClasses();
 };
 
 /**
@@ -9283,6 +9571,8 @@ OO.ui.mixin.IndicatorElement.prototype.setIndicatorElement = function ( $indicat
 	if ( this.indicatorTitle !== null ) {
 		this.$indicator.attr( 'title', this.indicatorTitle );
 	}
+
+	this.updateThemeClasses();
 };
 
 /**
@@ -9514,7 +9804,7 @@ OO.ui.mixin.LabelElement.prototype.setLabelContent = function ( label ) {
 };
 
 /**
- * LookupElement is a mixin that creates a {@link OO.ui.TextInputMenuSelectWidget menu} of suggested values for
+ * LookupElement is a mixin that creates a {@link OO.ui.FloatingMenuSelectWidget menu} of suggested values for
  * a {@link OO.ui.TextInputWidget text input widget}. Suggested values are based on the characters the user types
  * into the text input field and, in general, the menu is only displayed when the user types. If a suggested value is chosen
  * from the lookup menu, that value becomes the value of the input field.
@@ -9543,10 +9833,10 @@ OO.ui.mixin.LookupElement = function OoUiMixinLookupElement( config ) {
 
 	// Properties
 	this.$overlay = config.$overlay || this.$element;
-	this.lookupMenu = new OO.ui.TextInputMenuSelectWidget( this, {
+	this.lookupMenu = new OO.ui.FloatingMenuSelectWidget( {
 		widget: this,
 		input: this,
-		$container: config.$container
+		$container: config.$container || this.$element
 	} );
 
 	this.allowSuggestionsWhenEmpty = config.allowSuggestionsWhenEmpty || false;
@@ -9657,7 +9947,7 @@ OO.ui.mixin.LookupElement.prototype.onLookupMenuItemChoose = function ( item ) {
  * Get lookup menu.
  *
  * @private
- * @return {OO.ui.TextInputMenuSelectWidget}
+ * @return {OO.ui.FloatingMenuSelectWidget}
  */
 OO.ui.mixin.LookupElement.prototype.getLookupMenu = function () {
 	return this.lookupMenu;
@@ -9867,6 +10157,28 @@ OO.ui.mixin.LookupElement.prototype.getLookupMenuOptionsFromData = function () {
 };
 
 /**
+ * Set the read-only state of the widget.
+ *
+ * This will also disable/enable the lookups functionality.
+ *
+ * @param {boolean} readOnly Make input read-only
+ * @chainable
+ */
+OO.ui.mixin.LookupElement.prototype.setReadOnly = function ( readOnly ) {
+	// Parent method
+	// Note: Calling #setReadOnly this way assumes this is mixed into an OO.ui.TextInputWidget
+	OO.ui.TextInputWidget.prototype.setReadOnly.call( this, readOnly );
+
+	this.setLookupsDisabled( readOnly );
+	// During construction, #setReadOnly is called before the OO.ui.mixin.LookupElement constructor
+	if ( readOnly && this.lookupMenu ) {
+		this.closeLookupMenu();
+	}
+
+	return this;
+};
+
+/**
  * PopupElement is mixed into other classes to generate a {@link OO.ui.PopupWidget popup widget}.
  * A popup is a container for content. It is overlaid and positioned absolutely. By default, each
  * popup has an anchor, which is an arrow-like protrusion that points toward the popup’s origin.
@@ -10005,7 +10317,8 @@ OO.ui.mixin.FlaggedElement.prototype.setFlaggedElement = function ( $flagged ) {
  * @return {boolean} The flag is set
  */
 OO.ui.mixin.FlaggedElement.prototype.hasFlag = function ( flag ) {
-	return flag in this.flags;
+	// This may be called before the constructor, thus before this.flags is set
+	return this.flags && ( flag in this.flags );
 };
 
 /**
@@ -10014,7 +10327,8 @@ OO.ui.mixin.FlaggedElement.prototype.hasFlag = function ( flag ) {
  * @return {string[]} Flag names
  */
 OO.ui.mixin.FlaggedElement.prototype.getFlags = function () {
-	return Object.keys( this.flags );
+	// This may be called before the constructor, thus before this.flags is set
+	return Object.keys( this.flags || {} );
 };
 
 /**
@@ -10227,12 +10541,21 @@ OO.ui.mixin.TitledElement.prototype.getTitle = function () {
  * {@link OO.ui.mixin.ClippableElement#clip} to make sure it's still
  * clipping correctly.
  *
+ * The dimensions of #$clippableContainer will be compared to the boundaries of the
+ * nearest scrollable container. If #$clippableContainer is too tall and/or too wide,
+ * then #$clippable will be given a fixed reduced height and/or width and will be made
+ * scrollable. By default, #$clippable and #$clippableContainer are the same element,
+ * but you can build a static footer by setting #$clippableContainer to an element that contains
+ * #$clippable and the footer.
+ *
  * @abstract
  * @class
  *
  * @constructor
  * @param {Object} [config] Configuration options
- * @cfg {jQuery} [$clippable] Nodes to clip, assigned to #$clippable, omit to use #$element
+ * @cfg {jQuery} [$clippable] Node to clip, assigned to #$clippable, omit to use #$element
+ * @cfg {jQuery} [$clippableContainer] Node to keep visible, assigned to #$clippableContainer,
+ *   omit to use #$clippable
  */
 OO.ui.mixin.ClippableElement = function OoUiMixinClippableElement( config ) {
 	// Configuration initialization
@@ -10240,18 +10563,22 @@ OO.ui.mixin.ClippableElement = function OoUiMixinClippableElement( config ) {
 
 	// Properties
 	this.$clippable = null;
+	this.$clippableContainer = null;
 	this.clipping = false;
 	this.clippedHorizontally = false;
 	this.clippedVertically = false;
-	this.$clippableContainer = null;
+	this.$clippableScrollableContainer = null;
 	this.$clippableScroller = null;
 	this.$clippableWindow = null;
 	this.idealWidth = null;
 	this.idealHeight = null;
-	this.onClippableContainerScrollHandler = this.clip.bind( this );
+	this.onClippableScrollHandler = this.clip.bind( this );
 	this.onClippableWindowResizeHandler = this.clip.bind( this );
 
 	// Initialization
+	if ( config.$clippableContainer ) {
+		this.setClippableContainer( config.$clippableContainer );
+	}
 	this.setClippableElement( config.$clippable || this.$element );
 };
 
@@ -10276,6 +10603,23 @@ OO.ui.mixin.ClippableElement.prototype.setClippableElement = function ( $clippab
 };
 
 /**
+ * Set clippable container.
+ *
+ * This is the container that will be measured when deciding whether to clip. When clipping,
+ * #$clippable will be resized in order to keep the clippable container fully visible.
+ *
+ * If the clippable container is unset, #$clippable will be used.
+ *
+ * @param {jQuery|null} $clippableContainer Container to keep visible, or null to unset
+ */
+OO.ui.mixin.ClippableElement.prototype.setClippableContainer = function ( $clippableContainer ) {
+	this.$clippableContainer = $clippableContainer;
+	if ( this.$clippable ) {
+		this.clip();
+	}
+};
+
+/**
  * Toggle clipping.
  *
  * Do not turn clipping on until after the element is attached to the DOM and visible.
@@ -10289,13 +10633,13 @@ OO.ui.mixin.ClippableElement.prototype.toggleClipping = function ( clipping ) {
 	if ( this.clipping !== clipping ) {
 		this.clipping = clipping;
 		if ( clipping ) {
-			this.$clippableContainer = $( this.getClosestScrollableElementContainer() );
+			this.$clippableScrollableContainer = $( this.getClosestScrollableElementContainer() );
 			// If the clippable container is the root, we have to listen to scroll events and check
 			// jQuery.scrollTop on the window because of browser inconsistencies
-			this.$clippableScroller = this.$clippableContainer.is( 'html, body' ) ?
-				$( OO.ui.Element.static.getWindow( this.$clippableContainer ) ) :
-				this.$clippableContainer;
-			this.$clippableScroller.on( 'scroll', this.onClippableContainerScrollHandler );
+			this.$clippableScroller = this.$clippableScrollableContainer.is( 'html, body' ) ?
+				$( OO.ui.Element.static.getWindow( this.$clippableScrollableContainer ) ) :
+				this.$clippableScrollableContainer;
+			this.$clippableScroller.on( 'scroll', this.onClippableScrollHandler );
 			this.$clippableWindow = $( this.getElementWindow() )
 				.on( 'resize', this.onClippableWindowResizeHandler );
 			// Initial clip after visible
@@ -10304,8 +10648,8 @@ OO.ui.mixin.ClippableElement.prototype.toggleClipping = function ( clipping ) {
 			this.$clippable.css( { width: '', height: '', overflowX: '', overflowY: '' } );
 			OO.ui.Element.static.reconsiderScrollbars( this.$clippable[ 0 ] );
 
-			this.$clippableContainer = null;
-			this.$clippableScroller.off( 'scroll', this.onClippableContainerScrollHandler );
+			this.$clippableScrollableContainer = null;
+			this.$clippableScroller.off( 'scroll', this.onClippableScrollHandler );
 			this.$clippableScroller = null;
 			this.$clippableWindow.off( 'resize', this.onClippableWindowResizeHandler );
 			this.$clippableWindow = null;
@@ -10378,43 +10722,55 @@ OO.ui.mixin.ClippableElement.prototype.setIdealSize = function ( width, height )
  * @chainable
  */
 OO.ui.mixin.ClippableElement.prototype.clip = function () {
+	var $container, extraHeight, extraWidth, ccOffset,
+		$scrollableContainer, scOffset, scHeight, scWidth,
+		ccWidth, scrollerIsWindow, scrollTop, scrollLeft,
+		desiredWidth, desiredHeight, allotedWidth, allotedHeight,
+		naturalWidth, naturalHeight, clipWidth, clipHeight,
+		buffer = 7; // Chosen by fair dice roll
+
 	if ( !this.clipping ) {
-		// this.$clippableContainer and this.$clippableWindow are null, so the below will fail
+		// this.$clippableScrollableContainer and this.$clippableWindow are null, so the below will fail
 		return this;
 	}
 
-	var buffer = 7, // Chosen by fair dice roll
-		cOffset = this.$clippable.offset(),
-		$container = this.$clippableContainer.is( 'html, body' ) ?
-			this.$clippableWindow : this.$clippableContainer,
-		ccOffset = $container.offset() || { top: 0, left: 0 },
-		ccHeight = $container.innerHeight() - buffer,
-		ccWidth = $container.innerWidth() - buffer,
-		cWidth = this.$clippable.outerWidth() + buffer,
-		scrollTop = this.$clippableScroller[0] === this.$clippableWindow[0] ? this.$clippableScroller.scrollTop() : 0,
-		scrollLeft = this.$clippableScroller.scrollLeft(),
-		desiredWidth = cOffset.left < 0 ?
-			cWidth + cOffset.left :
-			( ccOffset.left + scrollLeft + ccWidth ) - cOffset.left,
-		desiredHeight = ( ccOffset.top + scrollTop + ccHeight ) - cOffset.top,
-		naturalWidth = this.$clippable.prop( 'scrollWidth' ),
-		naturalHeight = this.$clippable.prop( 'scrollHeight' ),
-		clipWidth = desiredWidth < naturalWidth,
-		clipHeight = desiredHeight < naturalHeight;
+	$container = this.$clippableContainer || this.$clippable;
+	extraHeight = $container.outerHeight() - this.$clippable.outerHeight();
+	extraWidth = $container.outerWidth() - this.$clippable.outerWidth();
+	ccOffset = $container.offset();
+	$scrollableContainer = this.$clippableScrollableContainer.is( 'html, body' ) ?
+		this.$clippableWindow : this.$clippableScrollableContainer;
+	scOffset = $scrollableContainer.offset() || { top: 0, left: 0 };
+	scHeight = $scrollableContainer.innerHeight() - buffer;
+	scWidth = $scrollableContainer.innerWidth() - buffer;
+	ccWidth = $container.outerWidth() + buffer;
+	scrollerIsWindow = this.$clippableScroller[ 0 ] === this.$clippableWindow[ 0 ];
+	scrollTop = scrollerIsWindow ? this.$clippableScroller.scrollTop() : 0;
+	scrollLeft = scrollerIsWindow ? this.$clippableScroller.scrollLeft() : 0;
+	desiredWidth = ccOffset.left < 0 ?
+		ccWidth + ccOffset.left :
+		( scOffset.left + scrollLeft + scWidth ) - ccOffset.left;
+	desiredHeight = ( scOffset.top + scrollTop + scHeight ) - ccOffset.top;
+	allotedWidth = desiredWidth - extraWidth;
+	allotedHeight = desiredHeight - extraHeight;
+	naturalWidth = this.$clippable.prop( 'scrollWidth' );
+	naturalHeight = this.$clippable.prop( 'scrollHeight' );
+	clipWidth = allotedWidth < naturalWidth;
+	clipHeight = allotedHeight < naturalHeight;
 
 	if ( clipWidth ) {
-		this.$clippable.css( { overflowX: 'scroll', width: desiredWidth } );
+		this.$clippable.css( { overflowX: 'scroll', width: Math.max( 0, allotedWidth ) } );
 	} else {
-		this.$clippable.css( { width: this.idealWidth || '', overflowX: '' } );
+		this.$clippable.css( { width: this.idealWidth ? this.idealWidth - extraWidth : '', overflowX: '' } );
 	}
 	if ( clipHeight ) {
-		this.$clippable.css( { overflowY: 'scroll', height: desiredHeight } );
+		this.$clippable.css( { overflowY: 'scroll', height: Math.max( 0, allotedHeight ) } );
 	} else {
-		this.$clippable.css( { height: this.idealHeight || '', overflowY: '' } );
+		this.$clippable.css( { height: this.idealHeight ? this.idealHeight - extraHeight : '', overflowY: '' } );
 	}
 
 	// If we stopped clipping in at least one of the dimensions
-	if ( !clipWidth || !clipHeight ) {
+	if ( ( this.clippedHorizontally && !clipWidth ) || ( this.clippedVertically && !clipHeight ) ) {
 		OO.ui.Element.static.reconsiderScrollbars( this.$clippable[ 0 ] );
 	}
 
@@ -10422,6 +10778,113 @@ OO.ui.mixin.ClippableElement.prototype.clip = function () {
 	this.clippedVertically = clipHeight;
 
 	return this;
+};
+
+/**
+ * AccessKeyedElement is mixed into other classes to provide an `accesskey` attribute.
+ * Accesskeys allow an user to go to a specific element by using
+ * a shortcut combination of a browser specific keys + the key
+ * set to the field.
+ *
+ *     @example
+ *     // AccessKeyedElement provides an 'accesskey' attribute to the
+ *     // ButtonWidget class
+ *     var button = new OO.ui.ButtonWidget( {
+ *         label: 'Button with Accesskey',
+ *         accessKey: 'k'
+ *     } );
+ *     $( 'body' ).append( button.$element );
+ *
+ * @abstract
+ * @class
+ *
+ * @constructor
+ * @param {Object} [config] Configuration options
+ * @cfg {jQuery} [$accessKeyed] The element to which the `accesskey` attribute is applied.
+ *  If this config is omitted, the accesskey functionality is applied to $element, the
+ *  element created by the class.
+ * @cfg {string|Function} [accessKey] The key or a function that returns the key. If
+ *  this config is omitted, no accesskey will be added.
+ */
+OO.ui.mixin.AccessKeyedElement = function OoUiMixinAccessKeyedElement( config ) {
+	// Configuration initialization
+	config = config || {};
+
+	// Properties
+	this.$accessKeyed = null;
+	this.accessKey = null;
+
+	// Initialization
+	this.setAccessKey( config.accessKey || null );
+	this.setAccessKeyedElement( config.$accessKeyed || this.$element );
+};
+
+/* Setup */
+
+OO.initClass( OO.ui.mixin.AccessKeyedElement );
+
+/* Static Properties */
+
+/**
+ * The access key, a function that returns a key, or `null` for no accesskey.
+ *
+ * @static
+ * @inheritable
+ * @property {string|Function|null}
+ */
+OO.ui.mixin.AccessKeyedElement.static.accessKey = null;
+
+/* Methods */
+
+/**
+ * Set the accesskeyed element.
+ *
+ * This method is used to retarget a AccessKeyedElement mixin so that its functionality applies to the specified element.
+ * If an element is already set, the mixin's effect on that element is removed before the new element is set up.
+ *
+ * @param {jQuery} $accessKeyed Element that should use the 'accesskeyes' functionality
+ */
+OO.ui.mixin.AccessKeyedElement.prototype.setAccessKeyedElement = function ( $accessKeyed ) {
+	if ( this.$accessKeyed ) {
+		this.$accessKeyed.removeAttr( 'accesskey' );
+	}
+
+	this.$accessKeyed = $accessKeyed;
+	if ( this.accessKey ) {
+		this.$accessKeyed.attr( 'accesskey', this.accessKey );
+	}
+};
+
+/**
+ * Set accesskey.
+ *
+ * @param {string|Function|null} accesskey Key, a function that returns a key, or `null` for no accesskey
+ * @chainable
+ */
+OO.ui.mixin.AccessKeyedElement.prototype.setAccessKey = function ( accessKey ) {
+	accessKey = typeof accessKey === 'string' ? OO.ui.resolveMsg( accessKey ) : null;
+
+	if ( this.accessKey !== accessKey ) {
+		if ( this.$accessKeyed ) {
+			if ( accessKey !== null ) {
+				this.$accessKeyed.attr( 'accesskey', accessKey );
+			} else {
+				this.$accessKeyed.removeAttr( 'accesskey' );
+			}
+		}
+		this.accessKey = accessKey;
+	}
+
+	return this;
+};
+
+/**
+ * Get accesskey.
+ *
+ * @return {string} accessKey string
+ */
+OO.ui.mixin.AccessKeyedElement.prototype.getAccessKey = function () {
+	return this.accessKey;
 };
 
 /**
@@ -11418,8 +11881,8 @@ OO.ui.ToolGroup.prototype.onMouseKeyDown = function ( e ) {
 		this.pressed = this.getTargetTool( e );
 		if ( this.pressed ) {
 			this.pressed.setActive( true );
-			this.getElementDocument().addEventListener( 'mouseup', this.onCapturedMouseKeyUpHandler, true );
-			this.getElementDocument().addEventListener( 'keyup', this.onCapturedMouseKeyUpHandler, true );
+			OO.ui.addCaptureEventListener( this.getElementDocument(), 'mouseup', this.onCapturedMouseKeyUpHandler );
+			OO.ui.addCaptureEventListener( this.getElementDocument(), 'keyup', this.onCapturedMouseKeyUpHandler );
 		}
 		return false;
 	}
@@ -11432,8 +11895,8 @@ OO.ui.ToolGroup.prototype.onMouseKeyDown = function ( e ) {
  * @param {Event} e Mouse up or key up event
  */
 OO.ui.ToolGroup.prototype.onCapturedMouseKeyUp = function ( e ) {
-	this.getElementDocument().removeEventListener( 'mouseup', this.onCapturedMouseKeyUpHandler, true );
-	this.getElementDocument().removeEventListener( 'keyup', this.onCapturedMouseKeyUpHandler, true );
+	OO.ui.removeCaptureEventListener( this.getElementDocument(), 'mouseup', this.onCapturedMouseKeyUpHandler );
+	OO.ui.removeCaptureEventListener( this.getElementDocument(), 'keyup', this.onCapturedMouseKeyUpHandler );
 	// onMouseKeyUp may be called a second time, depending on where the mouse is when the button is
 	// released, but since `this.pressed` will no longer be true, the second call will be ignored.
 	this.onMouseKeyUp( e );
@@ -11661,7 +12124,7 @@ OO.ui.MessageDialog = function OoUiMessageDialog( config ) {
 	this.$element.addClass( 'oo-ui-messageDialog' );
 };
 
-/* Inheritance */
+/* Setup */
 
 OO.inheritClass( OO.ui.MessageDialog, OO.ui.Dialog );
 
@@ -11805,6 +12268,26 @@ OO.ui.MessageDialog.prototype.getSetupProcess = function ( data ) {
 /**
  * @inheritdoc
  */
+OO.ui.MessageDialog.prototype.getReadyProcess = function ( data ) {
+	data = data || {};
+
+	// Parent method
+	return OO.ui.MessageDialog.parent.prototype.getReadyProcess.call( this, data )
+		.next( function () {
+			// Focus the primary action button
+			var actions = this.actions.get();
+			actions = actions.filter( function ( action ) {
+				return action.getFlags().indexOf( 'primary' ) > -1;
+			} );
+			if ( actions.length > 0 ) {
+				actions[ 0 ].$button.focus();
+			}
+		}, this );
+};
+
+/**
+ * @inheritdoc
+ */
 OO.ui.MessageDialog.prototype.getBodyHeight = function () {
 	var bodyHeight, oldOverflow,
 		$scrollable = this.container.$element;
@@ -11881,6 +12364,7 @@ OO.ui.MessageDialog.prototype.attachActions = function () {
 
 	special = this.actions.getSpecial();
 	others = this.actions.getOthers();
+
 	if ( special.safe ) {
 		this.$actions.append( special.safe.$element );
 		special.safe.toggleFramed( false );
@@ -11998,6 +12482,9 @@ OO.ui.MessageDialog.prototype.fitActions = function () {
 OO.ui.ProcessDialog = function OoUiProcessDialog( config ) {
 	// Parent constructor
 	OO.ui.ProcessDialog.parent.call( this, config );
+
+	// Properties
+	this.fitOnOpen = false;
 
 	// Initialization
 	this.$element.addClass( 'oo-ui-processDialog' );
@@ -12141,21 +12628,47 @@ OO.ui.ProcessDialog.prototype.executeAction = function ( action ) {
 };
 
 /**
+ * @inheritdoc
+ */
+OO.ui.ProcessDialog.prototype.setDimensions = function () {
+	// Parent method
+	OO.ui.ProcessDialog.parent.prototype.setDimensions.apply( this, arguments );
+
+	this.fitLabel();
+};
+
+/**
  * Fit label between actions.
  *
  * @private
  * @chainable
  */
 OO.ui.ProcessDialog.prototype.fitLabel = function () {
-	var safeWidth, primaryWidth, biggerWidth, labelWidth, navigationWidth, leftWidth, rightWidth;
+	var safeWidth, primaryWidth, biggerWidth, labelWidth, navigationWidth, leftWidth, rightWidth,
+		size = this.getSizeProperties();
+
+	if ( typeof size.width !== 'number' ) {
+		if ( this.isOpened() ) {
+			navigationWidth = this.$head.width() - 20;
+		} else if ( this.isOpening() ) {
+			if ( !this.fitOnOpen ) {
+				// Size is relative and the dialog isn't open yet, so wait.
+				this.manager.opening.done( this.fitLabel.bind( this ) );
+				this.fitOnOpen = true;
+			}
+			return;
+		} else {
+			return;
+		}
+	} else {
+		navigationWidth = size.width - 20;
+	}
 
 	safeWidth = this.$safeActions.is( ':visible' ) ? this.$safeActions.width() : 0;
 	primaryWidth = this.$primaryActions.is( ':visible' ) ? this.$primaryActions.width() : 0;
 	biggerWidth = Math.max( safeWidth, primaryWidth );
 
 	labelWidth = this.title.$element.width();
-	// Is there a better way to calculate this?
-	navigationWidth = OO.ui.WindowManager.static.sizes[ this.getSize() ].width - 20;
 
 	if ( 2 * biggerWidth + labelWidth < navigationWidth ) {
 		// We have enough space to center the label
@@ -12207,14 +12720,14 @@ OO.ui.ProcessDialog.prototype.showErrors = function ( errors ) {
 	}
 	this.$errorItems = $( items );
 	if ( recoverable ) {
-		abilities[this.currentAction] = true;
+		abilities[ this.currentAction ] = true;
 		// Copy the flags from the first matching action
 		actions = this.actions.get( { actions: this.currentAction } );
 		if ( actions.length ) {
-			this.retryButton.clearFlags().setFlags( actions[0].getFlags() );
+			this.retryButton.clearFlags().setFlags( actions[ 0 ].getFlags() );
 		}
 	} else {
-		abilities[this.currentAction] = false;
+		abilities[ this.currentAction ] = false;
 		this.actions.setAbilities( abilities );
 	}
 	if ( warning ) {
@@ -12249,6 +12762,7 @@ OO.ui.ProcessDialog.prototype.getTeardownProcess = function ( data ) {
 		.first( function () {
 			// Make sure to hide errors
 			this.hideErrors();
+			this.fitOnOpen = false;
 		}, this );
 };
 
@@ -12275,22 +12789,37 @@ OO.ui.ProcessDialog.prototype.getTeardownProcess = function ( data ) {
  * @class
  * @extends OO.ui.Layout
  * @mixins OO.ui.mixin.LabelElement
+ * @mixins OO.ui.mixin.TitledElement
  *
  * @constructor
  * @param {OO.ui.Widget} fieldWidget Field widget
  * @param {Object} [config] Configuration options
  * @cfg {string} [align='left'] Alignment of the label: 'left', 'right', 'top' or 'inline'
- * @cfg {string} [help] Help text. When help text is specified, a help icon will appear
- *  in the upper-right corner of the rendered field.
+ * @cfg {Array} [errors] Error messages about the widget, which will be displayed below the widget.
+ *  The array may contain strings or OO.ui.HtmlSnippet instances.
+ * @cfg {Array} [notices] Notices about the widget, which will be displayed below the widget.
+ *  The array may contain strings or OO.ui.HtmlSnippet instances.
+ * @cfg {string|OO.ui.HtmlSnippet} [help] Help text. When help text is specified, a "help" icon will appear
+ *  in the upper-right corner of the rendered field; clicking it will display the text in a popup.
+ *  For important messages, you are advised to use `notices`, as they are always shown.
+ *
+ * @throws {Error} An error is thrown if no widget is specified
  */
 OO.ui.FieldLayout = function OoUiFieldLayout( fieldWidget, config ) {
+	var hasInputWidget, div, i;
+
 	// Allow passing positional parameters inside the config object
 	if ( OO.isPlainObject( fieldWidget ) && config === undefined ) {
 		config = fieldWidget;
 		fieldWidget = config.fieldWidget;
 	}
 
-	var hasInputWidget = fieldWidget.constructor.static.supportsSimpleLabel;
+	// Make sure we have required constructor arguments
+	if ( fieldWidget === undefined ) {
+		throw new Error( 'Widget not found' );
+	}
+
+	hasInputWidget = fieldWidget.constructor.static.supportsSimpleLabel;
 
 	// Configuration initialization
 	config = $.extend( { align: 'left' }, config );
@@ -12300,10 +12829,14 @@ OO.ui.FieldLayout = function OoUiFieldLayout( fieldWidget, config ) {
 
 	// Mixin constructors
 	OO.ui.mixin.LabelElement.call( this, config );
+	OO.ui.mixin.TitledElement.call( this, $.extend( {}, config, { $titled: this.$label } ) );
 
 	// Properties
 	this.fieldWidget = fieldWidget;
+	this.errors = config.errors || [];
+	this.notices = config.notices || [];
 	this.$field = $( '<div>' );
+	this.$messages = $( '<ul>' );
 	this.$body = $( '<' + ( hasInputWidget ? 'label' : 'div' ) + '>' );
 	this.align = null;
 	if ( config.help ) {
@@ -12313,10 +12846,14 @@ OO.ui.FieldLayout = function OoUiFieldLayout( fieldWidget, config ) {
 			icon: 'info'
 		} );
 
+		div = $( '<div>' );
+		if ( config.help instanceof OO.ui.HtmlSnippet ) {
+			div.html( config.help.toString() );
+		} else {
+			div.text( config.help );
+		}
 		this.popupButtonWidget.getPopup().$body.append(
-			$( '<div>' )
-				.text( config.help )
-				.addClass( 'oo-ui-fieldLayout-help-content' )
+			div.addClass( 'oo-ui-fieldLayout-help-content' )
 		);
 		this.$help = this.popupButtonWidget.$element;
 	} else {
@@ -12333,11 +12870,22 @@ OO.ui.FieldLayout = function OoUiFieldLayout( fieldWidget, config ) {
 	this.$element
 		.addClass( 'oo-ui-fieldLayout' )
 		.append( this.$help, this.$body );
+	if ( this.errors.length || this.notices.length ) {
+		this.$element.append( this.$messages );
+	}
 	this.$body.addClass( 'oo-ui-fieldLayout-body' );
+	this.$messages.addClass( 'oo-ui-fieldLayout-messages' );
 	this.$field
 		.addClass( 'oo-ui-fieldLayout-field' )
 		.toggleClass( 'oo-ui-fieldLayout-disable', this.fieldWidget.isDisabled() )
 		.append( this.fieldWidget.$element );
+
+	for ( i = 0; i < this.notices.length; i++ ) {
+		this.$messages.append( this.makeMessage( 'notice', this.notices[ i ] ) );
+	}
+	for ( i = 0; i < this.errors.length; i++ ) {
+		this.$messages.append( this.makeMessage( 'error', this.errors[ i ] ) );
+	}
 
 	this.setAlignment( config.align );
 };
@@ -12346,6 +12894,7 @@ OO.ui.FieldLayout = function OoUiFieldLayout( fieldWidget, config ) {
 
 OO.inheritClass( OO.ui.FieldLayout, OO.ui.Layout );
 OO.mixinClass( OO.ui.FieldLayout, OO.ui.mixin.LabelElement );
+OO.mixinClass( OO.ui.FieldLayout, OO.ui.mixin.TitledElement );
 
 /* Methods */
 
@@ -12377,6 +12926,28 @@ OO.ui.FieldLayout.prototype.onLabelClick = function () {
  */
 OO.ui.FieldLayout.prototype.getField = function () {
 	return this.fieldWidget;
+};
+
+/**
+ * @param {string} kind 'error' or 'notice'
+ * @param {string|OO.ui.HtmlSnippet} text
+ * @return {jQuery}
+ */
+OO.ui.FieldLayout.prototype.makeMessage = function ( kind, text ) {
+	var $listItem, $icon, message;
+	$listItem = $( '<li>' );
+	if ( kind === 'error' ) {
+		$icon = new OO.ui.IconWidget( { icon: 'alert', flags: [ 'warning' ] } ).$element;
+	} else if ( kind === 'notice' ) {
+		$icon = new OO.ui.IconWidget( { icon: 'info' } ).$element;
+	} else {
+		$icon = '';
+	}
+	message = new OO.ui.LabelWidget( { label: text } );
+	$listItem
+		.append( $icon, message.$element )
+		.addClass( 'oo-ui-fieldLayout-messages-' + kind );
+	return $listItem;
 };
 
 /**
@@ -12653,6 +13224,11 @@ OO.ui.FormLayout = function OoUiFormLayout( config ) {
 
 	// Events
 	this.$element.on( 'submit', this.onFormSubmit.bind( this ) );
+
+	// Make sure the action is safe
+	if ( config.action !== undefined && !OO.ui.isSafeUrl( config.action ) ) {
+		throw new Error( 'Potentially unsafe action provided: ' + config.action );
+	}
 
 	// Initialization
 	this.$element
@@ -13084,7 +13660,7 @@ OO.ui.BookletLayout.prototype.focusFirstFocusable = function () {
 		}
 		// Find all potentially focusable elements in the item
 		// and check if they are focusable
-		items[i].$element
+		items[ i ].$element
 			.find( 'input, select, textarea, button, object' )
 			/* jshint loopfunc:true */
 			.each( checkAndFocus );
@@ -13155,7 +13731,7 @@ OO.ui.BookletLayout.prototype.toggleOutline = function ( show ) {
 OO.ui.BookletLayout.prototype.getClosestPage = function ( page ) {
 	var next, prev, level,
 		pages = this.stackLayout.getItems(),
-		index = $.inArray( page, pages );
+		index = pages.indexOf( page );
 
 	if ( index !== -1 ) {
 		next = pages[ index + 1 ];
@@ -13255,7 +13831,7 @@ OO.ui.BookletLayout.prototype.addPages = function ( pages, index ) {
 
 		if ( Object.prototype.hasOwnProperty.call( this.pages, name ) ) {
 			// Correct the insertion index
-			currentIndex = $.inArray( this.pages[ name ], stackLayoutPages );
+			currentIndex = stackLayoutPages.indexOf( this.pages[ name ] );
 			if ( currentIndex !== -1 && currentIndex + 1 < index ) {
 				index--;
 			}
@@ -13604,7 +14180,7 @@ OO.ui.IndexLayout.prototype.focusFirstFocusable = function () {
 		}
 		// Find all potentially focusable elements in the item
 		// and check if they are focusable
-		items[i].$element
+		items[ i ].$element
 			.find( 'input, select, textarea, button, object' )
 			.each( checkAndFocus );
 	}
@@ -13631,7 +14207,7 @@ OO.ui.IndexLayout.prototype.onTabSelectWidgetSelect = function ( item ) {
 OO.ui.IndexLayout.prototype.getClosestCard = function ( card ) {
 	var next, prev, level,
 		cards = this.stackLayout.getItems(),
-		index = $.inArray( card, cards );
+		index = cards.indexOf( card );
 
 	if ( index !== -1 ) {
 		next = cards[ index + 1 ];
@@ -13716,7 +14292,7 @@ OO.ui.IndexLayout.prototype.addCards = function ( cards, index ) {
 
 		if ( Object.prototype.hasOwnProperty.call( this.cards, name ) ) {
 			// Correct the insertion index
-			currentIndex = $.inArray( this.cards[ name ], stackLayoutCards );
+			currentIndex = stackLayoutCards.indexOf( this.cards[ name ] );
 			if ( currentIndex !== -1 && currentIndex + 1 < index ) {
 				index--;
 			}
@@ -14325,7 +14901,7 @@ OO.ui.StackLayout.prototype.removeItems = function ( items ) {
 	// Mixin method
 	OO.ui.mixin.GroupElement.prototype.removeItems.call( this, items );
 
-	if ( $.inArray( this.currentItem, items ) !== -1 ) {
+	if ( items.indexOf( this.currentItem ) !== -1 ) {
 		if ( this.items.length ) {
 			this.setItem( this.items[ 0 ] );
 		} else {
@@ -14365,7 +14941,7 @@ OO.ui.StackLayout.prototype.setItem = function ( item ) {
 	if ( item !== this.currentItem ) {
 		this.updateHiddenState( this.items, item );
 
-		if ( $.inArray( item, this.items ) !== -1 ) {
+		if ( this.items.indexOf( item ) !== -1 ) {
 			this.currentItem = item;
 			this.emit( 'set', item );
 		} else {
@@ -14400,6 +14976,53 @@ OO.ui.StackLayout.prototype.updateHiddenState = function ( items, selectedItem )
 		}
 	}
 };
+
+/**
+ * HorizontalLayout arranges its contents in a single line (using `display: inline-block` for its
+ * items), with small margins between them. Convenient when you need to put a number of block-level
+ * widgets on a single line next to each other.
+ *
+ * Note that inline elements, such as OO.ui.ButtonWidgets, do not need this wrapper.
+ *
+ *     @example
+ *     // HorizontalLayout with a text input and a label
+ *     var layout = new OO.ui.HorizontalLayout( {
+ *       items: [
+ *         new OO.ui.LabelWidget( { label: 'Label' } ),
+ *         new OO.ui.TextInputWidget( { value: 'Text' } )
+ *       ]
+ *     } );
+ *     $( 'body' ).append( layout.$element );
+ *
+ * @class
+ * @extends OO.ui.Layout
+ * @mixins OO.ui.mixin.GroupElement
+ *
+ * @constructor
+ * @param {Object} [config] Configuration options
+ * @cfg {OO.ui.Widget[]|OO.ui.Layout[]} [items] Widgets or other layouts to add to the layout.
+ */
+OO.ui.HorizontalLayout = function OoUiHorizontalLayout( config ) {
+	// Configuration initialization
+	config = config || {};
+
+	// Parent constructor
+	OO.ui.HorizontalLayout.parent.call( this, config );
+
+	// Mixin constructors
+	OO.ui.mixin.GroupElement.call( this, $.extend( {}, config, { $group: this.$element } ) );
+
+	// Initialization
+	this.$element.addClass( 'oo-ui-horizontalLayout' );
+	if ( Array.isArray( config.items ) ) {
+		this.addItems( config.items );
+	}
+};
+
+/* Setup */
+
+OO.inheritClass( OO.ui.HorizontalLayout, OO.ui.Layout );
+OO.mixinClass( OO.ui.HorizontalLayout, OO.ui.mixin.GroupElement );
 
 /**
  * BarToolGroups are one of three types of {@link OO.ui.ToolGroup toolgroups} that are used to
@@ -14689,13 +15312,15 @@ OO.ui.PopupToolGroup.prototype.onHandleMouseKeyDown = function ( e ) {
  * deactivation.
  */
 OO.ui.PopupToolGroup.prototype.setActive = function ( value ) {
+	var containerWidth, containerLeft;
 	value = !!value;
 	if ( this.active !== value ) {
 		this.active = value;
 		if ( value ) {
-			this.getElementDocument().addEventListener( 'mouseup', this.onBlurHandler, true );
-			this.getElementDocument().addEventListener( 'keyup', this.onBlurHandler, true );
+			OO.ui.addCaptureEventListener( this.getElementDocument(), 'mouseup', this.onBlurHandler );
+			OO.ui.addCaptureEventListener( this.getElementDocument(), 'keyup', this.onBlurHandler );
 
+			this.$clippable.css( 'left', '' );
 			// Try anchoring the popup to the left first
 			this.$element.addClass( 'oo-ui-popupToolGroup-active oo-ui-popupToolGroup-left' );
 			this.toggleClipping( true );
@@ -14707,9 +15332,22 @@ OO.ui.PopupToolGroup.prototype.setActive = function ( value ) {
 					.addClass( 'oo-ui-popupToolGroup-right' );
 				this.toggleClipping( true );
 			}
+			if ( this.isClippedHorizontally() ) {
+				// Anchoring to the right also caused the popup to clip, so just make it fill the container
+				containerWidth = this.$clippableContainer.width();
+				containerLeft = this.$clippableContainer.offset().left;
+
+				this.toggleClipping( false );
+				this.$element.removeClass( 'oo-ui-popupToolGroup-right' );
+
+				this.$clippable.css( {
+					left: -( this.$element.offset().left - containerLeft ),
+					width: containerWidth
+				} );
+			}
 		} else {
-			this.getElementDocument().removeEventListener( 'mouseup', this.onBlurHandler, true );
-			this.getElementDocument().removeEventListener( 'keyup', this.onBlurHandler, true );
+			OO.ui.removeCaptureEventListener( this.getElementDocument(), 'mouseup', this.onBlurHandler );
+			OO.ui.removeCaptureEventListener( this.getElementDocument(), 'keyup', this.onBlurHandler );
 			this.$element.removeClass(
 				'oo-ui-popupToolGroup-active oo-ui-popupToolGroup-left  oo-ui-popupToolGroup-right'
 			);
@@ -14873,8 +15511,9 @@ OO.ui.ListToolGroup.prototype.populate = function () {
 };
 
 OO.ui.ListToolGroup.prototype.getExpandCollapseTool = function () {
+	var ExpandCollapseTool;
 	if ( this.expandCollapseTool === undefined ) {
-		var ExpandCollapseTool = function () {
+		ExpandCollapseTool = function () {
 			ExpandCollapseTool.parent.apply( this, arguments );
 		};
 
@@ -15393,7 +16032,8 @@ OO.ui.mixin.ItemWidget.prototype.setElementGroup = function ( group ) {
 /**
  * OutlineControlsWidget is a set of controls for an {@link OO.ui.OutlineSelectWidget outline select widget}.
  * Controls include moving items up and down, removing items, and adding different kinds of items.
- * ####Currently, this class is only used by {@link OO.ui.BookletLayout booklet layouts}.####
+ *
+ * **Currently, this class is only used by {@link OO.ui.BookletLayout booklet layouts}.**
  *
  * @class
  * @extends OO.ui.Widget
@@ -15494,8 +16134,8 @@ OO.ui.OutlineControlsWidget.prototype.setAbilities = function ( abilities ) {
 	var ability;
 
 	for ( ability in this.abilities ) {
-		if ( abilities[ability] !== undefined ) {
-			this.abilities[ability] = !!abilities[ability];
+		if ( abilities[ ability ] !== undefined ) {
+			this.abilities[ ability ] = !!abilities[ ability ];
 		}
 	}
 
@@ -15690,6 +16330,7 @@ OO.mixinClass( OO.ui.ButtonGroupWidget, OO.ui.mixin.GroupElement );
  * @mixins OO.ui.mixin.TitledElement
  * @mixins OO.ui.mixin.FlaggedElement
  * @mixins OO.ui.mixin.TabIndexedElement
+ * @mixins OO.ui.mixin.AccessKeyedElement
  *
  * @constructor
  * @param {Object} [config] Configuration options
@@ -15712,6 +16353,7 @@ OO.ui.ButtonWidget = function OoUiButtonWidget( config ) {
 	OO.ui.mixin.TitledElement.call( this, $.extend( {}, config, { $titled: this.$button } ) );
 	OO.ui.mixin.FlaggedElement.call( this, config );
 	OO.ui.mixin.TabIndexedElement.call( this, $.extend( {}, config, { $tabIndexed: this.$button } ) );
+	OO.ui.mixin.AccessKeyedElement.call( this, $.extend( {}, config, { $accessKeyed: this.$button } ) );
 
 	// Properties
 	this.href = null;
@@ -15741,6 +16383,7 @@ OO.mixinClass( OO.ui.ButtonWidget, OO.ui.mixin.LabelElement );
 OO.mixinClass( OO.ui.ButtonWidget, OO.ui.mixin.TitledElement );
 OO.mixinClass( OO.ui.ButtonWidget, OO.ui.mixin.FlaggedElement );
 OO.mixinClass( OO.ui.ButtonWidget, OO.ui.mixin.TabIndexedElement );
+OO.mixinClass( OO.ui.ButtonWidget, OO.ui.mixin.AccessKeyedElement );
 
 /* Methods */
 
@@ -15802,6 +16445,12 @@ OO.ui.ButtonWidget.prototype.getNoFollow = function () {
  */
 OO.ui.ButtonWidget.prototype.setHref = function ( href ) {
 	href = typeof href === 'string' ? href : null;
+	if ( href !== null ) {
+		if ( !OO.ui.isSafeUrl( href ) ) {
+			throw new Error( 'Potentially unsafe href provided: ' + href );
+		}
+
+	}
 
 	if ( href !== this.href ) {
 		this.href = href;
@@ -16223,6 +16872,676 @@ OO.ui.ToggleButtonWidget.prototype.setButtonElement = function ( $button ) {
 };
 
 /**
+ * CapsuleMultiSelectWidgets are something like a {@link OO.ui.ComboBoxWidget combo box widget}
+ * that allows for selecting multiple values.
+ *
+ * For more information about menus and options, please see the [OOjs UI documentation on MediaWiki][1].
+ *
+ *     @example
+ *     // Example: A CapsuleMultiSelectWidget.
+ *     var capsule = new OO.ui.CapsuleMultiSelectWidget( {
+ *         label: 'CapsuleMultiSelectWidget',
+ *         selected: [ 'Option 1', 'Option 3' ],
+ *         menu: {
+ *             items: [
+ *                 new OO.ui.MenuOptionWidget( {
+ *                     data: 'Option 1',
+ *                     label: 'Option One'
+ *                 } ),
+ *                 new OO.ui.MenuOptionWidget( {
+ *                     data: 'Option 2',
+ *                     label: 'Option Two'
+ *                 } ),
+ *                 new OO.ui.MenuOptionWidget( {
+ *                     data: 'Option 3',
+ *                     label: 'Option Three'
+ *                 } ),
+ *                 new OO.ui.MenuOptionWidget( {
+ *                     data: 'Option 4',
+ *                     label: 'Option Four'
+ *                 } ),
+ *                 new OO.ui.MenuOptionWidget( {
+ *                     data: 'Option 5',
+ *                     label: 'Option Five'
+ *                 } )
+ *             ]
+ *         }
+ *     } );
+ *     $( 'body' ).append( capsule.$element );
+ *
+ * [1]: https://www.mediawiki.org/wiki/OOjs_UI/Widgets/Selects_and_Options#Menu_selects_and_options
+ *
+ * @class
+ * @extends OO.ui.Widget
+ * @mixins OO.ui.mixin.TabIndexedElement
+ * @mixins OO.ui.mixin.GroupElement
+ *
+ * @constructor
+ * @param {Object} [config] Configuration options
+ * @cfg {boolean} [allowArbitrary=false] Allow data items to be added even if not present in the menu.
+ * @cfg {Object} [menu] Configuration options to pass to the {@link OO.ui.MenuSelectWidget menu select widget}.
+ * @cfg {Object} [popup] Configuration options to pass to the {@link OO.ui.PopupWidget popup widget}.
+ *  If specified, this popup will be shown instead of the menu (but the menu
+ *  will still be used for item labels and allowArbitrary=false). The widgets
+ *  in the popup should use this.addItemsFromData() or this.addItems() as necessary.
+ * @cfg {jQuery} [$overlay] Render the menu or popup into a separate layer.
+ *  This configuration is useful in cases where the expanded menu is larger than
+ *  its containing `<div>`. The specified overlay layer is usually on top of
+ *  the containing `<div>` and has a larger area. By default, the menu uses
+ *  relative positioning.
+ */
+OO.ui.CapsuleMultiSelectWidget = function OoUiCapsuleMultiSelectWidget( config ) {
+	var $tabFocus;
+
+	// Configuration initialization
+	config = config || {};
+
+	// Parent constructor
+	OO.ui.CapsuleMultiSelectWidget.parent.call( this, config );
+
+	// Properties (must be set before mixin constructor calls)
+	this.$input = config.popup ? null : $( '<input>' );
+	this.$handle = $( '<div>' );
+
+	// Mixin constructors
+	OO.ui.mixin.GroupElement.call( this, config );
+	if ( config.popup ) {
+		config.popup = $.extend( {}, config.popup, {
+			align: 'forwards',
+			anchor: false
+		} );
+		OO.ui.mixin.PopupElement.call( this, config );
+		$tabFocus = $( '<span>' );
+		OO.ui.mixin.TabIndexedElement.call( this, $.extend( {}, config, { $tabIndexed: $tabFocus } ) );
+	} else {
+		this.popup = null;
+		$tabFocus = null;
+		OO.ui.mixin.TabIndexedElement.call( this, $.extend( {}, config, { $tabIndexed: this.$input } ) );
+	}
+	OO.ui.mixin.IndicatorElement.call( this, config );
+	OO.ui.mixin.IconElement.call( this, config );
+
+	// Properties
+	this.allowArbitrary = !!config.allowArbitrary;
+	this.$overlay = config.$overlay || this.$element;
+	this.menu = new OO.ui.FloatingMenuSelectWidget( $.extend(
+		{
+			widget: this,
+			$input: this.$input,
+			$container: this.$element,
+			filterFromInput: true,
+			disabled: this.isDisabled()
+		},
+		config.menu
+	) );
+
+	// Events
+	if ( this.popup ) {
+		$tabFocus.on( {
+			focus: this.onFocusForPopup.bind( this )
+		} );
+		this.popup.$element.on( 'focusout', this.onPopupFocusOut.bind( this ) );
+		if ( this.popup.$autoCloseIgnore ) {
+			this.popup.$autoCloseIgnore.on( 'focusout', this.onPopupFocusOut.bind( this ) );
+		}
+		this.popup.connect( this, {
+			toggle: function ( visible ) {
+				$tabFocus.toggle( !visible );
+			}
+		} );
+	} else {
+		this.$input.on( {
+			focus: this.onInputFocus.bind( this ),
+			blur: this.onInputBlur.bind( this ),
+			'propertychange change click mouseup keydown keyup input cut paste select': this.onInputChange.bind( this ),
+			keydown: this.onKeyDown.bind( this ),
+			keypress: this.onKeyPress.bind( this )
+		} );
+	}
+	this.menu.connect( this, {
+		choose: 'onMenuChoose',
+		add: 'onMenuItemsChange',
+		remove: 'onMenuItemsChange'
+	} );
+	this.$handle.on( {
+		click: this.onClick.bind( this )
+	} );
+
+	// Initialization
+	if ( this.$input ) {
+		this.$input.prop( 'disabled', this.isDisabled() );
+		this.$input.attr( {
+			role: 'combobox',
+			'aria-autocomplete': 'list'
+		} );
+		this.$input.width( '1em' );
+	}
+	if ( config.data ) {
+		this.setItemsFromData( config.data );
+	}
+	this.$group.addClass( 'oo-ui-capsuleMultiSelectWidget-group' );
+	this.$handle.addClass( 'oo-ui-capsuleMultiSelectWidget-handle' )
+		.append( this.$indicator, this.$icon, this.$group );
+	this.$element.addClass( 'oo-ui-capsuleMultiSelectWidget' )
+		.append( this.$handle );
+	if ( this.popup ) {
+		this.$handle.append( $tabFocus );
+		this.$overlay.append( this.popup.$element );
+	} else {
+		this.$handle.append( this.$input );
+		this.$overlay.append( this.menu.$element );
+	}
+	this.onMenuItemsChange();
+};
+
+/* Setup */
+
+OO.inheritClass( OO.ui.CapsuleMultiSelectWidget, OO.ui.Widget );
+OO.mixinClass( OO.ui.CapsuleMultiSelectWidget, OO.ui.mixin.GroupElement );
+OO.mixinClass( OO.ui.CapsuleMultiSelectWidget, OO.ui.mixin.PopupElement );
+OO.mixinClass( OO.ui.CapsuleMultiSelectWidget, OO.ui.mixin.TabIndexedElement );
+OO.mixinClass( OO.ui.CapsuleMultiSelectWidget, OO.ui.mixin.IndicatorElement );
+OO.mixinClass( OO.ui.CapsuleMultiSelectWidget, OO.ui.mixin.IconElement );
+
+/* Events */
+
+/**
+ * @event change
+ *
+ * A change event is emitted when the set of selected items changes.
+ *
+ * @param {Mixed[]} datas Data of the now-selected items
+ */
+
+/* Methods */
+
+/**
+ * Get the data of the items in the capsule
+ * @return {Mixed[]}
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.getItemsData = function () {
+	return $.map( this.getItems(), function ( e ) { return e.data; } );
+};
+
+/**
+ * Set the items in the capsule by providing data
+ * @chainable
+ * @param {Mixed[]} datas
+ * @return {OO.ui.CapsuleMultiSelectWidget}
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.setItemsFromData = function ( datas ) {
+	var widget = this,
+		menu = this.menu,
+		items = this.getItems();
+
+	$.each( datas, function ( i, data ) {
+		var j, label,
+			item = menu.getItemFromData( data );
+
+		if ( item ) {
+			label = item.label;
+		} else if ( widget.allowArbitrary ) {
+			label = String( data );
+		} else {
+			return;
+		}
+
+		item = null;
+		for ( j = 0; j < items.length; j++ ) {
+			if ( items[ j ].data === data && items[ j ].label === label ) {
+				item = items[ j ];
+				items.splice( j, 1 );
+				break;
+			}
+		}
+		if ( !item ) {
+			item = new OO.ui.CapsuleItemWidget( { data: data, label: label } );
+		}
+		widget.addItems( [ item ], i );
+	} );
+
+	if ( items.length ) {
+		widget.removeItems( items );
+	}
+
+	return this;
+};
+
+/**
+ * Add items to the capsule by providing their data
+ * @chainable
+ * @param {Mixed[]} datas
+ * @return {OO.ui.CapsuleMultiSelectWidget}
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.addItemsFromData = function ( datas ) {
+	var widget = this,
+		menu = this.menu,
+		items = [];
+
+	$.each( datas, function ( i, data ) {
+		var item;
+
+		if ( !widget.getItemFromData( data ) ) {
+			item = menu.getItemFromData( data );
+			if ( item ) {
+				items.push( new OO.ui.CapsuleItemWidget( { data: data, label: item.label } ) );
+			} else if ( widget.allowArbitrary ) {
+				items.push( new OO.ui.CapsuleItemWidget( { data: data, label: String( data ) } ) );
+			}
+		}
+	} );
+
+	if ( items.length ) {
+		this.addItems( items );
+	}
+
+	return this;
+};
+
+/**
+ * Remove items by data
+ * @chainable
+ * @param {Mixed[]} datas
+ * @return {OO.ui.CapsuleMultiSelectWidget}
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.removeItemsFromData = function ( datas ) {
+	var widget = this,
+		items = [];
+
+	$.each( datas, function ( i, data ) {
+		var item = widget.getItemFromData( data );
+		if ( item ) {
+			items.push( item );
+		}
+	} );
+
+	if ( items.length ) {
+		this.removeItems( items );
+	}
+
+	return this;
+};
+
+/**
+ * @inheritdoc
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.addItems = function ( items ) {
+	var same, i, l,
+		oldItems = this.items.slice();
+
+	OO.ui.mixin.GroupElement.prototype.addItems.call( this, items );
+
+	if ( this.items.length !== oldItems.length ) {
+		same = false;
+	} else {
+		same = true;
+		for ( i = 0, l = oldItems.length; same && i < l; i++ ) {
+			same = same && this.items[ i ] === oldItems[ i ];
+		}
+	}
+	if ( !same ) {
+		this.emit( 'change', this.getItemsData() );
+	}
+
+	return this;
+};
+
+/**
+ * @inheritdoc
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.removeItems = function ( items ) {
+	var same, i, l,
+		oldItems = this.items.slice();
+
+	OO.ui.mixin.GroupElement.prototype.removeItems.call( this, items );
+
+	if ( this.items.length !== oldItems.length ) {
+		same = false;
+	} else {
+		same = true;
+		for ( i = 0, l = oldItems.length; same && i < l; i++ ) {
+			same = same && this.items[ i ] === oldItems[ i ];
+		}
+	}
+	if ( !same ) {
+		this.emit( 'change', this.getItemsData() );
+	}
+
+	return this;
+};
+
+/**
+ * @inheritdoc
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.clearItems = function () {
+	if ( this.items.length ) {
+		OO.ui.mixin.GroupElement.prototype.clearItems.call( this );
+		this.emit( 'change', this.getItemsData() );
+	}
+	return this;
+};
+
+/**
+ * Get the capsule widget's menu.
+ * @return {OO.ui.MenuSelectWidget} Menu widget
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.getMenu = function () {
+	return this.menu;
+};
+
+/**
+ * Handle focus events
+ *
+ * @private
+ * @param {jQuery.Event} event
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.onInputFocus = function () {
+	if ( !this.isDisabled() ) {
+		this.menu.toggle( true );
+	}
+};
+
+/**
+ * Handle blur events
+ *
+ * @private
+ * @param {jQuery.Event} event
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.onInputBlur = function () {
+	this.clearInput();
+};
+
+/**
+ * Handle focus events
+ *
+ * @private
+ * @param {jQuery.Event} event
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.onFocusForPopup = function () {
+	if ( !this.isDisabled() ) {
+		this.popup.setSize( this.$handle.width() );
+		this.popup.toggle( true );
+		this.popup.$element.find( '*' )
+			.filter( function () { return OO.ui.isFocusableElement( $( this ), true ); } )
+			.first()
+			.focus();
+	}
+};
+
+/**
+ * Handles popup focus out events.
+ *
+ * @private
+ * @param {Event} e Focus out event
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.onPopupFocusOut = function () {
+	var widget = this.popup;
+
+	setTimeout( function () {
+		if (
+			widget.isVisible() &&
+			!OO.ui.contains( widget.$element[ 0 ], document.activeElement, true ) &&
+			( !widget.$autoCloseIgnore || !widget.$autoCloseIgnore.has( document.activeElement ).length )
+		) {
+			widget.toggle( false );
+		}
+	} );
+};
+
+/**
+ * Handle mouse click events.
+ *
+ * @private
+ * @param {jQuery.Event} e Mouse click event
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.onClick = function ( e ) {
+	if ( e.which === 1 ) {
+		this.focus();
+		return false;
+	}
+};
+
+/**
+ * Handle key press events.
+ *
+ * @private
+ * @param {jQuery.Event} e Key press event
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.onKeyPress = function ( e ) {
+	var item;
+
+	if ( !this.isDisabled() ) {
+		if ( e.which === OO.ui.Keys.ESCAPE ) {
+			this.clearInput();
+			return false;
+		}
+
+		if ( !this.popup ) {
+			this.menu.toggle( true );
+			if ( e.which === OO.ui.Keys.ENTER ) {
+				item = this.menu.getItemFromLabel( this.$input.val(), true );
+				if ( item ) {
+					this.addItemsFromData( [ item.data ] );
+					this.clearInput();
+				} else if ( this.allowArbitrary && this.$input.val().trim() !== '' ) {
+					this.addItemsFromData( [ this.$input.val() ] );
+					this.clearInput();
+				}
+				return false;
+			}
+
+			// Make sure the input gets resized.
+			setTimeout( this.onInputChange.bind( this ), 0 );
+		}
+	}
+};
+
+/**
+ * Handle key down events.
+ *
+ * @private
+ * @param {jQuery.Event} e Key down event
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.onKeyDown = function ( e ) {
+	if ( !this.isDisabled() ) {
+		// 'keypress' event is not triggered for Backspace
+		if ( e.keyCode === OO.ui.Keys.BACKSPACE && this.$input.val() === '' ) {
+			if ( this.items.length ) {
+				this.removeItems( this.items.slice( -1 ) );
+			}
+			return false;
+		}
+	}
+};
+
+/**
+ * Handle input change events.
+ *
+ * @private
+ * @param {jQuery.Event} e Event of some sort
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.onInputChange = function () {
+	if ( !this.isDisabled() ) {
+		this.$input.width( this.$input.val().length + 'em' );
+	}
+};
+
+/**
+ * Handle menu choose events.
+ *
+ * @private
+ * @param {OO.ui.OptionWidget} item Chosen item
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.onMenuChoose = function ( item ) {
+	if ( item && item.isVisible() ) {
+		this.addItemsFromData( [ item.getData() ] );
+		this.clearInput();
+	}
+};
+
+/**
+ * Handle menu item change events.
+ *
+ * @private
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.onMenuItemsChange = function () {
+	this.setItemsFromData( this.getItemsData() );
+	this.$element.toggleClass( 'oo-ui-capsuleMultiSelectWidget-empty', this.menu.isEmpty() );
+};
+
+/**
+ * Clear the input field
+ * @private
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.clearInput = function () {
+	if ( this.$input ) {
+		this.$input.val( '' );
+		this.$input.width( '1em' );
+	}
+	if ( this.popup ) {
+		this.popup.toggle( false );
+	}
+	this.menu.toggle( false );
+	this.menu.selectItem();
+	this.menu.highlightItem();
+};
+
+/**
+ * @inheritdoc
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.setDisabled = function ( disabled ) {
+	var i, len;
+
+	// Parent method
+	OO.ui.CapsuleMultiSelectWidget.parent.prototype.setDisabled.call( this, disabled );
+
+	if ( this.$input ) {
+		this.$input.prop( 'disabled', this.isDisabled() );
+	}
+	if ( this.menu ) {
+		this.menu.setDisabled( this.isDisabled() );
+	}
+	if ( this.popup ) {
+		this.popup.setDisabled( this.isDisabled() );
+	}
+
+	if ( this.items ) {
+		for ( i = 0, len = this.items.length; i < len; i++ ) {
+			this.items[ i ].updateDisabled();
+		}
+	}
+
+	return this;
+};
+
+/**
+ * Focus the widget
+ * @chainable
+ * @return {OO.ui.CapsuleMultiSelectWidget}
+ */
+OO.ui.CapsuleMultiSelectWidget.prototype.focus = function () {
+	if ( !this.isDisabled() ) {
+		if ( this.popup ) {
+			this.popup.setSize( this.$handle.width() );
+			this.popup.toggle( true );
+			this.popup.$element.find( '*' )
+				.filter( function () { return OO.ui.isFocusableElement( $( this ), true ); } )
+				.first()
+				.focus();
+		} else {
+			this.menu.toggle( true );
+			this.$input.focus();
+		}
+	}
+	return this;
+};
+
+/**
+ * CapsuleItemWidgets are used within a {@link OO.ui.CapsuleMultiSelectWidget
+ * CapsuleMultiSelectWidget} to display the selected items.
+ *
+ * @class
+ * @extends OO.ui.Widget
+ * @mixins OO.ui.mixin.ItemWidget
+ * @mixins OO.ui.mixin.IndicatorElement
+ * @mixins OO.ui.mixin.LabelElement
+ * @mixins OO.ui.mixin.FlaggedElement
+ * @mixins OO.ui.mixin.TabIndexedElement
+ *
+ * @constructor
+ * @param {Object} [config] Configuration options
+ */
+OO.ui.CapsuleItemWidget = function OoUiCapsuleItemWidget( config ) {
+	// Configuration initialization
+	config = config || {};
+
+	// Parent constructor
+	OO.ui.CapsuleItemWidget.parent.call( this, config );
+
+	// Properties (must be set before mixin constructor calls)
+	this.$indicator = $( '<span>' );
+
+	// Mixin constructors
+	OO.ui.mixin.ItemWidget.call( this );
+	OO.ui.mixin.IndicatorElement.call( this, $.extend( {}, config, { $indicator: this.$indicator, indicator: 'clear' } ) );
+	OO.ui.mixin.LabelElement.call( this, config );
+	OO.ui.mixin.FlaggedElement.call( this, config );
+	OO.ui.mixin.TabIndexedElement.call( this, $.extend( {}, config, { $tabIndexed: this.$indicator } ) );
+
+	// Events
+	this.$indicator.on( {
+		keydown: this.onCloseKeyDown.bind( this ),
+		click: this.onCloseClick.bind( this )
+	} );
+	this.$element.on( 'click', false );
+
+	// Initialization
+	this.$element
+		.addClass( 'oo-ui-capsuleItemWidget' )
+		.append( this.$indicator, this.$label );
+};
+
+/* Setup */
+
+OO.inheritClass( OO.ui.CapsuleItemWidget, OO.ui.Widget );
+OO.mixinClass( OO.ui.CapsuleItemWidget, OO.ui.mixin.ItemWidget );
+OO.mixinClass( OO.ui.CapsuleItemWidget, OO.ui.mixin.IndicatorElement );
+OO.mixinClass( OO.ui.CapsuleItemWidget, OO.ui.mixin.LabelElement );
+OO.mixinClass( OO.ui.CapsuleItemWidget, OO.ui.mixin.FlaggedElement );
+OO.mixinClass( OO.ui.CapsuleItemWidget, OO.ui.mixin.TabIndexedElement );
+
+/* Methods */
+
+/**
+ * Handle close icon clicks
+ * @param {jQuery.Event} event
+ */
+OO.ui.CapsuleItemWidget.prototype.onCloseClick = function () {
+	var element = this.getElementGroup();
+
+	if ( !this.isDisabled() && element && $.isFunction( element.removeItems ) ) {
+		element.removeItems( [ this ] );
+		element.focus();
+	}
+};
+
+/**
+ * Handle close keyboard events
+ * @param {jQuery.Event} event Key down event
+ */
+OO.ui.CapsuleItemWidget.prototype.onCloseKeyDown = function ( e ) {
+	if ( !this.isDisabled() && $.isFunction( this.getElementGroup().removeItems ) ) {
+		switch ( e.which ) {
+			case OO.ui.Keys.ENTER:
+			case OO.ui.Keys.BACKSPACE:
+			case OO.ui.Keys.SPACE:
+				this.getElementGroup().removeItems( [ this ] );
+				return false;
+		}
+	}
+};
+
+/**
  * DropdownWidgets are not menus themselves, rather they contain a menu of options created with
  * OO.ui.MenuOptionWidget. The DropdownWidget takes care of opening and displaying the menu so that
  * users can interact with it.
@@ -16268,7 +17587,10 @@ OO.ui.ToggleButtonWidget.prototype.setButtonElement = function ( $button ) {
  *
  * @constructor
  * @param {Object} [config] Configuration options
- * @cfg {Object} [menu] Configuration options to pass to menu widget
+ * @cfg {Object} [menu] Configuration options to pass to {@link OO.ui.FloatingMenuSelectWidget menu select widget}
+ * @cfg {jQuery} [$overlay] Render the menu into a separate layer. This configuration is useful in cases where
+ *  the expanded menu is larger than its containing `<div>`. The specified overlay layer is usually on top of the
+ *  containing `<div>` and has a larger area. By default, the menu uses relative positioning.
  */
 OO.ui.DropdownWidget = function OoUiDropdownWidget( config ) {
 	// Configuration initialization
@@ -16279,6 +17601,7 @@ OO.ui.DropdownWidget = function OoUiDropdownWidget( config ) {
 
 	// Properties (must be set before TabIndexedElement constructor call)
 	this.$handle = this.$( '<span>' );
+	this.$overlay = config.$overlay || this.$element;
 
 	// Mixin constructors
 	OO.ui.mixin.IconElement.call( this, config );
@@ -16288,7 +17611,10 @@ OO.ui.DropdownWidget = function OoUiDropdownWidget( config ) {
 	OO.ui.mixin.TabIndexedElement.call( this, $.extend( {}, config, { $tabIndexed: this.$handle } ) );
 
 	// Properties
-	this.menu = new OO.ui.MenuSelectWidget( $.extend( { widget: this }, config.menu ) );
+	this.menu = new OO.ui.FloatingMenuSelectWidget( $.extend( {
+		widget: this,
+		$container: this.$element
+	}, config.menu ) );
 
 	// Events
 	this.$handle.on( {
@@ -16303,7 +17629,8 @@ OO.ui.DropdownWidget = function OoUiDropdownWidget( config ) {
 		.append( this.$icon, this.$label, this.$indicator );
 	this.$element
 		.addClass( 'oo-ui-dropdownWidget' )
-		.append( this.$handle, this.menu.$element );
+		.append( this.$handle );
+	this.$overlay.append( this.menu.$element );
 };
 
 /* Setup */
@@ -16405,16 +17732,21 @@ OO.ui.DropdownWidget.prototype.onKeyPress = function ( e ) {
  * @cfg {string} [placeholder] Text to display when no file is selected.
  * @cfg {string} [notsupported] Text to display when file support is missing in the browser.
  * @cfg {boolean} [droppable=true] Whether to accept files by drag and drop.
+ * @cfg {boolean} [dragDropUI=false] Whether to render the drag and drop UI.
  */
 OO.ui.SelectFileWidget = function OoUiSelectFileWidget( config ) {
-	var dragHandler;
+	var dragHandler,
+		placeholderMsg = ( config && config.dragDropUI ) ?
+			'ooui-selectfile-dragdrop-placeholder' :
+			'ooui-selectfile-placeholder';
 
 	// Configuration initialization
 	config = $.extend( {
 		accept: null,
-		placeholder: OO.ui.msg( 'ooui-selectfile-placeholder' ),
+		placeholder: OO.ui.msg( placeholderMsg ),
 		notsupported: OO.ui.msg( 'ooui-selectfile-not-supported' ),
-		droppable: true
+		droppable: true,
+		dragDropUI: false
 	}, config );
 
 	// Parent constructor
@@ -16426,11 +17758,13 @@ OO.ui.SelectFileWidget = function OoUiSelectFileWidget( config ) {
 	// Mixin constructors
 	OO.ui.mixin.IconElement.call( this, config );
 	OO.ui.mixin.IndicatorElement.call( this, config );
-	OO.ui.mixin.PendingElement.call( this, config );
-	OO.ui.mixin.LabelElement.call( this, $.extend( config, { autoFitLabel: true } ) );
+	OO.ui.mixin.PendingElement.call( this, $.extend( {}, config, { $pending: this.$handle } ) );
+	OO.ui.mixin.LabelElement.call( this, $.extend( {}, config, { autoFitLabel: true } ) );
 	OO.ui.mixin.TabIndexedElement.call( this, $.extend( {}, config, { $tabIndexed: this.$handle } ) );
 
 	// Properties
+	this.active = false;
+	this.dragDropUI = config.dragDropUI;
 	this.isSupported = this.constructor.static.isSupported();
 	this.currentFile = null;
 	if ( Array.isArray( config.accept ) ) {
@@ -16477,7 +17811,15 @@ OO.ui.SelectFileWidget = function OoUiSelectFileWidget( config ) {
 		.addClass( 'oo-ui-selectFileWidget' )
 		.append( this.$handle );
 	if ( config.droppable ) {
-		this.$element.addClass( 'oo-ui-selectFileWidget-droppable' );
+		if ( config.dragDropUI ) {
+			this.$element.addClass( 'oo-ui-selectFileWidget-dragdrop-ui' );
+			this.$element.on( {
+				mouseover: this.onMouseOver.bind( this ),
+				mouseleave: this.onMouseLeave.bind( this )
+			} );
+		} else {
+			this.$element.addClass( 'oo-ui-selectFileWidget-droppable' );
+		}
 	}
 };
 
@@ -16490,7 +17832,7 @@ OO.mixinClass( OO.ui.SelectFileWidget, OO.ui.mixin.PendingElement );
 OO.mixinClass( OO.ui.SelectFileWidget, OO.ui.mixin.LabelElement );
 OO.mixinClass( OO.ui.SelectFileWidget, OO.ui.mixin.TabIndexedElement );
 
-/* Static properties */
+/* Static Properties */
 
 /**
  * Check if this widget is supported
@@ -16502,7 +17844,7 @@ OO.ui.SelectFileWidget.static.isSupported = function () {
 	var $input;
 	if ( OO.ui.SelectFileWidget.static.isSupportedCache === null ) {
 		$input = $( '<input type="file">' );
-		OO.ui.SelectFileWidget.static.isSupportedCache = $input[0].files !== undefined;
+		OO.ui.SelectFileWidget.static.isSupportedCache = $input[ 0 ].files !== undefined;
 	}
 	return OO.ui.SelectFileWidget.static.isSupportedCache;
 };
@@ -16611,7 +17953,7 @@ OO.ui.SelectFileWidget.prototype.isFileAcceptable = function ( file ) {
 
 	mime = file.type;
 	for ( i = 0; i < this.accept.length; i++ ) {
-		mimeTest = this.accept[i];
+		mimeTest = this.accept[ i ];
 		if ( mimeTest === mime ) {
 			return true;
 		} else if ( mimeTest.substr( -2 ) === '/*' ) {
@@ -16634,8 +17976,8 @@ OO.ui.SelectFileWidget.prototype.isFileAcceptable = function ( file ) {
 OO.ui.SelectFileWidget.prototype.onFileSelected = function ( e ) {
 	var file = null;
 
-	if ( e.target.files && e.target.files[0] ) {
-		file = e.target.files[0];
+	if ( e.target.files && e.target.files[ 0 ] ) {
+		file = e.target.files[ 0 ];
 		if ( !this.isFileAcceptable( file ) ) {
 			file = null;
 		}
@@ -16685,16 +18027,17 @@ OO.ui.SelectFileWidget.prototype.onDragEnterOrOver = function ( e ) {
 
 	if ( this.isDisabled() || !this.isSupported ) {
 		this.$element.removeClass( 'oo-ui-selectFileWidget-canDrop' );
+		this.setActive( false );
 		dt.dropEffect = 'none';
 		return false;
 	}
 
-	if ( dt && dt.files && dt.files[0] ) {
-		file = dt.files[0];
+	if ( dt && dt.files && dt.files[ 0 ] ) {
+		file = dt.files[ 0 ];
 		if ( !this.isFileAcceptable( file ) ) {
 			file = null;
 		}
-	} else if ( dt && dt.types && $.inArray( 'Files', dt.types ) ) {
+	} else if ( dt && dt.types && dt.types.indexOf( 'Files' ) !== -1 ) {
 		// We know we have files so set 'file' to something truthy, we just
 		// can't know any details about them.
 		// * https://bugzilla.mozilla.org/show_bug.cgi?id=640534
@@ -16702,8 +18045,10 @@ OO.ui.SelectFileWidget.prototype.onDragEnterOrOver = function ( e ) {
 	}
 	if ( file ) {
 		this.$element.addClass( 'oo-ui-selectFileWidget-canDrop' );
+		this.setActive( true );
 	} else {
 		this.$element.removeClass( 'oo-ui-selectFileWidget-canDrop' );
+		this.setActive( false );
 		dt.dropEffect = 'none';
 	}
 
@@ -16718,6 +18063,7 @@ OO.ui.SelectFileWidget.prototype.onDragEnterOrOver = function ( e ) {
  */
 OO.ui.SelectFileWidget.prototype.onDragLeave = function () {
 	this.$element.removeClass( 'oo-ui-selectFileWidget-canDrop' );
+	this.setActive( false );
 };
 
 /**
@@ -16733,13 +18079,14 @@ OO.ui.SelectFileWidget.prototype.onDrop = function ( e ) {
 	e.preventDefault();
 	e.stopPropagation();
 	this.$element.removeClass( 'oo-ui-selectFileWidget-canDrop' );
+	this.setActive( false );
 
 	if ( this.isDisabled() || !this.isSupported ) {
 		return false;
 	}
 
-	if ( dt && dt.files && dt.files[0] ) {
-		file = dt.files[0];
+	if ( dt && dt.files && dt.files[ 0 ] ) {
+		file = dt.files[ 0 ];
 		if ( !this.isFileAcceptable( file ) ) {
 			file = null;
 		}
@@ -16752,12 +18099,46 @@ OO.ui.SelectFileWidget.prototype.onDrop = function ( e ) {
 };
 
 /**
+ * Handle mouse over events.
+ *
+ * @private
+ * @param {jQuery.Event} e Mouse over event
+ */
+OO.ui.SelectFileWidget.prototype.onMouseOver = function () {
+	this.setActive( true );
+};
+
+/**
+ * Handle mouse leave events.
+ *
+ * @private
+ * @param {jQuery.Event} e Mouse over event
+ */
+OO.ui.SelectFileWidget.prototype.onMouseLeave = function () {
+	this.setActive( false );
+};
+
+/**
  * @inheritdoc
  */
 OO.ui.SelectFileWidget.prototype.setDisabled = function ( state ) {
 	OO.ui.SelectFileWidget.parent.prototype.setDisabled.call( this, state );
 	if ( this.clearButton ) {
 		this.clearButton.setDisabled( state );
+	}
+	return this;
+};
+
+/**
+ * Set 'active' (hover) state, only matters for widgets with `dragDropUI: true`.
+ *
+ * @param {boolean} value Whether widget is active
+ * @chainable
+ */
+OO.ui.SelectFileWidget.prototype.setActive = function ( value ) {
+	if ( this.dragDropUI ) {
+		this.active = value;
+		this.updateThemeClasses();
 	}
 	return this;
 };
@@ -16883,11 +18264,14 @@ OO.ui.IndicatorWidget.static.tagName = 'span';
  * @extends OO.ui.Widget
  * @mixins OO.ui.mixin.FlaggedElement
  * @mixins OO.ui.mixin.TabIndexedElement
+ * @mixins OO.ui.mixin.TitledElement
+ * @mixins OO.ui.mixin.AccessKeyedElement
  *
  * @constructor
  * @param {Object} [config] Configuration options
  * @cfg {string} [name=''] The value of the input’s HTML `name` attribute.
  * @cfg {string} [value=''] The value of the input.
+ * @cfg {string} [accessKey=''] The access key of the input.
  * @cfg {Function} [inputFilter] The name of an input filter function. Input filters modify the value of an input
  *  before it is accepted.
  */
@@ -16906,16 +18290,22 @@ OO.ui.InputWidget = function OoUiInputWidget( config ) {
 	// Mixin constructors
 	OO.ui.mixin.FlaggedElement.call( this, config );
 	OO.ui.mixin.TabIndexedElement.call( this, $.extend( {}, config, { $tabIndexed: this.$input } ) );
+	OO.ui.mixin.TitledElement.call( this, $.extend( {}, config, { $titled: this.$input } ) );
+	OO.ui.mixin.AccessKeyedElement.call( this, $.extend( {}, config, { $accessKeyed: this.$input } ) );
 
 	// Events
 	this.$input.on( 'keydown mouseup cut paste change input select', this.onEdit.bind( this ) );
 
 	// Initialization
 	this.$input
+		.addClass( 'oo-ui-inputWidget-input' )
 		.attr( 'name', config.name )
 		.prop( 'disabled', this.isDisabled() );
-	this.$element.addClass( 'oo-ui-inputWidget' ).append( this.$input, $( '<span>' ) );
+	this.$element
+		.addClass( 'oo-ui-inputWidget' )
+		.append( this.$input );
 	this.setValue( config.value );
+	this.setAccessKey( config.accessKey );
 };
 
 /* Setup */
@@ -16923,6 +18313,8 @@ OO.ui.InputWidget = function OoUiInputWidget( config ) {
 OO.inheritClass( OO.ui.InputWidget, OO.ui.Widget );
 OO.mixinClass( OO.ui.InputWidget, OO.ui.mixin.FlaggedElement );
 OO.mixinClass( OO.ui.InputWidget, OO.ui.mixin.TabIndexedElement );
+OO.mixinClass( OO.ui.InputWidget, OO.ui.mixin.TitledElement );
+OO.mixinClass( OO.ui.InputWidget, OO.ui.mixin.AccessKeyedElement );
 
 /* Static Properties */
 
@@ -17017,6 +18409,30 @@ OO.ui.InputWidget.prototype.setValue = function ( value ) {
 };
 
 /**
+ * Set the input's access key.
+ * FIXME: This is the same code as in OO.ui.mixin.ButtonElement, maybe find a better place for it?
+ *
+ * @param {string} accessKey Input's access key, use empty string to remove
+ * @chainable
+ */
+OO.ui.InputWidget.prototype.setAccessKey = function ( accessKey ) {
+	accessKey = typeof accessKey === 'string' && accessKey.length ? accessKey : null;
+
+	if ( this.accessKey !== accessKey ) {
+		if ( this.$input ) {
+			if ( accessKey !== null ) {
+				this.$input.attr( 'accesskey', accessKey );
+			} else {
+				this.$input.removeAttr( 'accesskey' );
+			}
+		}
+		this.accessKey = accessKey;
+	}
+
+	return this;
+};
+
+/**
  * Clean up incoming value.
  *
  * Ensures value is a string, and converts undefined and null to empty string.
@@ -17080,6 +18496,32 @@ OO.ui.InputWidget.prototype.focus = function () {
 OO.ui.InputWidget.prototype.blur = function () {
 	this.$input[ 0 ].blur();
 	return this;
+};
+
+/**
+ * @inheritdoc
+ */
+OO.ui.InputWidget.prototype.gatherPreInfuseState = function ( node ) {
+	var
+		state = OO.ui.InputWidget.parent.prototype.gatherPreInfuseState.call( this, node ),
+		$input = state.$input || $( node ).find( '.oo-ui-inputWidget-input' );
+	state.value = $input.val();
+	// Might be better in TabIndexedElement, but it's awkward to do there because mixins are awkward
+	state.focus = $input.is( ':focus' );
+	return state;
+};
+
+/**
+ * @inheritdoc
+ */
+OO.ui.InputWidget.prototype.restorePreInfuseState = function ( state ) {
+	OO.ui.InputWidget.parent.prototype.restorePreInfuseState.call( this, state );
+	if ( state.value !== undefined && state.value !== this.getValue() ) {
+		this.setValue( state.value );
+	}
+	if ( state.focus ) {
+		this.focus();
+	}
 };
 
 /**
@@ -17148,6 +18590,14 @@ OO.mixinClass( OO.ui.ButtonInputWidget, OO.ui.mixin.IconElement );
 OO.mixinClass( OO.ui.ButtonInputWidget, OO.ui.mixin.IndicatorElement );
 OO.mixinClass( OO.ui.ButtonInputWidget, OO.ui.mixin.LabelElement );
 OO.mixinClass( OO.ui.ButtonInputWidget, OO.ui.mixin.TitledElement );
+
+/* Static Properties */
+
+/**
+ * Disable generating `<label>` elements for buttons. One would very rarely need additional label
+ * for a button, and it's already a big clickable target, and it causes unexpected rendering.
+ */
+OO.ui.ButtonInputWidget.static.supportsSimpleLabel = false;
 
 /* Methods */
 
@@ -17255,7 +18705,10 @@ OO.ui.CheckboxInputWidget = function OoUiCheckboxInputWidget( config ) {
 	OO.ui.CheckboxInputWidget.parent.call( this, config );
 
 	// Initialization
-	this.$element.addClass( 'oo-ui-checkboxInputWidget' );
+	this.$element
+		.addClass( 'oo-ui-checkboxInputWidget' )
+		// Required for pretty styling in MediaWiki theme
+		.append( $( '<span>' ) );
 	this.setSelected( config.selected !== undefined ? config.selected : false );
 };
 
@@ -17318,6 +18771,28 @@ OO.ui.CheckboxInputWidget.prototype.isSelected = function () {
 };
 
 /**
+ * @inheritdoc
+ */
+OO.ui.CheckboxInputWidget.prototype.gatherPreInfuseState = function ( node ) {
+	var
+		state = OO.ui.CheckboxInputWidget.parent.prototype.gatherPreInfuseState.call( this, node ),
+		$input = $( node ).find( '.oo-ui-inputWidget-input' );
+	state.$input = $input; // shortcut for performance, used in InputWidget
+	state.checked = $input.prop( 'checked' );
+	return state;
+};
+
+/**
+ * @inheritdoc
+ */
+OO.ui.CheckboxInputWidget.prototype.restorePreInfuseState = function ( state ) {
+	OO.ui.CheckboxInputWidget.parent.prototype.restorePreInfuseState.call( this, state );
+	if ( state.checked !== undefined && state.checked !== this.isSelected() ) {
+		this.setSelected( state.checked );
+	}
+};
+
+/**
  * DropdownInputWidget is a {@link OO.ui.DropdownWidget DropdownWidget} intended to be used
  * within a HTML form, such as a OO.ui.FormLayout. The selected value is synchronized with the value
  * of a hidden HTML `input` tag. Please see the [OOjs UI documentation on MediaWiki][1] for
@@ -17344,20 +18819,25 @@ OO.ui.CheckboxInputWidget.prototype.isSelected = function () {
  *
  * @class
  * @extends OO.ui.InputWidget
+ * @mixins OO.ui.mixin.TitledElement
  *
  * @constructor
  * @param {Object} [config] Configuration options
  * @cfg {Object[]} [options=[]] Array of menu options in the format `{ data: …, label: … }`
+ * @cfg {Object} [dropdown] Configuration options for {@link OO.ui.DropdownWidget DropdownWidget}
  */
 OO.ui.DropdownInputWidget = function OoUiDropdownInputWidget( config ) {
 	// Configuration initialization
 	config = config || {};
 
 	// Properties (must be done before parent constructor which calls #setDisabled)
-	this.dropdownWidget = new OO.ui.DropdownWidget();
+	this.dropdownWidget = new OO.ui.DropdownWidget( config.dropdown );
 
 	// Parent constructor
 	OO.ui.DropdownInputWidget.parent.call( this, config );
+
+	// Mixin constructors
+	OO.ui.mixin.TitledElement.call( this, config );
 
 	// Events
 	this.dropdownWidget.getMenu().connect( this, { select: 'onMenuSelect' } );
@@ -17372,6 +18852,7 @@ OO.ui.DropdownInputWidget = function OoUiDropdownInputWidget( config ) {
 /* Setup */
 
 OO.inheritClass( OO.ui.DropdownInputWidget, OO.ui.InputWidget );
+OO.mixinClass( OO.ui.DropdownInputWidget, OO.ui.mixin.TitledElement );
 
 /* Methods */
 
@@ -17397,6 +18878,7 @@ OO.ui.DropdownInputWidget.prototype.onMenuSelect = function ( item ) {
  * @inheritdoc
  */
 OO.ui.DropdownInputWidget.prototype.setValue = function ( value ) {
+	value = this.cleanUpValue( value );
 	this.dropdownWidget.getMenu().selectItemByData( value );
 	OO.ui.DropdownInputWidget.parent.prototype.setValue.call( this, value );
 	return this;
@@ -17418,15 +18900,18 @@ OO.ui.DropdownInputWidget.prototype.setDisabled = function ( state ) {
  * @chainable
  */
 OO.ui.DropdownInputWidget.prototype.setOptions = function ( options ) {
-	var value = this.getValue();
+	var
+		value = this.getValue(),
+		widget = this;
 
 	// Rebuild the dropdown menu
 	this.dropdownWidget.getMenu()
 		.clearItems()
 		.addItems( options.map( function ( opt ) {
+			var optValue = widget.cleanUpValue( opt.data );
 			return new OO.ui.MenuOptionWidget( {
-				data: opt.data,
-				label: opt.label !== undefined ? opt.label : opt.data
+				data: optValue,
+				label: opt.label !== undefined ? opt.label : optValue
 			} );
 		} ) );
 
@@ -17509,7 +18994,10 @@ OO.ui.RadioInputWidget = function OoUiRadioInputWidget( config ) {
 	OO.ui.RadioInputWidget.parent.call( this, config );
 
 	// Initialization
-	this.$element.addClass( 'oo-ui-radioInputWidget' );
+	this.$element
+		.addClass( 'oo-ui-radioInputWidget' )
+		// Required for pretty styling in MediaWiki theme
+		.append( $( '<span>' ) );
 	this.setSelected( config.selected !== undefined ? config.selected : false );
 };
 
@@ -17553,6 +19041,28 @@ OO.ui.RadioInputWidget.prototype.setSelected = function ( state ) {
  */
 OO.ui.RadioInputWidget.prototype.isSelected = function () {
 	return this.$input.prop( 'checked' );
+};
+
+/**
+ * @inheritdoc
+ */
+OO.ui.RadioInputWidget.prototype.gatherPreInfuseState = function ( node ) {
+	var
+		state = OO.ui.RadioInputWidget.parent.prototype.gatherPreInfuseState.call( this, node ),
+		$input = $( node ).find( '.oo-ui-inputWidget-input' );
+	state.$input = $input; // shortcut for performance, used in InputWidget
+	state.checked = $input.prop( 'checked' );
+	return state;
+};
+
+/**
+ * @inheritdoc
+ */
+OO.ui.RadioInputWidget.prototype.restorePreInfuseState = function ( state ) {
+	OO.ui.RadioInputWidget.parent.prototype.restorePreInfuseState.call( this, state );
+	if ( state.checked !== undefined && state.checked !== this.isSelected() ) {
+		this.setSelected( state.checked );
+	}
 };
 
 /**
@@ -17635,6 +19145,7 @@ OO.ui.RadioSelectInputWidget.prototype.onMenuSelect = function ( item ) {
  * @inheritdoc
  */
 OO.ui.RadioSelectInputWidget.prototype.setValue = function ( value ) {
+	value = this.cleanUpValue( value );
 	this.radioSelectWidget.selectItemByData( value );
 	OO.ui.RadioSelectInputWidget.parent.prototype.setValue.call( this, value );
 	return this;
@@ -17656,15 +19167,18 @@ OO.ui.RadioSelectInputWidget.prototype.setDisabled = function ( state ) {
  * @chainable
  */
 OO.ui.RadioSelectInputWidget.prototype.setOptions = function ( options ) {
-	var value = this.getValue();
+	var
+		value = this.getValue(),
+		widget = this;
 
 	// Rebuild the radioSelect menu
 	this.radioSelectWidget
 		.clearItems()
 		.addItems( options.map( function ( opt ) {
+			var optValue = widget.cleanUpValue( opt.data );
 			return new OO.ui.RadioOptionWidget( {
-				data: opt.data,
-				label: opt.label !== undefined ? opt.label : opt.data
+				data: optValue,
+				label: opt.label !== undefined ? opt.label : optValue
 			} );
 		} ) );
 
@@ -17680,6 +19194,15 @@ OO.ui.RadioSelectInputWidget.prototype.setOptions = function ( options ) {
 	}
 
 	return this;
+};
+
+/**
+ * @inheritdoc
+ */
+OO.ui.RadioSelectInputWidget.prototype.gatherPreInfuseState = function ( node ) {
+	var state = OO.ui.RadioSelectInputWidget.parent.prototype.gatherPreInfuseState.call( this, node );
+	state.value = $( node ).find( '.oo-ui-radioInputWidget .oo-ui-inputWidget-input:checked' ).val();
+	return state;
 };
 
 /**
@@ -17712,18 +19235,27 @@ OO.ui.RadioSelectInputWidget.prototype.setOptions = function ( options ) {
  * @param {Object} [config] Configuration options
  * @cfg {string} [type='text'] The value of the HTML `type` attribute: 'text', 'password', 'search',
  *  'email' or 'url'. Ignored if `multiline` is true.
+ *
+ *  Some values of `type` result in additional behaviors:
+ *
+ *  - `search`: implies `icon: 'search'` and `indicator: 'clear'`; when clicked, the indicator
+ *    empties the text field
  * @cfg {string} [placeholder] Placeholder text
  * @cfg {boolean} [autofocus=false] Use an HTML `autofocus` attribute to
  *  instruct the browser to focus this widget.
  * @cfg {boolean} [readOnly=false] Prevent changes to the value of the text input.
  * @cfg {number} [maxLength] Maximum number of characters allowed in the input.
  * @cfg {boolean} [multiline=false] Allow multiple lines of text
+ * @cfg {number} [rows] If multiline, number of visible lines in textarea. If used with `autosize`,
+ *  specifies minimum number of rows to display.
  * @cfg {boolean} [autosize=false] Automatically resize the text input to fit its content.
  *  Use the #maxRows config to specify a maximum number of displayed rows.
- * @cfg {boolean} [maxRows=10] Maximum number of rows to display when #autosize is set to true.
+ * @cfg {boolean} [maxRows] Maximum number of rows to display when #autosize is set to true.
+ *  Defaults to the maximum of `10` and `2 * rows`, or `10` if `rows` isn't provided.
  * @cfg {string} [labelPosition='after'] The position of the inline label relative to that of
  *  the value or placeholder text: `'before'` or `'after'`
- * @cfg {boolean} [required=false] Mark the field as required
+ * @cfg {boolean} [required=false] Mark the field as required. Implies `indicator: 'required'`.
+ * @cfg {boolean} [autocomplete=true] Should the browser support autocomplete for this field
  * @cfg {RegExp|Function|string} [validate] Validation pattern: when string, a symbolic name of a
  *  pattern defined by the class: 'non-empty' (the value cannot be an empty string) or 'integer'
  *  (the value must contain only numbers); when RegExp, a regular expression that must match the
@@ -17734,9 +19266,19 @@ OO.ui.TextInputWidget = function OoUiTextInputWidget( config ) {
 	// Configuration initialization
 	config = $.extend( {
 		type: 'text',
-		labelPosition: 'after',
-		maxRows: 10
+		labelPosition: 'after'
 	}, config );
+	if ( config.type === 'search' ) {
+		if ( config.icon === undefined ) {
+			config.icon = 'search';
+		}
+		// indicator: 'clear' is set dynamically later, depending on value
+	}
+	if ( config.required ) {
+		if ( config.indicator === undefined ) {
+			config.indicator = 'required';
+		}
+	}
 
 	// Parent constructor
 	OO.ui.TextInputWidget.parent.call( this, config );
@@ -17744,14 +19286,16 @@ OO.ui.TextInputWidget = function OoUiTextInputWidget( config ) {
 	// Mixin constructors
 	OO.ui.mixin.IconElement.call( this, config );
 	OO.ui.mixin.IndicatorElement.call( this, config );
-	OO.ui.mixin.PendingElement.call( this, config );
+	OO.ui.mixin.PendingElement.call( this, $.extend( {}, config, { $pending: this.$input } ) );
 	OO.ui.mixin.LabelElement.call( this, config );
 
 	// Properties
+	this.type = this.getSaneType( config );
 	this.readOnly = false;
 	this.multiline = !!config.multiline;
 	this.autosize = !!config.autosize;
-	this.maxRows = config.maxRows;
+	this.minRows = config.rows !== undefined ? config.rows : '';
+	this.maxRows = config.maxRows || Math.max( 2 * ( this.minRows || 0 ), 10 );
 	this.validate = null;
 
 	// Clone for resizing
@@ -17777,13 +19321,17 @@ OO.ui.TextInputWidget = function OoUiTextInputWidget( config ) {
 	this.$icon.on( 'mousedown', this.onIconMouseDown.bind( this ) );
 	this.$indicator.on( 'mousedown', this.onIndicatorMouseDown.bind( this ) );
 	this.on( 'labelChange', this.updatePosition.bind( this ) );
-	this.connect( this, { change: 'onChange' } );
+	this.connect( this, {
+		change: 'onChange',
+		disable: 'onDisable'
+	} );
 
 	// Initialization
 	this.$element
-		.addClass( 'oo-ui-textInputWidget' )
+		.addClass( 'oo-ui-textInputWidget oo-ui-textInputWidget-type-' + this.type )
 		.append( this.$icon, this.$indicator );
 	this.setReadOnly( !!config.readOnly );
+	this.updateSearchIndicator();
 	if ( config.placeholder ) {
 		this.$input.attr( 'placeholder', config.placeholder );
 	}
@@ -17796,6 +19344,12 @@ OO.ui.TextInputWidget = function OoUiTextInputWidget( config ) {
 	if ( config.required ) {
 		this.$input.attr( 'required', 'required' );
 		this.$input.attr( 'aria-required', 'true' );
+	}
+	if ( config.autocomplete === false ) {
+		this.$input.attr( 'autocomplete', 'off' );
+	}
+	if ( this.multiline && config.rows ) {
+		this.$input.attr( 'rows', config.rows );
 	}
 	if ( this.label || config.autosize ) {
 		this.installParentChangeDetector();
@@ -17810,7 +19364,7 @@ OO.mixinClass( OO.ui.TextInputWidget, OO.ui.mixin.IndicatorElement );
 OO.mixinClass( OO.ui.TextInputWidget, OO.ui.mixin.PendingElement );
 OO.mixinClass( OO.ui.TextInputWidget, OO.ui.mixin.LabelElement );
 
-/* Static properties */
+/* Static Properties */
 
 OO.ui.TextInputWidget.static.validationPatterns = {
 	'non-empty': /.+/,
@@ -17852,6 +19406,10 @@ OO.ui.TextInputWidget.prototype.onIconMouseDown = function ( e ) {
  */
 OO.ui.TextInputWidget.prototype.onIndicatorMouseDown = function ( e ) {
 	if ( e.which === 1 ) {
+		if ( this.type === 'search' ) {
+			// Clear the text field
+			this.setValue( '' );
+		}
 		this.$input[ 0 ].focus();
 		return false;
 	}
@@ -17900,8 +19458,19 @@ OO.ui.TextInputWidget.prototype.onElementAttach = function () {
  * @private
  */
 OO.ui.TextInputWidget.prototype.onChange = function () {
+	this.updateSearchIndicator();
 	this.setValidityFlag();
 	this.adjustSize();
+};
+
+/**
+ * Handle disable events.
+ *
+ * @param {boolean} disabled Element is disabled
+ * @private
+ */
+OO.ui.TextInputWidget.prototype.onDisable = function () {
+	this.updateSearchIndicator();
 };
 
 /**
@@ -17922,6 +19491,7 @@ OO.ui.TextInputWidget.prototype.isReadOnly = function () {
 OO.ui.TextInputWidget.prototype.setReadOnly = function ( state ) {
 	this.readOnly = !!state;
 	this.$input.prop( 'readOnly', this.readOnly );
+	this.updateSearchIndicator();
 	return this;
 };
 
@@ -17951,7 +19521,7 @@ OO.ui.TextInputWidget.prototype.installParentChangeDetector = function () {
 		}
 
 		// Find topmost node in the tree
-		topmostNode = this.$element[0];
+		topmostNode = this.$element[ 0 ];
 		while ( topmostNode.parentNode ) {
 			topmostNode = topmostNode.parentNode;
 		}
@@ -17985,7 +19555,7 @@ OO.ui.TextInputWidget.prototype.installParentChangeDetector = function () {
 		};
 
 		// Create a fake parent and observe it
-		fakeParentNode = $( '<div>' ).append( this.$element )[0];
+		fakeParentNode = $( '<div>' ).append( topmostNode )[ 0 ];
 		mutationObserver.observe( fakeParentNode, { childList: true } );
 	} else {
 		// Using the DOMNodeInsertedIntoDocument event is much nicer and less magical, and works for
@@ -18007,7 +19577,7 @@ OO.ui.TextInputWidget.prototype.adjustSize = function () {
 	if ( this.multiline && this.autosize && this.$input.val() !== this.valCache ) {
 		this.$clone
 			.val( this.$input.val() )
-			.attr( 'rows', '' )
+			.attr( 'rows', this.minRows )
 			// Set inline height property to 0 to measure scroll height
 			.css( 'height', 0 );
 
@@ -18052,10 +19622,23 @@ OO.ui.TextInputWidget.prototype.adjustSize = function () {
  * @protected
  */
 OO.ui.TextInputWidget.prototype.getInputElement = function ( config ) {
+	return config.multiline ?
+		$( '<textarea>' ) :
+		$( '<input type="' + this.getSaneType( config ) + '" />' );
+};
+
+/**
+ * Get sanitized value for 'type' for given config.
+ *
+ * @param {Object} config Configuration options
+ * @return {string|null}
+ * @private
+ */
+OO.ui.TextInputWidget.prototype.getSaneType = function ( config ) {
 	var type = [ 'text', 'password', 'search', 'email', 'url' ].indexOf( config.type ) !== -1 ?
 		config.type :
 		'text';
-	return config.multiline ? $( '<textarea>' ) : $( '<input type="' + type + '" />' );
+	return config.multiline ? 'multiline' : type;
 };
 
 /**
@@ -18084,6 +19667,23 @@ OO.ui.TextInputWidget.prototype.isAutosizing = function () {
 OO.ui.TextInputWidget.prototype.select = function () {
 	this.$input.select();
 	return this;
+};
+
+/**
+ * Focus the input and move the cursor to the end.
+ */
+OO.ui.TextInputWidget.prototype.moveCursorToEnd = function () {
+	var textRange,
+		element = this.$input[ 0 ];
+	this.focus();
+	if ( element.selectionStart !== undefined ) {
+		element.selectionStart = element.selectionEnd = element.value.length;
+	} else if ( element.createTextRange ) {
+		// IE 8 and below
+		textRange = element.createTextRange();
+		textRange.collapse( false );
+		textRange.select();
+	}
 };
 
 /**
@@ -18123,7 +19723,11 @@ OO.ui.TextInputWidget.prototype.setValidityFlag = function ( isValid ) {
 	if ( isValid !== undefined ) {
 		setFlag( isValid );
 	} else {
-		this.isValid().done( setFlag );
+		this.getValidity().then( function () {
+			setFlag( true );
+		}, function () {
+			setFlag( false );
+		} );
 	}
 };
 
@@ -18133,11 +19737,14 @@ OO.ui.TextInputWidget.prototype.setValidityFlag = function ( isValid ) {
  * This method returns a promise that resolves with a boolean `true` if the current value is
  * considered valid according to the supplied {@link #validate validation pattern}.
  *
+ * @deprecated
  * @return {jQuery.Promise} A promise that resolves to a boolean `true` if the value is valid.
  */
 OO.ui.TextInputWidget.prototype.isValid = function () {
+	var result;
+
 	if ( this.validate instanceof Function ) {
-		var result = this.validate( this.getValue() );
+		result = this.validate( this.getValue() );
 		if ( $.isFunction( result.promise ) ) {
 			return result.promise();
 		} else {
@@ -18145,6 +19752,50 @@ OO.ui.TextInputWidget.prototype.isValid = function () {
 		}
 	} else {
 		return $.Deferred().resolve( !!this.getValue().match( this.validate ) ).promise();
+	}
+};
+
+/**
+ * Get the validity of current value.
+ *
+ * This method returns a promise that resolves if the value is valid and rejects if
+ * it isn't. Uses the {@link #validate validation pattern}  to check for validity.
+ *
+ * @return {jQuery.Promise} A promise that resolves if the value is valid, rejects if not.
+ */
+OO.ui.TextInputWidget.prototype.getValidity = function () {
+	var result, promise;
+
+	function rejectOrResolve( valid ) {
+		if ( valid ) {
+			return $.Deferred().resolve().promise();
+		} else {
+			return $.Deferred().reject().promise();
+		}
+	}
+
+	if ( this.validate instanceof Function ) {
+		result = this.validate( this.getValue() );
+
+		if ( $.isFunction( result.promise ) ) {
+			promise = $.Deferred();
+
+			result.then( function ( valid ) {
+				if ( valid ) {
+					promise.resolve();
+				} else {
+					promise.reject();
+				}
+			}, function () {
+				promise.reject();
+			} );
+
+			return promise.promise();
+		} else {
+			return rejectOrResolve( result );
+		}
+	} else {
+		return rejectOrResolve( this.getValue().match( this.validate ) );
 	}
 };
 
@@ -18174,7 +19825,6 @@ OO.ui.TextInputWidget.prototype.setPosition =
  * This method is called by #setLabelPosition, and can also be called on its own if
  * something causes the label to be mispositioned.
  *
- *
  * @chainable
  */
 OO.ui.TextInputWidget.prototype.updatePosition = function () {
@@ -18184,11 +19834,23 @@ OO.ui.TextInputWidget.prototype.updatePosition = function () {
 		.toggleClass( 'oo-ui-textInputWidget-labelPosition-after', !!this.label && after )
 		.toggleClass( 'oo-ui-textInputWidget-labelPosition-before', !!this.label && !after );
 
-	if ( this.label ) {
-		this.positionLabel();
-	}
+	this.positionLabel();
 
 	return this;
+};
+
+/**
+ * Update the 'clear' indicator displayed on type: 'search' text fields, hiding it when the field is
+ * already empty or when it's not editable.
+ */
+OO.ui.TextInputWidget.prototype.updateSearchIndicator = function () {
+	if ( this.type === 'search' ) {
+		if ( this.getValue() === '' || this.isDisabled() || this.isReadOnly() ) {
+			this.setIndicator( null );
+		} else {
+			this.setIndicator( 'clear' );
+		}
+	}
 };
 
 /**
@@ -18198,6 +19860,7 @@ OO.ui.TextInputWidget.prototype.updatePosition = function () {
  * @chainable
  */
 OO.ui.TextInputWidget.prototype.positionLabel = function () {
+	var after, rtl, property;
 	// Clear old values
 	this.$input
 		// Clear old values if present
@@ -18213,13 +19876,37 @@ OO.ui.TextInputWidget.prototype.positionLabel = function () {
 		return;
 	}
 
-	var after = this.labelPosition === 'after',
-		rtl = this.$element.css( 'direction' ) === 'rtl',
-		property = after === rtl ? 'padding-left' : 'padding-right';
+	after = this.labelPosition === 'after';
+	rtl = this.$element.css( 'direction' ) === 'rtl';
+	property = after === rtl ? 'padding-left' : 'padding-right';
 
 	this.$input.css( property, this.$label.outerWidth( true ) );
 
 	return this;
+};
+
+/**
+ * @inheritdoc
+ */
+OO.ui.TextInputWidget.prototype.gatherPreInfuseState = function ( node ) {
+	var
+		state = OO.ui.TextInputWidget.parent.prototype.gatherPreInfuseState.call( this, node ),
+		$input = $( node ).find( '.oo-ui-inputWidget-input' );
+	state.$input = $input; // shortcut for performance, used in InputWidget
+	if ( this.multiline ) {
+		state.scrollTop = $input.scrollTop();
+	}
+	return state;
+};
+
+/**
+ * @inheritdoc
+ */
+OO.ui.TextInputWidget.prototype.restorePreInfuseState = function ( state ) {
+	OO.ui.TextInputWidget.parent.prototype.restorePreInfuseState.call( this, state );
+	if ( state.scrollTop !== undefined ) {
+		this.$input.scrollTop( state.scrollTop );
+	}
 };
 
 /**
@@ -18274,7 +19961,7 @@ OO.ui.TextInputWidget.prototype.positionLabel = function () {
  *
  * @constructor
  * @param {Object} [config] Configuration options
- * @cfg {Object} [menu] Configuration options to pass to the {@link OO.ui.MenuSelectWidget menu select widget}.
+ * @cfg {Object} [menu] Configuration options to pass to the {@link OO.ui.FloatingMenuSelectWidget menu select widget}.
  * @cfg {Object} [input] Configuration options to pass to the {@link OO.ui.TextInputWidget text input widget}.
  * @cfg {jQuery} [$overlay] Render the menu into a separate layer. This configuration is useful in cases where
  *  the expanded menu is larger than its containing `<div>`. The specified overlay layer is usually on top of the
@@ -18307,10 +19994,11 @@ OO.ui.ComboBoxWidget = function OoUiComboBoxWidget( config ) {
 		role: 'combobox',
 		'aria-autocomplete': 'list'
 	} );
-	this.menu = new OO.ui.TextInputMenuSelectWidget( this.input, $.extend(
+	this.menu = new OO.ui.FloatingMenuSelectWidget( $.extend(
 		{
 			widget: this,
 			input: this.input,
+			$container: this.input.$element,
 			disabled: this.isDisabled()
 		},
 		config.menu
@@ -18346,7 +20034,7 @@ OO.mixinClass( OO.ui.ComboBoxWidget, OO.ui.mixin.TabIndexedElement );
 
 /**
  * Get the combobox's menu.
- * @return {OO.ui.TextInputMenuSelectWidget} Menu widget
+ * @return {OO.ui.FloatingMenuSelectWidget} Menu widget
  */
 OO.ui.ComboBoxWidget.prototype.getMenu = function () {
 	return this.menu;
@@ -18583,6 +20271,7 @@ OO.ui.OptionWidget = function OoUiOptionWidget( config ) {
 	this.$element
 		.data( 'oo-ui-optionWidget', this )
 		.attr( 'role', 'option' )
+		.attr( 'aria-selected', 'false' )
 		.addClass( 'oo-ui-optionWidget' )
 		.append( this.$label );
 };
@@ -18612,7 +20301,7 @@ OO.ui.OptionWidget.static.scrollIntoViewOnSelect = false;
  * @return {boolean} Item is selectable
  */
 OO.ui.OptionWidget.prototype.isSelectable = function () {
-	return this.constructor.static.selectable && !this.isDisabled();
+	return this.constructor.static.selectable && !this.isDisabled() && this.isVisible();
 };
 
 /**
@@ -18623,7 +20312,7 @@ OO.ui.OptionWidget.prototype.isSelectable = function () {
  * @return {boolean} Item is highlightable
  */
 OO.ui.OptionWidget.prototype.isHighlightable = function () {
-	return this.constructor.static.highlightable && !this.isDisabled();
+	return this.constructor.static.highlightable && !this.isDisabled() && this.isVisible();
 };
 
 /**
@@ -18633,7 +20322,7 @@ OO.ui.OptionWidget.prototype.isHighlightable = function () {
  * @return {boolean} Item is pressable
  */
 OO.ui.OptionWidget.prototype.isPressable = function () {
-	return this.constructor.static.pressable && !this.isDisabled();
+	return this.constructor.static.pressable && !this.isDisabled() && this.isVisible();
 };
 
 /**
@@ -18792,20 +20481,25 @@ OO.mixinClass( OO.ui.DecoratedOptionWidget, OO.ui.mixin.IndicatorElement );
  * @extends OO.ui.DecoratedOptionWidget
  * @mixins OO.ui.mixin.ButtonElement
  * @mixins OO.ui.mixin.TabIndexedElement
+ * @mixins OO.ui.mixin.TitledElement
  *
  * @constructor
  * @param {Object} [config] Configuration options
  */
 OO.ui.ButtonOptionWidget = function OoUiButtonOptionWidget( config ) {
 	// Configuration initialization
-	config = $.extend( { tabIndex: -1 }, config );
+	config = config || {};
 
 	// Parent constructor
 	OO.ui.ButtonOptionWidget.parent.call( this, config );
 
 	// Mixin constructors
 	OO.ui.mixin.ButtonElement.call( this, config );
-	OO.ui.mixin.TabIndexedElement.call( this, $.extend( {}, config, { $tabIndexed: this.$button } ) );
+	OO.ui.mixin.TitledElement.call( this, $.extend( {}, config, { $titled: this.$button } ) );
+	OO.ui.mixin.TabIndexedElement.call( this, $.extend( {}, config, {
+		$tabIndexed: this.$button,
+		tabIndex: -1
+	} ) );
 
 	// Initialization
 	this.$element.addClass( 'oo-ui-buttonOptionWidget' );
@@ -18817,6 +20511,7 @@ OO.ui.ButtonOptionWidget = function OoUiButtonOptionWidget( config ) {
 
 OO.inheritClass( OO.ui.ButtonOptionWidget, OO.ui.DecoratedOptionWidget );
 OO.mixinClass( OO.ui.ButtonOptionWidget, OO.ui.mixin.ButtonElement );
+OO.mixinClass( OO.ui.ButtonOptionWidget, OO.ui.mixin.TitledElement );
 OO.mixinClass( OO.ui.ButtonOptionWidget, OO.ui.mixin.TabIndexedElement );
 
 /* Static Properties */
@@ -18868,8 +20563,13 @@ OO.ui.RadioOptionWidget = function OoUiRadioOptionWidget( config ) {
 	this.radio.$input.on( 'focus', this.onInputFocus.bind( this ) );
 
 	// Initialization
+	// Remove implicit role, we're handling it ourselves
+	this.radio.$input.attr( 'role', 'presentation' );
 	this.$element
 		.addClass( 'oo-ui-radioOptionWidget' )
+		.attr( 'role', 'radio' )
+		.attr( 'aria-checked', 'false' )
+		.removeAttr( 'aria-selected' )
 		.prepend( this.radio.$element );
 };
 
@@ -18905,6 +20605,9 @@ OO.ui.RadioOptionWidget.prototype.setSelected = function ( state ) {
 	OO.ui.RadioOptionWidget.parent.prototype.setSelected.call( this, state );
 
 	this.radio.setSelected( state );
+	this.$element
+		.attr( 'aria-checked', state.toString() )
+		.removeAttr( 'aria-selected' );
 
 	return this;
 };
@@ -19213,6 +20916,7 @@ OO.ui.TabOptionWidget.static.highlightable = false;
  *  [3]: https://www.mediawiki.org/wiki/OOjs_UI/Widgets/Popups#containerExample
  * @cfg {number} [containerPadding=10] Padding between the popup and its container, specified as a number of pixels.
  * @cfg {jQuery} [$content] Content to append to the popup's body
+ * @cfg {jQuery} [$footer] Content to append to the popup's footer
  * @cfg {boolean} [autoClose=false] Automatically close the popup when it loses focus.
  * @cfg {jQuery} [$autoCloseIgnore] Elements that will not close the popup when clicked.
  *  This config option is only relevant if #autoClose is set to `true`. See the [OOjs UI docs on MediaWiki][2]
@@ -19231,14 +20935,18 @@ OO.ui.PopupWidget = function OoUiPopupWidget( config ) {
 
 	// Properties (must be set before ClippableElement constructor call)
 	this.$body = $( '<div>' );
+	this.$popup = $( '<div>' );
 
 	// Mixin constructors
 	OO.ui.mixin.LabelElement.call( this, config );
-	OO.ui.mixin.ClippableElement.call( this, $.extend( {}, config, { $clippable: this.$body } ) );
+	OO.ui.mixin.ClippableElement.call( this, $.extend( {}, config, {
+		$clippable: this.$body,
+		$clippableContainer: this.$popup
+	} ) );
 
 	// Properties
-	this.$popup = $( '<div>' );
 	this.$head = $( '<div>' );
+	this.$footer = $( '<div>' );
 	this.$anchor = $( '<div>' );
 	// If undefined, will be computed lazily in updateDimensions()
 	this.$container = config.$container;
@@ -19264,18 +20972,25 @@ OO.ui.PopupWidget = function OoUiPopupWidget( config ) {
 	this.$head
 		.addClass( 'oo-ui-popupWidget-head' )
 		.append( this.$label, this.closeButton.$element );
+	this.$footer.addClass( 'oo-ui-popupWidget-footer' );
 	if ( !config.head ) {
 		this.$head.addClass( 'oo-ui-element-hidden' );
 	}
+	if ( !config.$footer ) {
+		this.$footer.addClass( 'oo-ui-element-hidden' );
+	}
 	this.$popup
 		.addClass( 'oo-ui-popupWidget-popup' )
-		.append( this.$head, this.$body );
+		.append( this.$head, this.$body, this.$footer );
 	this.$element
 		.addClass( 'oo-ui-popupWidget' )
 		.append( this.$popup, this.$anchor );
 	// Move content, which was added to #$element by OO.ui.Widget, to the body
 	if ( config.$content instanceof jQuery ) {
 		this.$body.append( config.$content );
+	}
+	if ( config.$footer instanceof jQuery ) {
+		this.$footer.append( config.$footer );
 	}
 	if ( config.padded ) {
 		this.$body.addClass( 'oo-ui-popupWidget-body-padded' );
@@ -19319,7 +21034,7 @@ OO.ui.PopupWidget.prototype.onMouseDown = function ( e ) {
  */
 OO.ui.PopupWidget.prototype.bindMouseDownListener = function () {
 	// Capture clicks outside popup
-	this.getElementWindow().addEventListener( 'mousedown', this.onMouseDownHandler, true );
+	OO.ui.addCaptureEventListener( this.getElementWindow(), 'mousedown', this.onMouseDownHandler );
 };
 
 /**
@@ -19339,7 +21054,7 @@ OO.ui.PopupWidget.prototype.onCloseButtonClick = function () {
  * @private
  */
 OO.ui.PopupWidget.prototype.unbindMouseDownListener = function () {
-	this.getElementWindow().removeEventListener( 'mousedown', this.onMouseDownHandler, true );
+	OO.ui.removeCaptureEventListener( this.getElementWindow(), 'mousedown', this.onMouseDownHandler );
 };
 
 /**
@@ -19365,7 +21080,7 @@ OO.ui.PopupWidget.prototype.onDocumentKeyDown = function ( e ) {
  * @private
  */
 OO.ui.PopupWidget.prototype.bindKeyDownListener = function () {
-	this.getElementWindow().addEventListener( 'keydown', this.onDocumentKeyDownHandler, true );
+	OO.ui.addCaptureEventListener( this.getElementWindow(), 'keydown', this.onDocumentKeyDownHandler );
 };
 
 /**
@@ -19374,7 +21089,7 @@ OO.ui.PopupWidget.prototype.bindKeyDownListener = function () {
  * @private
  */
 OO.ui.PopupWidget.prototype.unbindKeyDownListener = function () {
-	this.getElementWindow().removeEventListener( 'keydown', this.onDocumentKeyDownHandler, true );
+	OO.ui.removeCaptureEventListener( this.getElementWindow(), 'keydown', this.onDocumentKeyDownHandler );
 };
 
 /**
@@ -19408,9 +21123,10 @@ OO.ui.PopupWidget.prototype.hasAnchor = function () {
  * @inheritdoc
  */
 OO.ui.PopupWidget.prototype.toggle = function ( show ) {
+	var change;
 	show = show === undefined ? !this.isVisible() : !!show;
 
-	var change = show !== this.isVisible();
+	change = show !== this.isVisible();
 
 	// Parent method
 	OO.ui.PopupWidget.parent.prototype.toggle.call( this, show );
@@ -19668,7 +21384,7 @@ OO.ui.ProgressBarWidget.prototype.setProgress = function ( progress ) {
 
 /**
  * SearchWidgets combine a {@link OO.ui.TextInputWidget text input field}, where users can type a search query,
- * and a {@link OO.ui.TextInputMenuSelectWidget menu} of search results, which is displayed beneath the query
+ * and a menu of search results, which is displayed beneath the query
  * field. Unlike {@link OO.ui.mixin.LookupElement lookup menus}, search result menus are always visible to the user.
  * Users can choose an item from the menu or type a query into the text field to search for a matching result item.
  * In general, search widgets are used inside a separate {@link OO.ui.Dialog dialog} window.
@@ -19708,10 +21424,6 @@ OO.ui.SearchWidget = function OoUiSearchWidget( config ) {
 		change: 'onQueryChange',
 		enter: 'onQueryEnter'
 	} );
-	this.results.connect( this, {
-		highlight: 'onResultsHighlight',
-		select: 'onResultsSelect'
-	} );
 	this.query.$input.on( 'keydown', this.onQueryKeydown.bind( this ) );
 
 	// Initialization
@@ -19729,28 +21441,6 @@ OO.ui.SearchWidget = function OoUiSearchWidget( config ) {
 /* Setup */
 
 OO.inheritClass( OO.ui.SearchWidget, OO.ui.Widget );
-
-/* Events */
-
-/**
- * A 'highlight' event is emitted when an item is highlighted. The highlight indicates which
- * item will be selected. When a user mouses over a menu item, it is highlighted. If a search
- * string is typed into the query field instead, the first menu item that matches the query
- * will be highlighted.
-
- * @event highlight
- * @deprecated Connect straight to getResults() events instead
- * @param {Object|null} item Item data or null if no item is highlighted
- */
-
-/**
- * A 'select' event is emitted when an item is selected. A menu item is selected when it is clicked,
- * or when a user types a search query, a menu result is highlighted, and the user presses enter.
- *
- * @event select
- * @deprecated Connect straight to getResults() events instead
- * @param {Object|null} item Item data or null if no item is selected
- */
 
 /* Methods */
 
@@ -19791,38 +21481,14 @@ OO.ui.SearchWidget.prototype.onQueryChange = function () {
 /**
  * Handle select widget enter key events.
  *
- * Selects highlighted item.
+ * Chooses highlighted item.
  *
  * @private
  * @param {string} value New value
  */
 OO.ui.SearchWidget.prototype.onQueryEnter = function () {
 	// Reset
-	this.results.selectItem( this.results.getHighlightedItem() );
-};
-
-/**
- * Handle select widget highlight events.
- *
- * @private
- * @deprecated Connect straight to getResults() events instead
- * @param {OO.ui.OptionWidget} item Highlighted item
- * @fires highlight
- */
-OO.ui.SearchWidget.prototype.onResultsHighlight = function ( item ) {
-	this.emit( 'highlight', item ? item.getData() : null );
-};
-
-/**
- * Handle select widget select events.
- *
- * @private
- * @deprecated Connect straight to getResults() events instead
- * @param {OO.ui.OptionWidget} item Selected item
- * @fires select
- */
-OO.ui.SearchWidget.prototype.onResultsSelect = function ( item ) {
-	this.emit( 'select', item ? item.getData() : null );
+	this.results.chooseItem( this.results.getHighlightedItem() );
 };
 
 /**
@@ -19877,7 +21543,7 @@ OO.ui.SearchWidget.prototype.getResults = function () {
  * @abstract
  * @class
  * @extends OO.ui.Widget
- * @mixins OO.ui.mixin.GroupElement
+ * @mixins OO.ui.mixin.GroupWidget
  *
  * @constructor
  * @param {Object} [config] Configuration options
@@ -20006,15 +21672,15 @@ OO.ui.SelectWidget.prototype.onMouseDown = function ( e ) {
 		if ( item && item.isSelectable() ) {
 			this.pressItem( item );
 			this.selecting = item;
-			this.getElementDocument().addEventListener(
+			OO.ui.addCaptureEventListener(
+				this.getElementDocument(),
 				'mouseup',
-				this.onMouseUpHandler,
-				true
+				this.onMouseUpHandler
 			);
-			this.getElementDocument().addEventListener(
+			OO.ui.addCaptureEventListener(
+				this.getElementDocument(),
 				'mousemove',
-				this.onMouseMoveHandler,
-				true
+				this.onMouseMoveHandler
 			);
 		}
 	}
@@ -20043,16 +21709,10 @@ OO.ui.SelectWidget.prototype.onMouseUp = function ( e ) {
 		this.selecting = null;
 	}
 
-	this.getElementDocument().removeEventListener(
-		'mouseup',
-		this.onMouseUpHandler,
-		true
-	);
-	this.getElementDocument().removeEventListener(
-		'mousemove',
-		this.onMouseMoveHandler,
-		true
-	);
+	OO.ui.removeCaptureEventListener( this.getElementDocument(), 'mouseup',
+		this.onMouseUpHandler );
+	OO.ui.removeCaptureEventListener( this.getElementDocument(), 'mousemove',
+		this.onMouseMoveHandler );
 
 	return false;
 };
@@ -20172,7 +21832,7 @@ OO.ui.SelectWidget.prototype.onKeyDown = function ( e ) {
  * @protected
  */
 OO.ui.SelectWidget.prototype.bindKeyDownListener = function () {
-	this.getElementWindow().addEventListener( 'keydown', this.onKeyDownHandler, true );
+	OO.ui.addCaptureEventListener( this.getElementWindow(), 'keydown', this.onKeyDownHandler );
 };
 
 /**
@@ -20181,7 +21841,7 @@ OO.ui.SelectWidget.prototype.bindKeyDownListener = function () {
  * @protected
  */
 OO.ui.SelectWidget.prototype.unbindKeyDownListener = function () {
-	this.getElementWindow().removeEventListener( 'keydown', this.onKeyDownHandler, true );
+	OO.ui.removeCaptureEventListener( this.getElementWindow(), 'keydown', this.onKeyDownHandler );
 };
 
 /**
@@ -20236,7 +21896,7 @@ OO.ui.SelectWidget.prototype.onKeyPress = function ( e ) {
 		this.keyPressBuffer += c;
 	}
 
-	filter = this.getItemMatcher( this.keyPressBuffer );
+	filter = this.getItemMatcher( this.keyPressBuffer, false );
 	if ( !item || !filter( item ) ) {
 		item = this.getRelativeSelectableItem( item, 1, filter );
 	}
@@ -20257,15 +21917,21 @@ OO.ui.SelectWidget.prototype.onKeyPress = function ( e ) {
  *
  * @protected
  * @param {string} s String to match against items
+ * @param {boolean} [exact=false] Only accept exact matches
  * @return {Function} function ( OO.ui.OptionItem ) => boolean
  */
-OO.ui.SelectWidget.prototype.getItemMatcher = function ( s ) {
+OO.ui.SelectWidget.prototype.getItemMatcher = function ( s, exact ) {
 	var re;
 
 	if ( s.normalize ) {
 		s = s.normalize();
 	}
-	re = new RegExp( '^\\s*' + s.replace( /([\\{}()|.?*+\-\^$\[\]])/g, '\\$1' ).replace( /\s+/g, '\\s+' ), 'i' );
+	s = exact ? s.trim() : s.replace( /^\s+/, '' );
+	re = '^\\s*' + s.replace( /([\\{}()|.?*+\-\^$\[\]])/g, '\\$1' ).replace( /\s+/g, '\\s+' );
+	if ( exact ) {
+		re += '\\s*$';
+	}
+	re = new RegExp( re, 'i' );
 	return function ( item ) {
 		var l = item.getLabel();
 		if ( typeof l !== 'string' ) {
@@ -20284,7 +21950,7 @@ OO.ui.SelectWidget.prototype.getItemMatcher = function ( s ) {
  * @protected
  */
 OO.ui.SelectWidget.prototype.bindKeyPressListener = function () {
-	this.getElementWindow().addEventListener( 'keypress', this.onKeyPressHandler, true );
+	OO.ui.addCaptureEventListener( this.getElementWindow(), 'keypress', this.onKeyPressHandler );
 };
 
 /**
@@ -20296,7 +21962,7 @@ OO.ui.SelectWidget.prototype.bindKeyPressListener = function () {
  * @protected
  */
 OO.ui.SelectWidget.prototype.unbindKeyPressListener = function () {
-	this.getElementWindow().removeEventListener( 'keypress', this.onKeyPressHandler, true );
+	OO.ui.removeCaptureEventListener( this.getElementWindow(), 'keypress', this.onKeyPressHandler );
 	this.clearKeyPressBuffer();
 };
 
@@ -20400,6 +22066,62 @@ OO.ui.SelectWidget.prototype.highlightItem = function ( item ) {
 	}
 
 	return this;
+};
+
+/**
+ * Fetch an item by its label.
+ *
+ * @param {string} label Label of the item to select.
+ * @param {boolean} [prefix=false] Allow a prefix match, if only a single item matches
+ * @return {OO.ui.Element|null} Item with equivalent label, `null` if none exists
+ */
+OO.ui.SelectWidget.prototype.getItemFromLabel = function ( label, prefix ) {
+	var i, item, found,
+		len = this.items.length,
+		filter = this.getItemMatcher( label, true );
+
+	for ( i = 0; i < len; i++ ) {
+		item = this.items[ i ];
+		if ( item instanceof OO.ui.OptionWidget && item.isSelectable() && filter( item ) ) {
+			return item;
+		}
+	}
+
+	if ( prefix ) {
+		found = null;
+		filter = this.getItemMatcher( label, false );
+		for ( i = 0; i < len; i++ ) {
+			item = this.items[ i ];
+			if ( item instanceof OO.ui.OptionWidget && item.isSelectable() && filter( item ) ) {
+				if ( found ) {
+					return null;
+				}
+				found = item;
+			}
+		}
+		if ( found ) {
+			return found;
+		}
+	}
+
+	return null;
+};
+
+/**
+ * Programmatically select an option by its label. If the item does not exist,
+ * all options will be deselected.
+ *
+ * @param {string} [label] Label of the item to select.
+ * @param {boolean} [prefix=false] Allow a prefix match, if only a single item matches
+ * @fires select
+ * @chainable
+ */
+OO.ui.SelectWidget.prototype.selectItemByLabel = function ( label, prefix ) {
+	var itemFromLabel = this.getItemFromLabel( label, !!prefix );
+	if ( label === undefined || !itemFromLabel ) {
+		return this.selectItem();
+	}
+	return this.selectItem( itemFromLabel );
 };
 
 /**
@@ -20516,7 +22238,7 @@ OO.ui.SelectWidget.prototype.getRelativeSelectableItem = function ( item, direct
 	}
 
 	if ( item instanceof OO.ui.OptionWidget ) {
-		currentIndex = $.inArray( item, this.items );
+		currentIndex = this.items.indexOf( item );
 		nextIndex = ( currentIndex + increase + len ) % len;
 	} else {
 		// If no item is selected and moving forward, start at the beginning.
@@ -20739,7 +22461,9 @@ OO.ui.RadioSelectWidget = function OoUiRadioSelectWidget( config ) {
 	} );
 
 	// Initialization
-	this.$element.addClass( 'oo-ui-radioSelectWidget' );
+	this.$element
+		.addClass( 'oo-ui-radioSelectWidget' )
+		.attr( 'role', 'radiogroup' );
 };
 
 /* Setup */
@@ -20777,11 +22501,14 @@ OO.mixinClass( OO.ui.RadioSelectWidget, OO.ui.mixin.TabIndexedElement );
  * @cfg {OO.ui.TextInputWidget} [input] Text input used to implement option highlighting for menu items that match
  *  the text the user types. This config is used by {@link OO.ui.ComboBoxWidget ComboBoxWidget}
  *  and {@link OO.ui.mixin.LookupElement LookupElement}
+ * @cfg {jQuery} [$input] Text input used to implement option highlighting for menu items that match
+ *  the text the user types. This config is used by {@link OO.ui.CapsuleMultiSelectWidget CapsuleMultiSelectWidget}
  * @cfg {OO.ui.Widget} [widget] Widget associated with the menu's active state. If the user clicks the mouse
  *  anywhere on the page outside of this widget, the menu is hidden. For example, if there is a button
  *  that toggles the menu's visibility on click, the menu will be hidden then re-shown when the user clicks
  *  that button, unless the button (or its parent widget) is passed in here.
  * @cfg {boolean} [autoHide=true] Hide the menu when the mouse is pressed outside the menu.
+ * @cfg {boolean} [filterFromInput=false] Filter the displayed options from the input
  */
 OO.ui.MenuSelectWidget = function OoUiMenuSelectWidget( config ) {
 	// Configuration initialization
@@ -20796,9 +22523,11 @@ OO.ui.MenuSelectWidget = function OoUiMenuSelectWidget( config ) {
 	// Properties
 	this.newItems = null;
 	this.autoHide = config.autoHide === undefined || !!config.autoHide;
-	this.$input = config.input ? config.input.$input : null;
+	this.filterFromInput = !!config.filterFromInput;
+	this.$input = config.$input ? config.$input : config.input ? config.input.$input : null;
 	this.$widget = config.widget ? config.widget.$element : null;
 	this.onDocumentMouseDownHandler = this.onDocumentMouseDown.bind( this );
+	this.onInputEditHandler = OO.ui.debounce( this.updateItemVisibility.bind( this ), 100 );
 
 	// Initialization
 	this.$element
@@ -20869,6 +22598,27 @@ OO.ui.MenuSelectWidget.prototype.onKeyDown = function ( e ) {
 };
 
 /**
+ * Update menu item visibility after input changes.
+ * @protected
+ */
+OO.ui.MenuSelectWidget.prototype.updateItemVisibility = function () {
+	var i, item,
+		len = this.items.length,
+		showAll = !this.isVisible(),
+		filter = showAll ? null : this.getItemMatcher( this.$input.val() );
+
+	for ( i = 0; i < len; i++ ) {
+		item = this.items[ i ];
+		if ( item instanceof OO.ui.OptionWidget ) {
+			item.toggle( showAll || filter( item ) );
+		}
+	}
+
+	// Reevaluate clipping
+	this.clip();
+};
+
+/**
  * @inheritdoc
  */
 OO.ui.MenuSelectWidget.prototype.bindKeyDownListener = function () {
@@ -20894,7 +22644,11 @@ OO.ui.MenuSelectWidget.prototype.unbindKeyDownListener = function () {
  * @inheritdoc
  */
 OO.ui.MenuSelectWidget.prototype.bindKeyPressListener = function () {
-	if ( !this.$input ) {
+	if ( this.$input ) {
+		if ( this.filterFromInput ) {
+			this.$input.on( 'keydown mouseup cut paste change input select', this.onInputEditHandler );
+		}
+	} else {
 		OO.ui.MenuSelectWidget.parent.prototype.bindKeyPressListener.call( this );
 	}
 };
@@ -20904,7 +22658,10 @@ OO.ui.MenuSelectWidget.prototype.bindKeyPressListener = function () {
  */
 OO.ui.MenuSelectWidget.prototype.unbindKeyPressListener = function () {
 	if ( this.$input ) {
-		this.clearKeyPressBuffer();
+		if ( this.filterFromInput ) {
+			this.$input.off( 'keydown mouseup cut paste change input select', this.onInputEditHandler );
+			this.updateItemVisibility();
+		}
 	} else {
 		OO.ui.MenuSelectWidget.parent.prototype.unbindKeyPressListener.call( this );
 	}
@@ -20986,10 +22743,10 @@ OO.ui.MenuSelectWidget.prototype.clearItems = function () {
  * @inheritdoc
  */
 OO.ui.MenuSelectWidget.prototype.toggle = function ( visible ) {
-	visible = ( visible === undefined ? !this.visible : !!visible ) && !!this.items.length;
+	var i, len, change;
 
-	var i, len,
-		change = visible !== this.isVisible();
+	visible = ( visible === undefined ? !this.visible : !!visible ) && !!this.items.length;
+	change = visible !== this.isVisible();
 
 	// Parent method
 	OO.ui.MenuSelectWidget.parent.prototype.toggle.call( this, visible );
@@ -21009,16 +22766,12 @@ OO.ui.MenuSelectWidget.prototype.toggle = function ( visible ) {
 
 			// Auto-hide
 			if ( this.autoHide ) {
-				this.getElementDocument().addEventListener(
-					'mousedown', this.onDocumentMouseDownHandler, true
-				);
+				OO.ui.addCaptureEventListener( this.getElementDocument(), 'mousedown', this.onDocumentMouseDownHandler );
 			}
 		} else {
 			this.unbindKeyDownListener();
 			this.unbindKeyPressListener();
-			this.getElementDocument().removeEventListener(
-				'mousedown', this.onDocumentMouseDownHandler, true
-			);
+			OO.ui.removeCaptureEventListener( this.getElementDocument(), 'mousedown', this.onDocumentMouseDownHandler );
 			this.toggleClipping( false );
 		}
 	}
@@ -21027,21 +22780,27 @@ OO.ui.MenuSelectWidget.prototype.toggle = function ( visible ) {
 };
 
 /**
- * TextInputMenuSelectWidget is a menu that is specially designed to be positioned beneath
- * a {@link OO.ui.TextInputWidget text input} field. The menu's position is automatically
- * calculated and maintained when the menu is toggled or the window is resized.
+ * FloatingMenuSelectWidget is a menu that will stick under a specified
+ * container, even when it is inserted elsewhere in the document (for example,
+ * in a OO.ui.Window's $overlay). This is sometimes necessary to prevent the
+ * menu from being clipped too aggresively.
+ *
+ * The menu's position is automatically calculated and maintained when the menu
+ * is toggled or the window is resized.
+ *
  * See OO.ui.ComboBoxWidget for an example of a widget that uses this class.
  *
  * @class
  * @extends OO.ui.MenuSelectWidget
  *
  * @constructor
- * @param {OO.ui.TextInputWidget} inputWidget Text input widget to provide menu for
+ * @param {OO.ui.Widget} [inputWidget] Widget to provide the menu for.
+ *   Deprecated, omit this parameter and specify `$container` instead.
  * @param {Object} [config] Configuration options
- * @cfg {jQuery} [$container=input.$element] Element to render menu under
+ * @cfg {jQuery} [$container=inputWidget.$element] Element to render menu under
  */
-OO.ui.TextInputMenuSelectWidget = function OoUiTextInputMenuSelectWidget( inputWidget, config ) {
-	// Allow passing positional parameters inside the config object
+OO.ui.FloatingMenuSelectWidget = function OoUiFloatingMenuSelectWidget( inputWidget, config ) {
+	// Allow 'inputWidget' parameter and config for backwards compatibility
 	if ( OO.isPlainObject( inputWidget ) && config === undefined ) {
 		config = inputWidget;
 		inputWidget = config.inputWidget;
@@ -21051,20 +22810,25 @@ OO.ui.TextInputMenuSelectWidget = function OoUiTextInputMenuSelectWidget( inputW
 	config = config || {};
 
 	// Parent constructor
-	OO.ui.TextInputMenuSelectWidget.parent.call( this, config );
+	OO.ui.FloatingMenuSelectWidget.parent.call( this, config );
 
 	// Properties
-	this.inputWidget = inputWidget;
+	this.inputWidget = inputWidget; // For backwards compatibility
 	this.$container = config.$container || this.inputWidget.$element;
 	this.onWindowResizeHandler = this.onWindowResize.bind( this );
 
 	// Initialization
+	this.$element.addClass( 'oo-ui-floatingMenuSelectWidget' );
+	// For backwards compatibility
 	this.$element.addClass( 'oo-ui-textInputMenuSelectWidget' );
 };
 
 /* Setup */
 
-OO.inheritClass( OO.ui.TextInputMenuSelectWidget, OO.ui.MenuSelectWidget );
+OO.inheritClass( OO.ui.FloatingMenuSelectWidget, OO.ui.MenuSelectWidget );
+
+// For backwards compatibility
+OO.ui.TextInputMenuSelectWidget = OO.ui.FloatingMenuSelectWidget;
 
 /* Methods */
 
@@ -21074,17 +22838,18 @@ OO.inheritClass( OO.ui.TextInputMenuSelectWidget, OO.ui.MenuSelectWidget );
  * @private
  * @param {jQuery.Event} e Window resize event
  */
-OO.ui.TextInputMenuSelectWidget.prototype.onWindowResize = function () {
+OO.ui.FloatingMenuSelectWidget.prototype.onWindowResize = function () {
 	this.position();
 };
 
 /**
  * @inheritdoc
  */
-OO.ui.TextInputMenuSelectWidget.prototype.toggle = function ( visible ) {
+OO.ui.FloatingMenuSelectWidget.prototype.toggle = function ( visible ) {
+	var change;
 	visible = visible === undefined ? !this.isVisible() : !!visible;
 
-	var change = visible !== this.isVisible();
+	change = visible !== this.isVisible();
 
 	if ( change && visible ) {
 		// Make sure the width is set before the parent method runs.
@@ -21094,7 +22859,7 @@ OO.ui.TextInputMenuSelectWidget.prototype.toggle = function ( visible ) {
 	}
 
 	// Parent method
-	OO.ui.TextInputMenuSelectWidget.parent.prototype.toggle.call( this, visible );
+	OO.ui.FloatingMenuSelectWidget.parent.prototype.toggle.call( this, visible );
 
 	if ( change ) {
 		if ( this.isVisible() ) {
@@ -21114,7 +22879,7 @@ OO.ui.TextInputMenuSelectWidget.prototype.toggle = function ( visible ) {
  * @private
  * @chainable
  */
-OO.ui.TextInputMenuSelectWidget.prototype.position = function () {
+OO.ui.FloatingMenuSelectWidget.prototype.position = function () {
 	var $container = this.$container,
 		pos = OO.ui.Element.static.getRelativePosition( $container, this.$element.offsetParent() );
 
@@ -21134,7 +22899,7 @@ OO.ui.TextInputMenuSelectWidget.prototype.position = function () {
  * OutlineSelectWidget is a structured list that contains {@link OO.ui.OutlineOptionWidget outline options}
  * A set of controls can be provided with an {@link OO.ui.OutlineControlsWidget outline controls} widget.
  *
- * ####Currently, this class is only used by {@link OO.ui.BookletLayout booklet layouts}.####
+ * **Currently, this class is only used by {@link OO.ui.BookletLayout booklet layouts}.**
  *
  * @class
  * @extends OO.ui.SelectWidget
@@ -21168,7 +22933,7 @@ OO.mixinClass( OO.ui.OutlineSelectWidget, OO.ui.mixin.TabIndexedElement );
 /**
  * TabSelectWidget is a list that contains {@link OO.ui.TabOptionWidget tab options}
  *
- * ####Currently, this class is only used by {@link OO.ui.IndexLayout index layouts}.####
+ * **Currently, this class is only used by {@link OO.ui.IndexLayout index layouts}.**
  *
  * @class
  * @extends OO.ui.SelectWidget
@@ -21753,14 +23518,14 @@ OO.ui.TitledElement = OO.ui.mixin.TitledElement;
 }( OO ) );
 
 /*!
- * OOjs UI v0.11.6
+ * OOjs UI v0.12.6
  * https://www.mediawiki.org/wiki/OOjs_UI
  *
- * Copyright 2011–2015 OOjs Team and other contributors.
+ * Copyright 2011–2015 OOjs UI Team and other contributors.
  * Released under the MIT license
  * http://oojs.mit-license.org
  *
- * Date: 2015-06-23T21:49:33Z
+ * Date: 2015-08-26T00:14:36Z
  */
 /**
  * @class
@@ -21782,14 +23547,14 @@ OO.inheritClass( OO.ui.ApexTheme, OO.ui.Theme );
 OO.ui.theme = new OO.ui.ApexTheme();
 
 /*!
- * UnicodeJS v0.1.4
+ * UnicodeJS v0.1.5
  * https://www.mediawiki.org/wiki/UnicodeJS
  *
  * Copyright 2013-2015 UnicodeJS Team and other contributors.
  * Released under the MIT license
  * http://unicodejs.mit-license.org/
  *
- * Date: 2015-03-18T22:07:43Z
+ * Date: 2015-07-02T17:38:25Z
  */
 /*!
  * UnicodeJS namespace
@@ -22010,16 +23775,25 @@ OO.ui.theme = new OO.ui.ApexTheme();
 
 // This file is GENERATED by tools/unicodejs-properties.py
 // DO NOT EDIT
+unicodeJS.derivedbidiclasses = {
+	// partial extraction only
+	L: [[0x0041, 0x005A], [0x0061, 0x007A], 0x00AA, 0x00B5, 0x00BA, [0x00C0, 0x00D6], [0x00D8, 0x00F6], [0x00F8, 0x02B8], [0x02BB, 0x02C1], 0x02D0, 0x02D1, [0x02E0, 0x02E4], 0x02EE, [0x0370, 0x0373], 0x0376, 0x0377, [0x037A, 0x037D], 0x037F, 0x0386, [0x0388, 0x038A], 0x038C, [0x038E, 0x03A1], [0x03A3, 0x03F5], [0x03F7, 0x0482], [0x048A, 0x052F], [0x0531, 0x0556], [0x0559, 0x055F], [0x0561, 0x0587], 0x0589, [0x0903, 0x0939], 0x093B, [0x093D, 0x0940], [0x0949, 0x094C], [0x094E, 0x0950], [0x0958, 0x0961], [0x0964, 0x0980], 0x0982, 0x0983, [0x0985, 0x098C], 0x098F, 0x0990, [0x0993, 0x09A8], [0x09AA, 0x09B0], 0x09B2, [0x09B6, 0x09B9], [0x09BD, 0x09C0], 0x09C7, 0x09C8, 0x09CB, 0x09CC, 0x09CE, 0x09D7, 0x09DC, 0x09DD, [0x09DF, 0x09E1], [0x09E6, 0x09F1], [0x09F4, 0x09FA], 0x0A03, [0x0A05, 0x0A0A], 0x0A0F, 0x0A10, [0x0A13, 0x0A28], [0x0A2A, 0x0A30], 0x0A32, 0x0A33, 0x0A35, 0x0A36, 0x0A38, 0x0A39, [0x0A3E, 0x0A40], [0x0A59, 0x0A5C], 0x0A5E, [0x0A66, 0x0A6F], [0x0A72, 0x0A74], 0x0A83, [0x0A85, 0x0A8D], [0x0A8F, 0x0A91], [0x0A93, 0x0AA8], [0x0AAA, 0x0AB0], 0x0AB2, 0x0AB3, [0x0AB5, 0x0AB9], [0x0ABD, 0x0AC0], 0x0AC9, 0x0ACB, 0x0ACC, 0x0AD0, 0x0AE0, 0x0AE1, [0x0AE6, 0x0AF0], 0x0AF9, 0x0B02, 0x0B03, [0x0B05, 0x0B0C], 0x0B0F, 0x0B10, [0x0B13, 0x0B28], [0x0B2A, 0x0B30], 0x0B32, 0x0B33, [0x0B35, 0x0B39], 0x0B3D, 0x0B3E, 0x0B40, 0x0B47, 0x0B48, 0x0B4B, 0x0B4C, 0x0B57, 0x0B5C, 0x0B5D, [0x0B5F, 0x0B61], [0x0B66, 0x0B77], 0x0B83, [0x0B85, 0x0B8A], [0x0B8E, 0x0B90], [0x0B92, 0x0B95], 0x0B99, 0x0B9A, 0x0B9C, 0x0B9E, 0x0B9F, 0x0BA3, 0x0BA4, [0x0BA8, 0x0BAA], [0x0BAE, 0x0BB9], 0x0BBE, 0x0BBF, 0x0BC1, 0x0BC2, [0x0BC6, 0x0BC8], [0x0BCA, 0x0BCC], 0x0BD0, 0x0BD7, [0x0BE6, 0x0BF2], [0x0C01, 0x0C03], [0x0C05, 0x0C0C], [0x0C0E, 0x0C10], [0x0C12, 0x0C28], [0x0C2A, 0x0C39], 0x0C3D, [0x0C41, 0x0C44], [0x0C58, 0x0C5A], 0x0C60, 0x0C61, [0x0C66, 0x0C6F], 0x0C7F, 0x0C82, 0x0C83, [0x0C85, 0x0C8C], [0x0C8E, 0x0C90], [0x0C92, 0x0CA8], [0x0CAA, 0x0CB3], [0x0CB5, 0x0CB9], [0x0CBD, 0x0CC4], [0x0CC6, 0x0CC8], 0x0CCA, 0x0CCB, 0x0CD5, 0x0CD6, 0x0CDE, 0x0CE0, 0x0CE1, [0x0CE6, 0x0CEF], 0x0CF1, 0x0CF2, 0x0D02, 0x0D03, [0x0D05, 0x0D0C], [0x0D0E, 0x0D10], [0x0D12, 0x0D3A], [0x0D3D, 0x0D40], [0x0D46, 0x0D48], [0x0D4A, 0x0D4C], 0x0D4E, 0x0D57, [0x0D5F, 0x0D61], [0x0D66, 0x0D75], [0x0D79, 0x0D7F], 0x0D82, 0x0D83, [0x0D85, 0x0D96], [0x0D9A, 0x0DB1], [0x0DB3, 0x0DBB], 0x0DBD, [0x0DC0, 0x0DC6], [0x0DCF, 0x0DD1], [0x0DD8, 0x0DDF], [0x0DE6, 0x0DEF], [0x0DF2, 0x0DF4], [0x0E01, 0x0E30], 0x0E32, 0x0E33, [0x0E40, 0x0E46], [0x0E4F, 0x0E5B], 0x0E81, 0x0E82, 0x0E84, 0x0E87, 0x0E88, 0x0E8A, 0x0E8D, [0x0E94, 0x0E97], [0x0E99, 0x0E9F], [0x0EA1, 0x0EA3], 0x0EA5, 0x0EA7, 0x0EAA, 0x0EAB, [0x0EAD, 0x0EB0], 0x0EB2, 0x0EB3, 0x0EBD, [0x0EC0, 0x0EC4], 0x0EC6, [0x0ED0, 0x0ED9], [0x0EDC, 0x0EDF], [0x0F00, 0x0F17], [0x0F1A, 0x0F34], 0x0F36, 0x0F38, [0x0F3E, 0x0F47], [0x0F49, 0x0F6C], 0x0F7F, 0x0F85, [0x0F88, 0x0F8C], [0x0FBE, 0x0FC5], [0x0FC7, 0x0FCC], [0x0FCE, 0x0FDA], [0x1000, 0x102C], 0x1031, 0x1038, 0x103B, 0x103C, [0x103F, 0x1057], [0x105A, 0x105D], [0x1061, 0x1070], [0x1075, 0x1081], 0x1083, 0x1084, [0x1087, 0x108C], [0x108E, 0x109C], [0x109E, 0x10C5], 0x10C7, 0x10CD, [0x10D0, 0x1248], [0x124A, 0x124D], [0x1250, 0x1256], 0x1258, [0x125A, 0x125D], [0x1260, 0x1288], [0x128A, 0x128D], [0x1290, 0x12B0], [0x12B2, 0x12B5], [0x12B8, 0x12BE], 0x12C0, [0x12C2, 0x12C5], [0x12C8, 0x12D6], [0x12D8, 0x1310], [0x1312, 0x1315], [0x1318, 0x135A], [0x1360, 0x137C], [0x1380, 0x138F], [0x13A0, 0x13F5], [0x13F8, 0x13FD], [0x1401, 0x167F], [0x1681, 0x169A], [0x16A0, 0x16F8], [0x1700, 0x170C], [0x170E, 0x1711], [0x1720, 0x1731], 0x1735, 0x1736, [0x1740, 0x1751], [0x1760, 0x176C], [0x176E, 0x1770], [0x1780, 0x17B3], 0x17B6, [0x17BE, 0x17C5], 0x17C7, 0x17C8, [0x17D4, 0x17DA], 0x17DC, [0x17E0, 0x17E9], [0x1810, 0x1819], [0x1820, 0x1877], [0x1880, 0x18A8], 0x18AA, [0x18B0, 0x18F5], [0x1900, 0x191E], [0x1923, 0x1926], [0x1929, 0x192B], 0x1930, 0x1931, [0x1933, 0x1938], [0x1946, 0x196D], [0x1970, 0x1974], [0x1980, 0x19AB], [0x19B0, 0x19C9], [0x19D0, 0x19DA], [0x1A00, 0x1A16], 0x1A19, 0x1A1A, [0x1A1E, 0x1A55], 0x1A57, 0x1A61, 0x1A63, 0x1A64, [0x1A6D, 0x1A72], [0x1A80, 0x1A89], [0x1A90, 0x1A99], [0x1AA0, 0x1AAD], [0x1B04, 0x1B33], 0x1B35, 0x1B3B, [0x1B3D, 0x1B41], [0x1B43, 0x1B4B], [0x1B50, 0x1B6A], [0x1B74, 0x1B7C], [0x1B82, 0x1BA1], 0x1BA6, 0x1BA7, 0x1BAA, [0x1BAE, 0x1BE5], 0x1BE7, [0x1BEA, 0x1BEC], 0x1BEE, 0x1BF2, 0x1BF3, [0x1BFC, 0x1C2B], 0x1C34, 0x1C35, [0x1C3B, 0x1C49], [0x1C4D, 0x1C7F], [0x1CC0, 0x1CC7], 0x1CD3, 0x1CE1, [0x1CE9, 0x1CEC], [0x1CEE, 0x1CF3], 0x1CF5, 0x1CF6, [0x1D00, 0x1DBF], [0x1E00, 0x1F15], [0x1F18, 0x1F1D], [0x1F20, 0x1F45], [0x1F48, 0x1F4D], [0x1F50, 0x1F57], 0x1F59, 0x1F5B, 0x1F5D, [0x1F5F, 0x1F7D], [0x1F80, 0x1FB4], [0x1FB6, 0x1FBC], 0x1FBE, [0x1FC2, 0x1FC4], [0x1FC6, 0x1FCC], [0x1FD0, 0x1FD3], [0x1FD6, 0x1FDB], [0x1FE0, 0x1FEC], [0x1FF2, 0x1FF4], [0x1FF6, 0x1FFC], 0x200E, 0x2071, 0x207F, [0x2090, 0x209C], 0x2102, 0x2107, [0x210A, 0x2113], 0x2115, [0x2119, 0x211D], 0x2124, 0x2126, 0x2128, [0x212A, 0x212D], [0x212F, 0x2139], [0x213C, 0x213F], [0x2145, 0x2149], 0x214E, 0x214F, [0x2160, 0x2188], [0x2336, 0x237A], 0x2395, [0x249C, 0x24E9], 0x26AC, [0x2800, 0x28FF], [0x2C00, 0x2C2E], [0x2C30, 0x2C5E], [0x2C60, 0x2CE4], [0x2CEB, 0x2CEE], 0x2CF2, 0x2CF3, [0x2D00, 0x2D25], 0x2D27, 0x2D2D, [0x2D30, 0x2D67], 0x2D6F, 0x2D70, [0x2D80, 0x2D96], [0x2DA0, 0x2DA6], [0x2DA8, 0x2DAE], [0x2DB0, 0x2DB6], [0x2DB8, 0x2DBE], [0x2DC0, 0x2DC6], [0x2DC8, 0x2DCE], [0x2DD0, 0x2DD6], [0x2DD8, 0x2DDE], [0x3005, 0x3007], [0x3021, 0x3029], 0x302E, 0x302F, [0x3031, 0x3035], [0x3038, 0x303C], [0x3041, 0x3096], [0x309D, 0x309F], [0x30A1, 0x30FA], [0x30FC, 0x30FF], [0x3105, 0x312D], [0x3131, 0x318E], [0x3190, 0x31BA], [0x31F0, 0x321C], [0x3220, 0x324F], [0x3260, 0x327B], [0x327F, 0x32B0], [0x32C0, 0x32CB], [0x32D0, 0x32FE], [0x3300, 0x3376], [0x337B, 0x33DD], [0x33E0, 0x33FE], [0x3400, 0x4DB5], [0x4E00, 0x9FD5], [0xA000, 0xA48C], [0xA4D0, 0xA60C], [0xA610, 0xA62B], [0xA640, 0xA66E], [0xA680, 0xA69D], [0xA6A0, 0xA6EF], [0xA6F2, 0xA6F7], [0xA722, 0xA787], [0xA789, 0xA7AD], [0xA7B0, 0xA7B7], [0xA7F7, 0xA801], [0xA803, 0xA805], [0xA807, 0xA80A], [0xA80C, 0xA824], 0xA827, [0xA830, 0xA837], [0xA840, 0xA873], [0xA880, 0xA8C3], [0xA8CE, 0xA8D9], [0xA8F2, 0xA8FD], [0xA900, 0xA925], [0xA92E, 0xA946], 0xA952, 0xA953, [0xA95F, 0xA97C], [0xA983, 0xA9B2], 0xA9B4, 0xA9B5, 0xA9BA, 0xA9BB, [0xA9BD, 0xA9CD], [0xA9CF, 0xA9D9], [0xA9DE, 0xA9E4], [0xA9E6, 0xA9FE], [0xAA00, 0xAA28], 0xAA2F, 0xAA30, 0xAA33, 0xAA34, [0xAA40, 0xAA42], [0xAA44, 0xAA4B], 0xAA4D, [0xAA50, 0xAA59], [0xAA5C, 0xAA7B], [0xAA7D, 0xAAAF], 0xAAB1, 0xAAB5, 0xAAB6, [0xAAB9, 0xAABD], 0xAAC0, 0xAAC2, [0xAADB, 0xAAEB], [0xAAEE, 0xAAF5], [0xAB01, 0xAB06], [0xAB09, 0xAB0E], [0xAB11, 0xAB16], [0xAB20, 0xAB26], [0xAB28, 0xAB2E], [0xAB30, 0xAB65], [0xAB70, 0xABE4], 0xABE6, 0xABE7, [0xABE9, 0xABEC], [0xABF0, 0xABF9], [0xAC00, 0xD7A3], [0xD7B0, 0xD7C6], [0xD7CB, 0xD7FB], [0xE000, 0xFA6D], [0xFA70, 0xFAD9], [0xFB00, 0xFB06], [0xFB13, 0xFB17], [0xFF21, 0xFF3A], [0xFF41, 0xFF5A], [0xFF66, 0xFFBE], [0xFFC2, 0xFFC7], [0xFFCA, 0xFFCF], [0xFFD2, 0xFFD7], [0xFFDA, 0xFFDC], [0x10000, 0x1000B], [0x1000D, 0x10026], [0x10028, 0x1003A], 0x1003C, 0x1003D, [0x1003F, 0x1004D], [0x10050, 0x1005D], [0x10080, 0x100FA], 0x10100, 0x10102, [0x10107, 0x10133], [0x10137, 0x1013F], [0x101D0, 0x101FC], [0x10280, 0x1029C], [0x102A0, 0x102D0], [0x10300, 0x10323], [0x10330, 0x1034A], [0x10350, 0x10375], [0x10380, 0x1039D], [0x1039F, 0x103C3], [0x103C8, 0x103D5], [0x10400, 0x1049D], [0x104A0, 0x104A9], [0x10500, 0x10527], [0x10530, 0x10563], 0x1056F, [0x10600, 0x10736], [0x10740, 0x10755], [0x10760, 0x10767], 0x11000, [0x11002, 0x11037], [0x11047, 0x1104D], [0x11066, 0x1106F], [0x11082, 0x110B2], 0x110B7, 0x110B8, [0x110BB, 0x110C1], [0x110D0, 0x110E8], [0x110F0, 0x110F9], [0x11103, 0x11126], 0x1112C, [0x11136, 0x11143], [0x11150, 0x11172], [0x11174, 0x11176], [0x11182, 0x111B5], [0x111BF, 0x111C9], 0x111CD, [0x111D0, 0x111DF], [0x111E1, 0x111F4], [0x11200, 0x11211], [0x11213, 0x1122E], 0x11232, 0x11233, 0x11235, [0x11238, 0x1123D], [0x11280, 0x11286], 0x11288, [0x1128A, 0x1128D], [0x1128F, 0x1129D], [0x1129F, 0x112A9], [0x112B0, 0x112DE], [0x112E0, 0x112E2], [0x112F0, 0x112F9], 0x11302, 0x11303, [0x11305, 0x1130C], 0x1130F, 0x11310, [0x11313, 0x11328], [0x1132A, 0x11330], 0x11332, 0x11333, [0x11335, 0x11339], [0x1133D, 0x1133F], [0x11341, 0x11344], 0x11347, 0x11348, [0x1134B, 0x1134D], 0x11350, 0x11357, [0x1135D, 0x11363], [0x11480, 0x114B2], 0x114B9, [0x114BB, 0x114BE], 0x114C1, [0x114C4, 0x114C7], [0x114D0, 0x114D9], [0x11580, 0x115B1], [0x115B8, 0x115BB], 0x115BE, [0x115C1, 0x115DB], [0x11600, 0x11632], 0x1163B, 0x1163C, 0x1163E, [0x11641, 0x11644], [0x11650, 0x11659], [0x11680, 0x116AA], 0x116AC, 0x116AE, 0x116AF, 0x116B6, [0x116C0, 0x116C9], [0x11700, 0x11719], 0x11720, 0x11721, 0x11726, [0x11730, 0x1173F], [0x118A0, 0x118F2], 0x118FF, [0x11AC0, 0x11AF8], [0x12000, 0x12399], [0x12400, 0x1246E], [0x12470, 0x12474], [0x12480, 0x12543], [0x13000, 0x1342E], [0x14400, 0x14646], [0x16800, 0x16A38], [0x16A40, 0x16A5E], [0x16A60, 0x16A69], 0x16A6E, 0x16A6F, [0x16AD0, 0x16AED], 0x16AF5, [0x16B00, 0x16B2F], [0x16B37, 0x16B45], [0x16B50, 0x16B59], [0x16B5B, 0x16B61], [0x16B63, 0x16B77], [0x16B7D, 0x16B8F], [0x16F00, 0x16F44], [0x16F50, 0x16F7E], [0x16F93, 0x16F9F], 0x1B000, 0x1B001, [0x1BC00, 0x1BC6A], [0x1BC70, 0x1BC7C], [0x1BC80, 0x1BC88], [0x1BC90, 0x1BC99], 0x1BC9C, 0x1BC9F, [0x1D000, 0x1D0F5], [0x1D100, 0x1D126], [0x1D129, 0x1D166], [0x1D16A, 0x1D172], 0x1D183, 0x1D184, [0x1D18C, 0x1D1A9], [0x1D1AE, 0x1D1E8], [0x1D360, 0x1D371], [0x1D400, 0x1D454], [0x1D456, 0x1D49C], 0x1D49E, 0x1D49F, 0x1D4A2, 0x1D4A5, 0x1D4A6, [0x1D4A9, 0x1D4AC], [0x1D4AE, 0x1D4B9], 0x1D4BB, [0x1D4BD, 0x1D4C3], [0x1D4C5, 0x1D505], [0x1D507, 0x1D50A], [0x1D50D, 0x1D514], [0x1D516, 0x1D51C], [0x1D51E, 0x1D539], [0x1D53B, 0x1D53E], [0x1D540, 0x1D544], 0x1D546, [0x1D54A, 0x1D550], [0x1D552, 0x1D6A5], [0x1D6A8, 0x1D6DA], [0x1D6DC, 0x1D714], [0x1D716, 0x1D74E], [0x1D750, 0x1D788], [0x1D78A, 0x1D7C2], [0x1D7C4, 0x1D7CB], [0x1D800, 0x1D9FF], [0x1DA37, 0x1DA3A], [0x1DA6D, 0x1DA74], [0x1DA76, 0x1DA83], [0x1DA85, 0x1DA8B], [0x1F110, 0x1F12E], [0x1F130, 0x1F169], [0x1F170, 0x1F19A], [0x1F1E6, 0x1F202], [0x1F210, 0x1F23A], [0x1F240, 0x1F248], 0x1F250, 0x1F251, [0x20000, 0x2A6D6], [0x2A700, 0x2B734], [0x2B740, 0x2B81D], [0x2B820, 0x2CEA1], [0x2F800, 0x2FA1D], [0xF0000, 0xFFFFD], [0x100000, 0x10FFFD]],
+	R: [0x0590, 0x05BE, 0x05C0, 0x05C3, 0x05C6, [0x05C8, 0x05FF], [0x07C0, 0x07EA], 0x07F4, 0x07F5, [0x07FA, 0x0815], 0x081A, 0x0824, 0x0828, [0x082E, 0x0858], [0x085C, 0x089F], 0x200F, 0xFB1D, [0xFB1F, 0xFB28], [0xFB2A, 0xFB4F], [0x10800, 0x1091E], [0x10920, 0x10A00], 0x10A04, [0x10A07, 0x10A0B], [0x10A10, 0x10A37], [0x10A3B, 0x10A3E], [0x10A40, 0x10AE4], [0x10AE7, 0x10B38], [0x10B40, 0x10E5F], [0x10E7F, 0x10FFF], [0x1E800, 0x1E8CF], [0x1E8D7, 0x1EDFF], [0x1EF00, 0x1EFFF]],
+	AL: [0x0608, 0x060B, 0x060D, [0x061B, 0x064A], [0x066D, 0x066F], [0x0671, 0x06D5], 0x06E5, 0x06E6, 0x06EE, 0x06EF, [0x06FA, 0x0710], [0x0712, 0x072F], [0x074B, 0x07A5], [0x07B1, 0x07BF], [0x08A0, 0x08E2], [0xFB50, 0xFD3D], [0xFD40, 0xFDCF], [0xFDF0, 0xFDFC], 0xFDFE, 0xFDFF, [0xFE70, 0xFEFE], [0x1EE00, 0x1EEEF], [0x1EEF2, 0x1EEFF]]
+};
+
+// This file is GENERATED by tools/unicodejs-properties.py
+// DO NOT EDIT
 unicodeJS.derivedcoreproperties = {
 	// partial extraction only
-	Alphabetic: [[0x0041, 0x005A], [0x0061, 0x007A], 0x00AA, 0x00B5, 0x00BA, [0x00C0, 0x00D6], [0x00D8, 0x00F6], [0x00F8, 0x02C1], [0x02C6, 0x02D1], [0x02E0, 0x02E4], 0x02EC, 0x02EE, 0x0345, [0x0370, 0x0374], 0x0376, 0x0377, [0x037A, 0x037D], 0x037F, 0x0386, [0x0388, 0x038A], 0x038C, [0x038E, 0x03A1], [0x03A3, 0x03F5], [0x03F7, 0x0481], [0x048A, 0x052F], [0x0531, 0x0556], 0x0559, [0x0561, 0x0587], [0x05B0, 0x05BD], 0x05BF, 0x05C1, 0x05C2, 0x05C4, 0x05C5, 0x05C7, [0x05D0, 0x05EA], [0x05F0, 0x05F2], [0x0610, 0x061A], [0x0620, 0x0657], [0x0659, 0x065F], [0x066E, 0x06D3], [0x06D5, 0x06DC], [0x06E1, 0x06E8], [0x06ED, 0x06EF], [0x06FA, 0x06FC], 0x06FF, [0x0710, 0x073F], [0x074D, 0x07B1], [0x07CA, 0x07EA], 0x07F4, 0x07F5, 0x07FA, [0x0800, 0x0817], [0x081A, 0x082C], [0x0840, 0x0858], [0x08A0, 0x08B2], [0x08E4, 0x08E9], [0x08F0, 0x093B], [0x093D, 0x094C], [0x094E, 0x0950], [0x0955, 0x0963], [0x0971, 0x0983], [0x0985, 0x098C], 0x098F, 0x0990, [0x0993, 0x09A8], [0x09AA, 0x09B0], 0x09B2, [0x09B6, 0x09B9], [0x09BD, 0x09C4], 0x09C7, 0x09C8, 0x09CB, 0x09CC, 0x09CE, 0x09D7, 0x09DC, 0x09DD, [0x09DF, 0x09E3], 0x09F0, 0x09F1, [0x0A01, 0x0A03], [0x0A05, 0x0A0A], 0x0A0F, 0x0A10, [0x0A13, 0x0A28], [0x0A2A, 0x0A30], 0x0A32, 0x0A33, 0x0A35, 0x0A36, 0x0A38, 0x0A39, [0x0A3E, 0x0A42], 0x0A47, 0x0A48, 0x0A4B, 0x0A4C, 0x0A51, [0x0A59, 0x0A5C], 0x0A5E, [0x0A70, 0x0A75], [0x0A81, 0x0A83], [0x0A85, 0x0A8D], [0x0A8F, 0x0A91], [0x0A93, 0x0AA8], [0x0AAA, 0x0AB0], 0x0AB2, 0x0AB3, [0x0AB5, 0x0AB9], [0x0ABD, 0x0AC5], [0x0AC7, 0x0AC9], 0x0ACB, 0x0ACC, 0x0AD0, [0x0AE0, 0x0AE3], [0x0B01, 0x0B03], [0x0B05, 0x0B0C], 0x0B0F, 0x0B10, [0x0B13, 0x0B28], [0x0B2A, 0x0B30], 0x0B32, 0x0B33, [0x0B35, 0x0B39], [0x0B3D, 0x0B44], 0x0B47, 0x0B48, 0x0B4B, 0x0B4C, 0x0B56, 0x0B57, 0x0B5C, 0x0B5D, [0x0B5F, 0x0B63], 0x0B71, 0x0B82, 0x0B83, [0x0B85, 0x0B8A], [0x0B8E, 0x0B90], [0x0B92, 0x0B95], 0x0B99, 0x0B9A, 0x0B9C, 0x0B9E, 0x0B9F, 0x0BA3, 0x0BA4, [0x0BA8, 0x0BAA], [0x0BAE, 0x0BB9], [0x0BBE, 0x0BC2], [0x0BC6, 0x0BC8], [0x0BCA, 0x0BCC], 0x0BD0, 0x0BD7, [0x0C00, 0x0C03], [0x0C05, 0x0C0C], [0x0C0E, 0x0C10], [0x0C12, 0x0C28], [0x0C2A, 0x0C39], [0x0C3D, 0x0C44], [0x0C46, 0x0C48], [0x0C4A, 0x0C4C], 0x0C55, 0x0C56, 0x0C58, 0x0C59, [0x0C60, 0x0C63], [0x0C81, 0x0C83], [0x0C85, 0x0C8C], [0x0C8E, 0x0C90], [0x0C92, 0x0CA8], [0x0CAA, 0x0CB3], [0x0CB5, 0x0CB9], [0x0CBD, 0x0CC4], [0x0CC6, 0x0CC8], [0x0CCA, 0x0CCC], 0x0CD5, 0x0CD6, 0x0CDE, [0x0CE0, 0x0CE3], 0x0CF1, 0x0CF2, [0x0D01, 0x0D03], [0x0D05, 0x0D0C], [0x0D0E, 0x0D10], [0x0D12, 0x0D3A], [0x0D3D, 0x0D44], [0x0D46, 0x0D48], [0x0D4A, 0x0D4C], 0x0D4E, 0x0D57, [0x0D60, 0x0D63], [0x0D7A, 0x0D7F], 0x0D82, 0x0D83, [0x0D85, 0x0D96], [0x0D9A, 0x0DB1], [0x0DB3, 0x0DBB], 0x0DBD, [0x0DC0, 0x0DC6], [0x0DCF, 0x0DD4], 0x0DD6, [0x0DD8, 0x0DDF], 0x0DF2, 0x0DF3, [0x0E01, 0x0E3A], [0x0E40, 0x0E46], 0x0E4D, 0x0E81, 0x0E82, 0x0E84, 0x0E87, 0x0E88, 0x0E8A, 0x0E8D, [0x0E94, 0x0E97], [0x0E99, 0x0E9F], [0x0EA1, 0x0EA3], 0x0EA5, 0x0EA7, 0x0EAA, 0x0EAB, [0x0EAD, 0x0EB9], [0x0EBB, 0x0EBD], [0x0EC0, 0x0EC4], 0x0EC6, 0x0ECD, [0x0EDC, 0x0EDF], 0x0F00, [0x0F40, 0x0F47], [0x0F49, 0x0F6C], [0x0F71, 0x0F81], [0x0F88, 0x0F97], [0x0F99, 0x0FBC], [0x1000, 0x1036], 0x1038, [0x103B, 0x103F], [0x1050, 0x1062], [0x1065, 0x1068], [0x106E, 0x1086], 0x108E, 0x109C, 0x109D, [0x10A0, 0x10C5], 0x10C7, 0x10CD, [0x10D0, 0x10FA], [0x10FC, 0x1248], [0x124A, 0x124D], [0x1250, 0x1256], 0x1258, [0x125A, 0x125D], [0x1260, 0x1288], [0x128A, 0x128D], [0x1290, 0x12B0], [0x12B2, 0x12B5], [0x12B8, 0x12BE], 0x12C0, [0x12C2, 0x12C5], [0x12C8, 0x12D6], [0x12D8, 0x1310], [0x1312, 0x1315], [0x1318, 0x135A], 0x135F, [0x1380, 0x138F], [0x13A0, 0x13F4], [0x1401, 0x166C], [0x166F, 0x167F], [0x1681, 0x169A], [0x16A0, 0x16EA], [0x16EE, 0x16F8], [0x1700, 0x170C], [0x170E, 0x1713], [0x1720, 0x1733], [0x1740, 0x1753], [0x1760, 0x176C], [0x176E, 0x1770], 0x1772, 0x1773, [0x1780, 0x17B3], [0x17B6, 0x17C8], 0x17D7, 0x17DC, [0x1820, 0x1877], [0x1880, 0x18AA], [0x18B0, 0x18F5], [0x1900, 0x191E], [0x1920, 0x192B], [0x1930, 0x1938], [0x1950, 0x196D], [0x1970, 0x1974], [0x1980, 0x19AB], [0x19B0, 0x19C9], [0x1A00, 0x1A1B], [0x1A20, 0x1A5E], [0x1A61, 0x1A74], 0x1AA7, [0x1B00, 0x1B33], [0x1B35, 0x1B43], [0x1B45, 0x1B4B], [0x1B80, 0x1BA9], [0x1BAC, 0x1BAF], [0x1BBA, 0x1BE5], [0x1BE7, 0x1BF1], [0x1C00, 0x1C35], [0x1C4D, 0x1C4F], [0x1C5A, 0x1C7D], [0x1CE9, 0x1CEC], [0x1CEE, 0x1CF3], 0x1CF5, 0x1CF6, [0x1D00, 0x1DBF], [0x1DE7, 0x1DF4], [0x1E00, 0x1F15], [0x1F18, 0x1F1D], [0x1F20, 0x1F45], [0x1F48, 0x1F4D], [0x1F50, 0x1F57], 0x1F59, 0x1F5B, 0x1F5D, [0x1F5F, 0x1F7D], [0x1F80, 0x1FB4], [0x1FB6, 0x1FBC], 0x1FBE, [0x1FC2, 0x1FC4], [0x1FC6, 0x1FCC], [0x1FD0, 0x1FD3], [0x1FD6, 0x1FDB], [0x1FE0, 0x1FEC], [0x1FF2, 0x1FF4], [0x1FF6, 0x1FFC], 0x2071, 0x207F, [0x2090, 0x209C], 0x2102, 0x2107, [0x210A, 0x2113], 0x2115, [0x2119, 0x211D], 0x2124, 0x2126, 0x2128, [0x212A, 0x212D], [0x212F, 0x2139], [0x213C, 0x213F], [0x2145, 0x2149], 0x214E, [0x2160, 0x2188], [0x24B6, 0x24E9], [0x2C00, 0x2C2E], [0x2C30, 0x2C5E], [0x2C60, 0x2CE4], [0x2CEB, 0x2CEE], 0x2CF2, 0x2CF3, [0x2D00, 0x2D25], 0x2D27, 0x2D2D, [0x2D30, 0x2D67], 0x2D6F, [0x2D80, 0x2D96], [0x2DA0, 0x2DA6], [0x2DA8, 0x2DAE], [0x2DB0, 0x2DB6], [0x2DB8, 0x2DBE], [0x2DC0, 0x2DC6], [0x2DC8, 0x2DCE], [0x2DD0, 0x2DD6], [0x2DD8, 0x2DDE], [0x2DE0, 0x2DFF], 0x2E2F, [0x3005, 0x3007], [0x3021, 0x3029], [0x3031, 0x3035], [0x3038, 0x303C], [0x3041, 0x3096], [0x309D, 0x309F], [0x30A1, 0x30FA], [0x30FC, 0x30FF], [0x3105, 0x312D], [0x3131, 0x318E], [0x31A0, 0x31BA], [0x31F0, 0x31FF], [0x3400, 0x4DB5], [0x4E00, 0x9FCC], [0xA000, 0xA48C], [0xA4D0, 0xA4FD], [0xA500, 0xA60C], [0xA610, 0xA61F], 0xA62A, 0xA62B, [0xA640, 0xA66E], [0xA674, 0xA67B], [0xA67F, 0xA69D], [0xA69F, 0xA6EF], [0xA717, 0xA71F], [0xA722, 0xA788], [0xA78B, 0xA78E], [0xA790, 0xA7AD], 0xA7B0, 0xA7B1, [0xA7F7, 0xA801], [0xA803, 0xA805], [0xA807, 0xA80A], [0xA80C, 0xA827], [0xA840, 0xA873], [0xA880, 0xA8C3], [0xA8F2, 0xA8F7], 0xA8FB, [0xA90A, 0xA92A], [0xA930, 0xA952], [0xA960, 0xA97C], [0xA980, 0xA9B2], [0xA9B4, 0xA9BF], 0xA9CF, [0xA9E0, 0xA9E4], [0xA9E6, 0xA9EF], [0xA9FA, 0xA9FE], [0xAA00, 0xAA36], [0xAA40, 0xAA4D], [0xAA60, 0xAA76], 0xAA7A, [0xAA7E, 0xAABE], 0xAAC0, 0xAAC2, [0xAADB, 0xAADD], [0xAAE0, 0xAAEF], [0xAAF2, 0xAAF5], [0xAB01, 0xAB06], [0xAB09, 0xAB0E], [0xAB11, 0xAB16], [0xAB20, 0xAB26], [0xAB28, 0xAB2E], [0xAB30, 0xAB5A], [0xAB5C, 0xAB5F], 0xAB64, 0xAB65, [0xABC0, 0xABEA], [0xAC00, 0xD7A3], [0xD7B0, 0xD7C6], [0xD7CB, 0xD7FB], [0xF900, 0xFA6D], [0xFA70, 0xFAD9], [0xFB00, 0xFB06], [0xFB13, 0xFB17], [0xFB1D, 0xFB28], [0xFB2A, 0xFB36], [0xFB38, 0xFB3C], 0xFB3E, 0xFB40, 0xFB41, 0xFB43, 0xFB44, [0xFB46, 0xFBB1], [0xFBD3, 0xFD3D], [0xFD50, 0xFD8F], [0xFD92, 0xFDC7], [0xFDF0, 0xFDFB], [0xFE70, 0xFE74], [0xFE76, 0xFEFC], [0xFF21, 0xFF3A], [0xFF41, 0xFF5A], [0xFF66, 0xFFBE], [0xFFC2, 0xFFC7], [0xFFCA, 0xFFCF], [0xFFD2, 0xFFD7], [0xFFDA, 0xFFDC], [0x10000, 0x1000B], [0x1000D, 0x10026], [0x10028, 0x1003A], 0x1003C, 0x1003D, [0x1003F, 0x1004D], [0x10050, 0x1005D], [0x10080, 0x100FA], [0x10140, 0x10174], [0x10280, 0x1029C], [0x102A0, 0x102D0], [0x10300, 0x1031F], [0x10330, 0x1034A], [0x10350, 0x1037A], [0x10380, 0x1039D], [0x103A0, 0x103C3], [0x103C8, 0x103CF], [0x103D1, 0x103D5], [0x10400, 0x1049D], [0x10500, 0x10527], [0x10530, 0x10563], [0x10600, 0x10736], [0x10740, 0x10755], [0x10760, 0x10767], [0x10800, 0x10805], 0x10808, [0x1080A, 0x10835], 0x10837, 0x10838, 0x1083C, [0x1083F, 0x10855], [0x10860, 0x10876], [0x10880, 0x1089E], [0x10900, 0x10915], [0x10920, 0x10939], [0x10980, 0x109B7], 0x109BE, 0x109BF, [0x10A00, 0x10A03], 0x10A05, 0x10A06, [0x10A0C, 0x10A13], [0x10A15, 0x10A17], [0x10A19, 0x10A33], [0x10A60, 0x10A7C], [0x10A80, 0x10A9C], [0x10AC0, 0x10AC7], [0x10AC9, 0x10AE4], [0x10B00, 0x10B35], [0x10B40, 0x10B55], [0x10B60, 0x10B72], [0x10B80, 0x10B91], [0x10C00, 0x10C48], [0x11000, 0x11045], [0x11082, 0x110B8], [0x110D0, 0x110E8], [0x11100, 0x11132], [0x11150, 0x11172], 0x11176, [0x11180, 0x111BF], [0x111C1, 0x111C4], 0x111DA, [0x11200, 0x11211], [0x11213, 0x11234], 0x11237, [0x112B0, 0x112E8], [0x11301, 0x11303], [0x11305, 0x1130C], 0x1130F, 0x11310, [0x11313, 0x11328], [0x1132A, 0x11330], 0x11332, 0x11333, [0x11335, 0x11339], [0x1133D, 0x11344], 0x11347, 0x11348, 0x1134B, 0x1134C, 0x11357, [0x1135D, 0x11363], [0x11480, 0x114C1], 0x114C4, 0x114C5, 0x114C7, [0x11580, 0x115B5], [0x115B8, 0x115BE], [0x11600, 0x1163E], 0x11640, 0x11644, [0x11680, 0x116B5], [0x118A0, 0x118DF], 0x118FF, [0x11AC0, 0x11AF8], [0x12000, 0x12398], [0x12400, 0x1246E], [0x13000, 0x1342E], [0x16800, 0x16A38], [0x16A40, 0x16A5E], [0x16AD0, 0x16AED], [0x16B00, 0x16B36], [0x16B40, 0x16B43], [0x16B63, 0x16B77], [0x16B7D, 0x16B8F], [0x16F00, 0x16F44], [0x16F50, 0x16F7E], [0x16F93, 0x16F9F], 0x1B000, 0x1B001, [0x1BC00, 0x1BC6A], [0x1BC70, 0x1BC7C], [0x1BC80, 0x1BC88], [0x1BC90, 0x1BC99], 0x1BC9E, [0x1D400, 0x1D454], [0x1D456, 0x1D49C], 0x1D49E, 0x1D49F, 0x1D4A2, 0x1D4A5, 0x1D4A6, [0x1D4A9, 0x1D4AC], [0x1D4AE, 0x1D4B9], 0x1D4BB, [0x1D4BD, 0x1D4C3], [0x1D4C5, 0x1D505], [0x1D507, 0x1D50A], [0x1D50D, 0x1D514], [0x1D516, 0x1D51C], [0x1D51E, 0x1D539], [0x1D53B, 0x1D53E], [0x1D540, 0x1D544], 0x1D546, [0x1D54A, 0x1D550], [0x1D552, 0x1D6A5], [0x1D6A8, 0x1D6C0], [0x1D6C2, 0x1D6DA], [0x1D6DC, 0x1D6FA], [0x1D6FC, 0x1D714], [0x1D716, 0x1D734], [0x1D736, 0x1D74E], [0x1D750, 0x1D76E], [0x1D770, 0x1D788], [0x1D78A, 0x1D7A8], [0x1D7AA, 0x1D7C2], [0x1D7C4, 0x1D7CB], [0x1E800, 0x1E8C4], [0x1EE00, 0x1EE03], [0x1EE05, 0x1EE1F], 0x1EE21, 0x1EE22, 0x1EE24, 0x1EE27, [0x1EE29, 0x1EE32], [0x1EE34, 0x1EE37], 0x1EE39, 0x1EE3B, 0x1EE42, 0x1EE47, 0x1EE49, 0x1EE4B, [0x1EE4D, 0x1EE4F], 0x1EE51, 0x1EE52, 0x1EE54, 0x1EE57, 0x1EE59, 0x1EE5B, 0x1EE5D, 0x1EE5F, 0x1EE61, 0x1EE62, 0x1EE64, [0x1EE67, 0x1EE6A], [0x1EE6C, 0x1EE72], [0x1EE74, 0x1EE77], [0x1EE79, 0x1EE7C], 0x1EE7E, [0x1EE80, 0x1EE89], [0x1EE8B, 0x1EE9B], [0x1EEA1, 0x1EEA3], [0x1EEA5, 0x1EEA9], [0x1EEAB, 0x1EEBB], [0x1F130, 0x1F149], [0x1F150, 0x1F169], [0x1F170, 0x1F189], [0x20000, 0x2A6D6], [0x2A700, 0x2B734], [0x2B740, 0x2B81D], [0x2F800, 0x2FA1D]]
+	Alphabetic: [[0x0041, 0x005A], [0x0061, 0x007A], 0x00AA, 0x00B5, 0x00BA, [0x00C0, 0x00D6], [0x00D8, 0x00F6], [0x00F8, 0x02C1], [0x02C6, 0x02D1], [0x02E0, 0x02E4], 0x02EC, 0x02EE, 0x0345, [0x0370, 0x0374], 0x0376, 0x0377, [0x037A, 0x037D], 0x037F, 0x0386, [0x0388, 0x038A], 0x038C, [0x038E, 0x03A1], [0x03A3, 0x03F5], [0x03F7, 0x0481], [0x048A, 0x052F], [0x0531, 0x0556], 0x0559, [0x0561, 0x0587], [0x05B0, 0x05BD], 0x05BF, 0x05C1, 0x05C2, 0x05C4, 0x05C5, 0x05C7, [0x05D0, 0x05EA], [0x05F0, 0x05F2], [0x0610, 0x061A], [0x0620, 0x0657], [0x0659, 0x065F], [0x066E, 0x06D3], [0x06D5, 0x06DC], [0x06E1, 0x06E8], [0x06ED, 0x06EF], [0x06FA, 0x06FC], 0x06FF, [0x0710, 0x073F], [0x074D, 0x07B1], [0x07CA, 0x07EA], 0x07F4, 0x07F5, 0x07FA, [0x0800, 0x0817], [0x081A, 0x082C], [0x0840, 0x0858], [0x08A0, 0x08B4], [0x08E3, 0x08E9], [0x08F0, 0x093B], [0x093D, 0x094C], [0x094E, 0x0950], [0x0955, 0x0963], [0x0971, 0x0983], [0x0985, 0x098C], 0x098F, 0x0990, [0x0993, 0x09A8], [0x09AA, 0x09B0], 0x09B2, [0x09B6, 0x09B9], [0x09BD, 0x09C4], 0x09C7, 0x09C8, 0x09CB, 0x09CC, 0x09CE, 0x09D7, 0x09DC, 0x09DD, [0x09DF, 0x09E3], 0x09F0, 0x09F1, [0x0A01, 0x0A03], [0x0A05, 0x0A0A], 0x0A0F, 0x0A10, [0x0A13, 0x0A28], [0x0A2A, 0x0A30], 0x0A32, 0x0A33, 0x0A35, 0x0A36, 0x0A38, 0x0A39, [0x0A3E, 0x0A42], 0x0A47, 0x0A48, 0x0A4B, 0x0A4C, 0x0A51, [0x0A59, 0x0A5C], 0x0A5E, [0x0A70, 0x0A75], [0x0A81, 0x0A83], [0x0A85, 0x0A8D], [0x0A8F, 0x0A91], [0x0A93, 0x0AA8], [0x0AAA, 0x0AB0], 0x0AB2, 0x0AB3, [0x0AB5, 0x0AB9], [0x0ABD, 0x0AC5], [0x0AC7, 0x0AC9], 0x0ACB, 0x0ACC, 0x0AD0, [0x0AE0, 0x0AE3], 0x0AF9, [0x0B01, 0x0B03], [0x0B05, 0x0B0C], 0x0B0F, 0x0B10, [0x0B13, 0x0B28], [0x0B2A, 0x0B30], 0x0B32, 0x0B33, [0x0B35, 0x0B39], [0x0B3D, 0x0B44], 0x0B47, 0x0B48, 0x0B4B, 0x0B4C, 0x0B56, 0x0B57, 0x0B5C, 0x0B5D, [0x0B5F, 0x0B63], 0x0B71, 0x0B82, 0x0B83, [0x0B85, 0x0B8A], [0x0B8E, 0x0B90], [0x0B92, 0x0B95], 0x0B99, 0x0B9A, 0x0B9C, 0x0B9E, 0x0B9F, 0x0BA3, 0x0BA4, [0x0BA8, 0x0BAA], [0x0BAE, 0x0BB9], [0x0BBE, 0x0BC2], [0x0BC6, 0x0BC8], [0x0BCA, 0x0BCC], 0x0BD0, 0x0BD7, [0x0C00, 0x0C03], [0x0C05, 0x0C0C], [0x0C0E, 0x0C10], [0x0C12, 0x0C28], [0x0C2A, 0x0C39], [0x0C3D, 0x0C44], [0x0C46, 0x0C48], [0x0C4A, 0x0C4C], 0x0C55, 0x0C56, [0x0C58, 0x0C5A], [0x0C60, 0x0C63], [0x0C81, 0x0C83], [0x0C85, 0x0C8C], [0x0C8E, 0x0C90], [0x0C92, 0x0CA8], [0x0CAA, 0x0CB3], [0x0CB5, 0x0CB9], [0x0CBD, 0x0CC4], [0x0CC6, 0x0CC8], [0x0CCA, 0x0CCC], 0x0CD5, 0x0CD6, 0x0CDE, [0x0CE0, 0x0CE3], 0x0CF1, 0x0CF2, [0x0D01, 0x0D03], [0x0D05, 0x0D0C], [0x0D0E, 0x0D10], [0x0D12, 0x0D3A], [0x0D3D, 0x0D44], [0x0D46, 0x0D48], [0x0D4A, 0x0D4C], 0x0D4E, 0x0D57, [0x0D5F, 0x0D63], [0x0D7A, 0x0D7F], 0x0D82, 0x0D83, [0x0D85, 0x0D96], [0x0D9A, 0x0DB1], [0x0DB3, 0x0DBB], 0x0DBD, [0x0DC0, 0x0DC6], [0x0DCF, 0x0DD4], 0x0DD6, [0x0DD8, 0x0DDF], 0x0DF2, 0x0DF3, [0x0E01, 0x0E3A], [0x0E40, 0x0E46], 0x0E4D, 0x0E81, 0x0E82, 0x0E84, 0x0E87, 0x0E88, 0x0E8A, 0x0E8D, [0x0E94, 0x0E97], [0x0E99, 0x0E9F], [0x0EA1, 0x0EA3], 0x0EA5, 0x0EA7, 0x0EAA, 0x0EAB, [0x0EAD, 0x0EB9], [0x0EBB, 0x0EBD], [0x0EC0, 0x0EC4], 0x0EC6, 0x0ECD, [0x0EDC, 0x0EDF], 0x0F00, [0x0F40, 0x0F47], [0x0F49, 0x0F6C], [0x0F71, 0x0F81], [0x0F88, 0x0F97], [0x0F99, 0x0FBC], [0x1000, 0x1036], 0x1038, [0x103B, 0x103F], [0x1050, 0x1062], [0x1065, 0x1068], [0x106E, 0x1086], 0x108E, 0x109C, 0x109D, [0x10A0, 0x10C5], 0x10C7, 0x10CD, [0x10D0, 0x10FA], [0x10FC, 0x1248], [0x124A, 0x124D], [0x1250, 0x1256], 0x1258, [0x125A, 0x125D], [0x1260, 0x1288], [0x128A, 0x128D], [0x1290, 0x12B0], [0x12B2, 0x12B5], [0x12B8, 0x12BE], 0x12C0, [0x12C2, 0x12C5], [0x12C8, 0x12D6], [0x12D8, 0x1310], [0x1312, 0x1315], [0x1318, 0x135A], 0x135F, [0x1380, 0x138F], [0x13A0, 0x13F5], [0x13F8, 0x13FD], [0x1401, 0x166C], [0x166F, 0x167F], [0x1681, 0x169A], [0x16A0, 0x16EA], [0x16EE, 0x16F8], [0x1700, 0x170C], [0x170E, 0x1713], [0x1720, 0x1733], [0x1740, 0x1753], [0x1760, 0x176C], [0x176E, 0x1770], 0x1772, 0x1773, [0x1780, 0x17B3], [0x17B6, 0x17C8], 0x17D7, 0x17DC, [0x1820, 0x1877], [0x1880, 0x18AA], [0x18B0, 0x18F5], [0x1900, 0x191E], [0x1920, 0x192B], [0x1930, 0x1938], [0x1950, 0x196D], [0x1970, 0x1974], [0x1980, 0x19AB], [0x19B0, 0x19C9], [0x1A00, 0x1A1B], [0x1A20, 0x1A5E], [0x1A61, 0x1A74], 0x1AA7, [0x1B00, 0x1B33], [0x1B35, 0x1B43], [0x1B45, 0x1B4B], [0x1B80, 0x1BA9], [0x1BAC, 0x1BAF], [0x1BBA, 0x1BE5], [0x1BE7, 0x1BF1], [0x1C00, 0x1C35], [0x1C4D, 0x1C4F], [0x1C5A, 0x1C7D], [0x1CE9, 0x1CEC], [0x1CEE, 0x1CF3], 0x1CF5, 0x1CF6, [0x1D00, 0x1DBF], [0x1DE7, 0x1DF4], [0x1E00, 0x1F15], [0x1F18, 0x1F1D], [0x1F20, 0x1F45], [0x1F48, 0x1F4D], [0x1F50, 0x1F57], 0x1F59, 0x1F5B, 0x1F5D, [0x1F5F, 0x1F7D], [0x1F80, 0x1FB4], [0x1FB6, 0x1FBC], 0x1FBE, [0x1FC2, 0x1FC4], [0x1FC6, 0x1FCC], [0x1FD0, 0x1FD3], [0x1FD6, 0x1FDB], [0x1FE0, 0x1FEC], [0x1FF2, 0x1FF4], [0x1FF6, 0x1FFC], 0x2071, 0x207F, [0x2090, 0x209C], 0x2102, 0x2107, [0x210A, 0x2113], 0x2115, [0x2119, 0x211D], 0x2124, 0x2126, 0x2128, [0x212A, 0x212D], [0x212F, 0x2139], [0x213C, 0x213F], [0x2145, 0x2149], 0x214E, [0x2160, 0x2188], [0x24B6, 0x24E9], [0x2C00, 0x2C2E], [0x2C30, 0x2C5E], [0x2C60, 0x2CE4], [0x2CEB, 0x2CEE], 0x2CF2, 0x2CF3, [0x2D00, 0x2D25], 0x2D27, 0x2D2D, [0x2D30, 0x2D67], 0x2D6F, [0x2D80, 0x2D96], [0x2DA0, 0x2DA6], [0x2DA8, 0x2DAE], [0x2DB0, 0x2DB6], [0x2DB8, 0x2DBE], [0x2DC0, 0x2DC6], [0x2DC8, 0x2DCE], [0x2DD0, 0x2DD6], [0x2DD8, 0x2DDE], [0x2DE0, 0x2DFF], 0x2E2F, [0x3005, 0x3007], [0x3021, 0x3029], [0x3031, 0x3035], [0x3038, 0x303C], [0x3041, 0x3096], [0x309D, 0x309F], [0x30A1, 0x30FA], [0x30FC, 0x30FF], [0x3105, 0x312D], [0x3131, 0x318E], [0x31A0, 0x31BA], [0x31F0, 0x31FF], [0x3400, 0x4DB5], [0x4E00, 0x9FD5], [0xA000, 0xA48C], [0xA4D0, 0xA4FD], [0xA500, 0xA60C], [0xA610, 0xA61F], 0xA62A, 0xA62B, [0xA640, 0xA66E], [0xA674, 0xA67B], [0xA67F, 0xA6EF], [0xA717, 0xA71F], [0xA722, 0xA788], [0xA78B, 0xA7AD], [0xA7B0, 0xA7B7], [0xA7F7, 0xA801], [0xA803, 0xA805], [0xA807, 0xA80A], [0xA80C, 0xA827], [0xA840, 0xA873], [0xA880, 0xA8C3], [0xA8F2, 0xA8F7], 0xA8FB, 0xA8FD, [0xA90A, 0xA92A], [0xA930, 0xA952], [0xA960, 0xA97C], [0xA980, 0xA9B2], [0xA9B4, 0xA9BF], 0xA9CF, [0xA9E0, 0xA9E4], [0xA9E6, 0xA9EF], [0xA9FA, 0xA9FE], [0xAA00, 0xAA36], [0xAA40, 0xAA4D], [0xAA60, 0xAA76], 0xAA7A, [0xAA7E, 0xAABE], 0xAAC0, 0xAAC2, [0xAADB, 0xAADD], [0xAAE0, 0xAAEF], [0xAAF2, 0xAAF5], [0xAB01, 0xAB06], [0xAB09, 0xAB0E], [0xAB11, 0xAB16], [0xAB20, 0xAB26], [0xAB28, 0xAB2E], [0xAB30, 0xAB5A], [0xAB5C, 0xAB65], [0xAB70, 0xABEA], [0xAC00, 0xD7A3], [0xD7B0, 0xD7C6], [0xD7CB, 0xD7FB], [0xF900, 0xFA6D], [0xFA70, 0xFAD9], [0xFB00, 0xFB06], [0xFB13, 0xFB17], [0xFB1D, 0xFB28], [0xFB2A, 0xFB36], [0xFB38, 0xFB3C], 0xFB3E, 0xFB40, 0xFB41, 0xFB43, 0xFB44, [0xFB46, 0xFBB1], [0xFBD3, 0xFD3D], [0xFD50, 0xFD8F], [0xFD92, 0xFDC7], [0xFDF0, 0xFDFB], [0xFE70, 0xFE74], [0xFE76, 0xFEFC], [0xFF21, 0xFF3A], [0xFF41, 0xFF5A], [0xFF66, 0xFFBE], [0xFFC2, 0xFFC7], [0xFFCA, 0xFFCF], [0xFFD2, 0xFFD7], [0xFFDA, 0xFFDC], [0x10000, 0x1000B], [0x1000D, 0x10026], [0x10028, 0x1003A], 0x1003C, 0x1003D, [0x1003F, 0x1004D], [0x10050, 0x1005D], [0x10080, 0x100FA], [0x10140, 0x10174], [0x10280, 0x1029C], [0x102A0, 0x102D0], [0x10300, 0x1031F], [0x10330, 0x1034A], [0x10350, 0x1037A], [0x10380, 0x1039D], [0x103A0, 0x103C3], [0x103C8, 0x103CF], [0x103D1, 0x103D5], [0x10400, 0x1049D], [0x10500, 0x10527], [0x10530, 0x10563], [0x10600, 0x10736], [0x10740, 0x10755], [0x10760, 0x10767], [0x10800, 0x10805], 0x10808, [0x1080A, 0x10835], 0x10837, 0x10838, 0x1083C, [0x1083F, 0x10855], [0x10860, 0x10876], [0x10880, 0x1089E], [0x108E0, 0x108F2], 0x108F4, 0x108F5, [0x10900, 0x10915], [0x10920, 0x10939], [0x10980, 0x109B7], 0x109BE, 0x109BF, [0x10A00, 0x10A03], 0x10A05, 0x10A06, [0x10A0C, 0x10A13], [0x10A15, 0x10A17], [0x10A19, 0x10A33], [0x10A60, 0x10A7C], [0x10A80, 0x10A9C], [0x10AC0, 0x10AC7], [0x10AC9, 0x10AE4], [0x10B00, 0x10B35], [0x10B40, 0x10B55], [0x10B60, 0x10B72], [0x10B80, 0x10B91], [0x10C00, 0x10C48], [0x10C80, 0x10CB2], [0x10CC0, 0x10CF2], [0x11000, 0x11045], [0x11082, 0x110B8], [0x110D0, 0x110E8], [0x11100, 0x11132], [0x11150, 0x11172], 0x11176, [0x11180, 0x111BF], [0x111C1, 0x111C4], 0x111DA, 0x111DC, [0x11200, 0x11211], [0x11213, 0x11234], 0x11237, [0x11280, 0x11286], 0x11288, [0x1128A, 0x1128D], [0x1128F, 0x1129D], [0x1129F, 0x112A8], [0x112B0, 0x112E8], [0x11300, 0x11303], [0x11305, 0x1130C], 0x1130F, 0x11310, [0x11313, 0x11328], [0x1132A, 0x11330], 0x11332, 0x11333, [0x11335, 0x11339], [0x1133D, 0x11344], 0x11347, 0x11348, 0x1134B, 0x1134C, 0x11350, 0x11357, [0x1135D, 0x11363], [0x11480, 0x114C1], 0x114C4, 0x114C5, 0x114C7, [0x11580, 0x115B5], [0x115B8, 0x115BE], [0x115D8, 0x115DD], [0x11600, 0x1163E], 0x11640, 0x11644, [0x11680, 0x116B5], [0x11700, 0x11719], [0x1171D, 0x1172A], [0x118A0, 0x118DF], 0x118FF, [0x11AC0, 0x11AF8], [0x12000, 0x12399], [0x12400, 0x1246E], [0x12480, 0x12543], [0x13000, 0x1342E], [0x14400, 0x14646], [0x16800, 0x16A38], [0x16A40, 0x16A5E], [0x16AD0, 0x16AED], [0x16B00, 0x16B36], [0x16B40, 0x16B43], [0x16B63, 0x16B77], [0x16B7D, 0x16B8F], [0x16F00, 0x16F44], [0x16F50, 0x16F7E], [0x16F93, 0x16F9F], 0x1B000, 0x1B001, [0x1BC00, 0x1BC6A], [0x1BC70, 0x1BC7C], [0x1BC80, 0x1BC88], [0x1BC90, 0x1BC99], 0x1BC9E, [0x1D400, 0x1D454], [0x1D456, 0x1D49C], 0x1D49E, 0x1D49F, 0x1D4A2, 0x1D4A5, 0x1D4A6, [0x1D4A9, 0x1D4AC], [0x1D4AE, 0x1D4B9], 0x1D4BB, [0x1D4BD, 0x1D4C3], [0x1D4C5, 0x1D505], [0x1D507, 0x1D50A], [0x1D50D, 0x1D514], [0x1D516, 0x1D51C], [0x1D51E, 0x1D539], [0x1D53B, 0x1D53E], [0x1D540, 0x1D544], 0x1D546, [0x1D54A, 0x1D550], [0x1D552, 0x1D6A5], [0x1D6A8, 0x1D6C0], [0x1D6C2, 0x1D6DA], [0x1D6DC, 0x1D6FA], [0x1D6FC, 0x1D714], [0x1D716, 0x1D734], [0x1D736, 0x1D74E], [0x1D750, 0x1D76E], [0x1D770, 0x1D788], [0x1D78A, 0x1D7A8], [0x1D7AA, 0x1D7C2], [0x1D7C4, 0x1D7CB], [0x1E800, 0x1E8C4], [0x1EE00, 0x1EE03], [0x1EE05, 0x1EE1F], 0x1EE21, 0x1EE22, 0x1EE24, 0x1EE27, [0x1EE29, 0x1EE32], [0x1EE34, 0x1EE37], 0x1EE39, 0x1EE3B, 0x1EE42, 0x1EE47, 0x1EE49, 0x1EE4B, [0x1EE4D, 0x1EE4F], 0x1EE51, 0x1EE52, 0x1EE54, 0x1EE57, 0x1EE59, 0x1EE5B, 0x1EE5D, 0x1EE5F, 0x1EE61, 0x1EE62, 0x1EE64, [0x1EE67, 0x1EE6A], [0x1EE6C, 0x1EE72], [0x1EE74, 0x1EE77], [0x1EE79, 0x1EE7C], 0x1EE7E, [0x1EE80, 0x1EE89], [0x1EE8B, 0x1EE9B], [0x1EEA1, 0x1EEA3], [0x1EEA5, 0x1EEA9], [0x1EEAB, 0x1EEBB], [0x1F130, 0x1F149], [0x1F150, 0x1F169], [0x1F170, 0x1F189], [0x20000, 0x2A6D6], [0x2A700, 0x2B734], [0x2B740, 0x2B81D], [0x2B820, 0x2CEA1], [0x2F800, 0x2FA1D]]
 };
 
 // This file is GENERATED by tools/unicodejs-properties.py
 // DO NOT EDIT
 unicodeJS.derivedgeneralcategories = {
 	// partial extraction only
-	M: [[0x0300, 0x036F], [0x0483, 0x0489], [0x0591, 0x05BD], 0x05BF, 0x05C1, 0x05C2, 0x05C4, 0x05C5, 0x05C7, [0x0610, 0x061A], [0x064B, 0x065F], 0x0670, [0x06D6, 0x06DC], [0x06DF, 0x06E4], 0x06E7, 0x06E8, [0x06EA, 0x06ED], 0x0711, [0x0730, 0x074A], [0x07A6, 0x07B0], [0x07EB, 0x07F3], [0x0816, 0x0819], [0x081B, 0x0823], [0x0825, 0x0827], [0x0829, 0x082D], [0x0859, 0x085B], [0x08E4, 0x0903], [0x093A, 0x093C], [0x093E, 0x094F], [0x0951, 0x0957], 0x0962, 0x0963, [0x0981, 0x0983], 0x09BC, [0x09BE, 0x09C4], 0x09C7, 0x09C8, [0x09CB, 0x09CD], 0x09D7, 0x09E2, 0x09E3, [0x0A01, 0x0A03], 0x0A3C, [0x0A3E, 0x0A42], 0x0A47, 0x0A48, [0x0A4B, 0x0A4D], 0x0A51, 0x0A70, 0x0A71, 0x0A75, [0x0A81, 0x0A83], 0x0ABC, [0x0ABE, 0x0AC5], [0x0AC7, 0x0AC9], [0x0ACB, 0x0ACD], 0x0AE2, 0x0AE3, [0x0B01, 0x0B03], 0x0B3C, [0x0B3E, 0x0B44], 0x0B47, 0x0B48, [0x0B4B, 0x0B4D], 0x0B56, 0x0B57, 0x0B62, 0x0B63, 0x0B82, [0x0BBE, 0x0BC2], [0x0BC6, 0x0BC8], [0x0BCA, 0x0BCD], 0x0BD7, [0x0C00, 0x0C03], [0x0C3E, 0x0C44], [0x0C46, 0x0C48], [0x0C4A, 0x0C4D], 0x0C55, 0x0C56, 0x0C62, 0x0C63, [0x0C81, 0x0C83], 0x0CBC, [0x0CBE, 0x0CC4], [0x0CC6, 0x0CC8], [0x0CCA, 0x0CCD], 0x0CD5, 0x0CD6, 0x0CE2, 0x0CE3, [0x0D01, 0x0D03], [0x0D3E, 0x0D44], [0x0D46, 0x0D48], [0x0D4A, 0x0D4D], 0x0D57, 0x0D62, 0x0D63, 0x0D82, 0x0D83, 0x0DCA, [0x0DCF, 0x0DD4], 0x0DD6, [0x0DD8, 0x0DDF], 0x0DF2, 0x0DF3, 0x0E31, [0x0E34, 0x0E3A], [0x0E47, 0x0E4E], 0x0EB1, [0x0EB4, 0x0EB9], 0x0EBB, 0x0EBC, [0x0EC8, 0x0ECD], 0x0F18, 0x0F19, 0x0F35, 0x0F37, 0x0F39, 0x0F3E, 0x0F3F, [0x0F71, 0x0F84], 0x0F86, 0x0F87, [0x0F8D, 0x0F97], [0x0F99, 0x0FBC], 0x0FC6, [0x102B, 0x103E], [0x1056, 0x1059], [0x105E, 0x1060], [0x1062, 0x1064], [0x1067, 0x106D], [0x1071, 0x1074], [0x1082, 0x108D], 0x108F, [0x109A, 0x109D], [0x135D, 0x135F], [0x1712, 0x1714], [0x1732, 0x1734], 0x1752, 0x1753, 0x1772, 0x1773, [0x17B4, 0x17D3], 0x17DD, [0x180B, 0x180D], 0x18A9, [0x1920, 0x192B], [0x1930, 0x193B], [0x19B0, 0x19C0], 0x19C8, 0x19C9, [0x1A17, 0x1A1B], [0x1A55, 0x1A5E], [0x1A60, 0x1A7C], 0x1A7F, [0x1AB0, 0x1ABE], [0x1B00, 0x1B04], [0x1B34, 0x1B44], [0x1B6B, 0x1B73], [0x1B80, 0x1B82], [0x1BA1, 0x1BAD], [0x1BE6, 0x1BF3], [0x1C24, 0x1C37], [0x1CD0, 0x1CD2], [0x1CD4, 0x1CE8], 0x1CED, [0x1CF2, 0x1CF4], 0x1CF8, 0x1CF9, [0x1DC0, 0x1DF5], [0x1DFC, 0x1DFF], [0x20D0, 0x20F0], [0x2CEF, 0x2CF1], 0x2D7F, [0x2DE0, 0x2DFF], [0x302A, 0x302F], 0x3099, 0x309A, [0xA66F, 0xA672], [0xA674, 0xA67D], 0xA69F, 0xA6F0, 0xA6F1, 0xA802, 0xA806, 0xA80B, [0xA823, 0xA827], 0xA880, 0xA881, [0xA8B4, 0xA8C4], [0xA8E0, 0xA8F1], [0xA926, 0xA92D], [0xA947, 0xA953], [0xA980, 0xA983], [0xA9B3, 0xA9C0], 0xA9E5, [0xAA29, 0xAA36], 0xAA43, 0xAA4C, 0xAA4D, [0xAA7B, 0xAA7D], 0xAAB0, [0xAAB2, 0xAAB4], 0xAAB7, 0xAAB8, 0xAABE, 0xAABF, 0xAAC1, [0xAAEB, 0xAAEF], 0xAAF5, 0xAAF6, [0xABE3, 0xABEA], 0xABEC, 0xABED, 0xFB1E, [0xFE00, 0xFE0F], [0xFE20, 0xFE2D], 0x101FD, 0x102E0, [0x10376, 0x1037A], [0x10A01, 0x10A03], 0x10A05, 0x10A06, [0x10A0C, 0x10A0F], [0x10A38, 0x10A3A], 0x10A3F, 0x10AE5, 0x10AE6, [0x11000, 0x11002], [0x11038, 0x11046], [0x1107F, 0x11082], [0x110B0, 0x110BA], [0x11100, 0x11102], [0x11127, 0x11134], 0x11173, [0x11180, 0x11182], [0x111B3, 0x111C0], [0x1122C, 0x11237], [0x112DF, 0x112EA], [0x11301, 0x11303], 0x1133C, [0x1133E, 0x11344], 0x11347, 0x11348, [0x1134B, 0x1134D], 0x11357, 0x11362, 0x11363, [0x11366, 0x1136C], [0x11370, 0x11374], [0x114B0, 0x114C3], [0x115AF, 0x115B5], [0x115B8, 0x115C0], [0x11630, 0x11640], [0x116AB, 0x116B7], [0x16AF0, 0x16AF4], [0x16B30, 0x16B36], [0x16F51, 0x16F7E], [0x16F8F, 0x16F92], 0x1BC9D, 0x1BC9E, [0x1D165, 0x1D169], [0x1D16D, 0x1D172], [0x1D17B, 0x1D182], [0x1D185, 0x1D18B], [0x1D1AA, 0x1D1AD], [0x1D242, 0x1D244], [0x1E8D0, 0x1E8D6], [0xE0100, 0xE01EF]],
+	M: [[0x0300, 0x036F], [0x0483, 0x0489], [0x0591, 0x05BD], 0x05BF, 0x05C1, 0x05C2, 0x05C4, 0x05C5, 0x05C7, [0x0610, 0x061A], [0x064B, 0x065F], 0x0670, [0x06D6, 0x06DC], [0x06DF, 0x06E4], 0x06E7, 0x06E8, [0x06EA, 0x06ED], 0x0711, [0x0730, 0x074A], [0x07A6, 0x07B0], [0x07EB, 0x07F3], [0x0816, 0x0819], [0x081B, 0x0823], [0x0825, 0x0827], [0x0829, 0x082D], [0x0859, 0x085B], [0x08E3, 0x0903], [0x093A, 0x093C], [0x093E, 0x094F], [0x0951, 0x0957], 0x0962, 0x0963, [0x0981, 0x0983], 0x09BC, [0x09BE, 0x09C4], 0x09C7, 0x09C8, [0x09CB, 0x09CD], 0x09D7, 0x09E2, 0x09E3, [0x0A01, 0x0A03], 0x0A3C, [0x0A3E, 0x0A42], 0x0A47, 0x0A48, [0x0A4B, 0x0A4D], 0x0A51, 0x0A70, 0x0A71, 0x0A75, [0x0A81, 0x0A83], 0x0ABC, [0x0ABE, 0x0AC5], [0x0AC7, 0x0AC9], [0x0ACB, 0x0ACD], 0x0AE2, 0x0AE3, [0x0B01, 0x0B03], 0x0B3C, [0x0B3E, 0x0B44], 0x0B47, 0x0B48, [0x0B4B, 0x0B4D], 0x0B56, 0x0B57, 0x0B62, 0x0B63, 0x0B82, [0x0BBE, 0x0BC2], [0x0BC6, 0x0BC8], [0x0BCA, 0x0BCD], 0x0BD7, [0x0C00, 0x0C03], [0x0C3E, 0x0C44], [0x0C46, 0x0C48], [0x0C4A, 0x0C4D], 0x0C55, 0x0C56, 0x0C62, 0x0C63, [0x0C81, 0x0C83], 0x0CBC, [0x0CBE, 0x0CC4], [0x0CC6, 0x0CC8], [0x0CCA, 0x0CCD], 0x0CD5, 0x0CD6, 0x0CE2, 0x0CE3, [0x0D01, 0x0D03], [0x0D3E, 0x0D44], [0x0D46, 0x0D48], [0x0D4A, 0x0D4D], 0x0D57, 0x0D62, 0x0D63, 0x0D82, 0x0D83, 0x0DCA, [0x0DCF, 0x0DD4], 0x0DD6, [0x0DD8, 0x0DDF], 0x0DF2, 0x0DF3, 0x0E31, [0x0E34, 0x0E3A], [0x0E47, 0x0E4E], 0x0EB1, [0x0EB4, 0x0EB9], 0x0EBB, 0x0EBC, [0x0EC8, 0x0ECD], 0x0F18, 0x0F19, 0x0F35, 0x0F37, 0x0F39, 0x0F3E, 0x0F3F, [0x0F71, 0x0F84], 0x0F86, 0x0F87, [0x0F8D, 0x0F97], [0x0F99, 0x0FBC], 0x0FC6, [0x102B, 0x103E], [0x1056, 0x1059], [0x105E, 0x1060], [0x1062, 0x1064], [0x1067, 0x106D], [0x1071, 0x1074], [0x1082, 0x108D], 0x108F, [0x109A, 0x109D], [0x135D, 0x135F], [0x1712, 0x1714], [0x1732, 0x1734], 0x1752, 0x1753, 0x1772, 0x1773, [0x17B4, 0x17D3], 0x17DD, [0x180B, 0x180D], 0x18A9, [0x1920, 0x192B], [0x1930, 0x193B], [0x1A17, 0x1A1B], [0x1A55, 0x1A5E], [0x1A60, 0x1A7C], 0x1A7F, [0x1AB0, 0x1ABE], [0x1B00, 0x1B04], [0x1B34, 0x1B44], [0x1B6B, 0x1B73], [0x1B80, 0x1B82], [0x1BA1, 0x1BAD], [0x1BE6, 0x1BF3], [0x1C24, 0x1C37], [0x1CD0, 0x1CD2], [0x1CD4, 0x1CE8], 0x1CED, [0x1CF2, 0x1CF4], 0x1CF8, 0x1CF9, [0x1DC0, 0x1DF5], [0x1DFC, 0x1DFF], [0x20D0, 0x20F0], [0x2CEF, 0x2CF1], 0x2D7F, [0x2DE0, 0x2DFF], [0x302A, 0x302F], 0x3099, 0x309A, [0xA66F, 0xA672], [0xA674, 0xA67D], 0xA69E, 0xA69F, 0xA6F0, 0xA6F1, 0xA802, 0xA806, 0xA80B, [0xA823, 0xA827], 0xA880, 0xA881, [0xA8B4, 0xA8C4], [0xA8E0, 0xA8F1], [0xA926, 0xA92D], [0xA947, 0xA953], [0xA980, 0xA983], [0xA9B3, 0xA9C0], 0xA9E5, [0xAA29, 0xAA36], 0xAA43, 0xAA4C, 0xAA4D, [0xAA7B, 0xAA7D], 0xAAB0, [0xAAB2, 0xAAB4], 0xAAB7, 0xAAB8, 0xAABE, 0xAABF, 0xAAC1, [0xAAEB, 0xAAEF], 0xAAF5, 0xAAF6, [0xABE3, 0xABEA], 0xABEC, 0xABED, 0xFB1E, [0xFE00, 0xFE0F], [0xFE20, 0xFE2F], 0x101FD, 0x102E0, [0x10376, 0x1037A], [0x10A01, 0x10A03], 0x10A05, 0x10A06, [0x10A0C, 0x10A0F], [0x10A38, 0x10A3A], 0x10A3F, 0x10AE5, 0x10AE6, [0x11000, 0x11002], [0x11038, 0x11046], [0x1107F, 0x11082], [0x110B0, 0x110BA], [0x11100, 0x11102], [0x11127, 0x11134], 0x11173, [0x11180, 0x11182], [0x111B3, 0x111C0], [0x111CA, 0x111CC], [0x1122C, 0x11237], [0x112DF, 0x112EA], [0x11300, 0x11303], 0x1133C, [0x1133E, 0x11344], 0x11347, 0x11348, [0x1134B, 0x1134D], 0x11357, 0x11362, 0x11363, [0x11366, 0x1136C], [0x11370, 0x11374], [0x114B0, 0x114C3], [0x115AF, 0x115B5], [0x115B8, 0x115C0], 0x115DC, 0x115DD, [0x11630, 0x11640], [0x116AB, 0x116B7], [0x1171D, 0x1172B], [0x16AF0, 0x16AF4], [0x16B30, 0x16B36], [0x16F51, 0x16F7E], [0x16F8F, 0x16F92], 0x1BC9D, 0x1BC9E, [0x1D165, 0x1D169], [0x1D16D, 0x1D172], [0x1D17B, 0x1D182], [0x1D185, 0x1D18B], [0x1D1AA, 0x1D1AD], [0x1D242, 0x1D244], [0x1DA00, 0x1DA36], [0x1DA3B, 0x1DA6C], 0x1DA75, 0x1DA84, [0x1DA9B, 0x1DA9F], [0x1DAA1, 0x1DAAF], [0x1E8D0, 0x1E8D6], [0xE0100, 0xE01EF]],
 	Pc: [0x005F, 0x203F, 0x2040, 0x2054, 0xFE33, 0xFE34, [0xFE4D, 0xFE4F], 0xFF3F]
 };
 
@@ -22125,9 +23899,9 @@ unicodeJS.graphemebreakproperties = {
 	CR: [0x000D],
 	LF: [0x000A],
 	Control: [[0x0000, 0x0009], 0x000B, 0x000C, [0x000E, 0x001F], [0x007F, 0x009F], 0x00AD, [0x0600, 0x0605], 0x061C, 0x06DD, 0x070F, 0x180E, 0x200B, 0x200E, 0x200F, [0x2028, 0x202E], [0x2060, 0x206F], 0xFEFF, [0xFFF0, 0xFFFB], 0x110BD, [0x1BCA0, 0x1BCA3], [0x1D173, 0x1D17A], [0xE0000, 0xE00FF], [0xE01F0, 0xE0FFF]],
-	Extend: [[0x0300, 0x036F], [0x0483, 0x0489], [0x0591, 0x05BD], 0x05BF, 0x05C1, 0x05C2, 0x05C4, 0x05C5, 0x05C7, [0x0610, 0x061A], [0x064B, 0x065F], 0x0670, [0x06D6, 0x06DC], [0x06DF, 0x06E4], 0x06E7, 0x06E8, [0x06EA, 0x06ED], 0x0711, [0x0730, 0x074A], [0x07A6, 0x07B0], [0x07EB, 0x07F3], [0x0816, 0x0819], [0x081B, 0x0823], [0x0825, 0x0827], [0x0829, 0x082D], [0x0859, 0x085B], [0x08E4, 0x0902], 0x093A, 0x093C, [0x0941, 0x0948], 0x094D, [0x0951, 0x0957], 0x0962, 0x0963, 0x0981, 0x09BC, 0x09BE, [0x09C1, 0x09C4], 0x09CD, 0x09D7, 0x09E2, 0x09E3, 0x0A01, 0x0A02, 0x0A3C, 0x0A41, 0x0A42, 0x0A47, 0x0A48, [0x0A4B, 0x0A4D], 0x0A51, 0x0A70, 0x0A71, 0x0A75, 0x0A81, 0x0A82, 0x0ABC, [0x0AC1, 0x0AC5], 0x0AC7, 0x0AC8, 0x0ACD, 0x0AE2, 0x0AE3, 0x0B01, 0x0B3C, 0x0B3E, 0x0B3F, [0x0B41, 0x0B44], 0x0B4D, 0x0B56, 0x0B57, 0x0B62, 0x0B63, 0x0B82, 0x0BBE, 0x0BC0, 0x0BCD, 0x0BD7, 0x0C00, [0x0C3E, 0x0C40], [0x0C46, 0x0C48], [0x0C4A, 0x0C4D], 0x0C55, 0x0C56, 0x0C62, 0x0C63, 0x0C81, 0x0CBC, 0x0CBF, 0x0CC2, 0x0CC6, 0x0CCC, 0x0CCD, 0x0CD5, 0x0CD6, 0x0CE2, 0x0CE3, 0x0D01, 0x0D3E, [0x0D41, 0x0D44], 0x0D4D, 0x0D57, 0x0D62, 0x0D63, 0x0DCA, 0x0DCF, [0x0DD2, 0x0DD4], 0x0DD6, 0x0DDF, 0x0E31, [0x0E34, 0x0E3A], [0x0E47, 0x0E4E], 0x0EB1, [0x0EB4, 0x0EB9], 0x0EBB, 0x0EBC, [0x0EC8, 0x0ECD], 0x0F18, 0x0F19, 0x0F35, 0x0F37, 0x0F39, [0x0F71, 0x0F7E], [0x0F80, 0x0F84], 0x0F86, 0x0F87, [0x0F8D, 0x0F97], [0x0F99, 0x0FBC], 0x0FC6, [0x102D, 0x1030], [0x1032, 0x1037], 0x1039, 0x103A, 0x103D, 0x103E, 0x1058, 0x1059, [0x105E, 0x1060], [0x1071, 0x1074], 0x1082, 0x1085, 0x1086, 0x108D, 0x109D, [0x135D, 0x135F], [0x1712, 0x1714], [0x1732, 0x1734], 0x1752, 0x1753, 0x1772, 0x1773, 0x17B4, 0x17B5, [0x17B7, 0x17BD], 0x17C6, [0x17C9, 0x17D3], 0x17DD, [0x180B, 0x180D], 0x18A9, [0x1920, 0x1922], 0x1927, 0x1928, 0x1932, [0x1939, 0x193B], 0x1A17, 0x1A18, 0x1A1B, 0x1A56, [0x1A58, 0x1A5E], 0x1A60, 0x1A62, [0x1A65, 0x1A6C], [0x1A73, 0x1A7C], 0x1A7F, [0x1AB0, 0x1ABE], [0x1B00, 0x1B03], 0x1B34, [0x1B36, 0x1B3A], 0x1B3C, 0x1B42, [0x1B6B, 0x1B73], 0x1B80, 0x1B81, [0x1BA2, 0x1BA5], 0x1BA8, 0x1BA9, [0x1BAB, 0x1BAD], 0x1BE6, 0x1BE8, 0x1BE9, 0x1BED, [0x1BEF, 0x1BF1], [0x1C2C, 0x1C33], 0x1C36, 0x1C37, [0x1CD0, 0x1CD2], [0x1CD4, 0x1CE0], [0x1CE2, 0x1CE8], 0x1CED, 0x1CF4, 0x1CF8, 0x1CF9, [0x1DC0, 0x1DF5], [0x1DFC, 0x1DFF], 0x200C, 0x200D, [0x20D0, 0x20F0], [0x2CEF, 0x2CF1], 0x2D7F, [0x2DE0, 0x2DFF], [0x302A, 0x302F], 0x3099, 0x309A, [0xA66F, 0xA672], [0xA674, 0xA67D], 0xA69F, 0xA6F0, 0xA6F1, 0xA802, 0xA806, 0xA80B, 0xA825, 0xA826, 0xA8C4, [0xA8E0, 0xA8F1], [0xA926, 0xA92D], [0xA947, 0xA951], [0xA980, 0xA982], 0xA9B3, [0xA9B6, 0xA9B9], 0xA9BC, 0xA9E5, [0xAA29, 0xAA2E], 0xAA31, 0xAA32, 0xAA35, 0xAA36, 0xAA43, 0xAA4C, 0xAA7C, 0xAAB0, [0xAAB2, 0xAAB4], 0xAAB7, 0xAAB8, 0xAABE, 0xAABF, 0xAAC1, 0xAAEC, 0xAAED, 0xAAF6, 0xABE5, 0xABE8, 0xABED, 0xFB1E, [0xFE00, 0xFE0F], [0xFE20, 0xFE2D], 0xFF9E, 0xFF9F, 0x101FD, 0x102E0, [0x10376, 0x1037A], [0x10A01, 0x10A03], 0x10A05, 0x10A06, [0x10A0C, 0x10A0F], [0x10A38, 0x10A3A], 0x10A3F, 0x10AE5, 0x10AE6, 0x11001, [0x11038, 0x11046], [0x1107F, 0x11081], [0x110B3, 0x110B6], 0x110B9, 0x110BA, [0x11100, 0x11102], [0x11127, 0x1112B], [0x1112D, 0x11134], 0x11173, 0x11180, 0x11181, [0x111B6, 0x111BE], [0x1122F, 0x11231], 0x11234, 0x11236, 0x11237, 0x112DF, [0x112E3, 0x112EA], 0x11301, 0x1133C, 0x1133E, 0x11340, 0x11357, [0x11366, 0x1136C], [0x11370, 0x11374], 0x114B0, [0x114B3, 0x114B8], 0x114BA, 0x114BD, 0x114BF, 0x114C0, 0x114C2, 0x114C3, 0x115AF, [0x115B2, 0x115B5], 0x115BC, 0x115BD, 0x115BF, 0x115C0, [0x11633, 0x1163A], 0x1163D, 0x1163F, 0x11640, 0x116AB, 0x116AD, [0x116B0, 0x116B5], 0x116B7, [0x16AF0, 0x16AF4], [0x16B30, 0x16B36], [0x16F8F, 0x16F92], 0x1BC9D, 0x1BC9E, 0x1D165, [0x1D167, 0x1D169], [0x1D16E, 0x1D172], [0x1D17B, 0x1D182], [0x1D185, 0x1D18B], [0x1D1AA, 0x1D1AD], [0x1D242, 0x1D244], [0x1E8D0, 0x1E8D6], [0xE0100, 0xE01EF]],
+	Extend: [[0x0300, 0x036F], [0x0483, 0x0489], [0x0591, 0x05BD], 0x05BF, 0x05C1, 0x05C2, 0x05C4, 0x05C5, 0x05C7, [0x0610, 0x061A], [0x064B, 0x065F], 0x0670, [0x06D6, 0x06DC], [0x06DF, 0x06E4], 0x06E7, 0x06E8, [0x06EA, 0x06ED], 0x0711, [0x0730, 0x074A], [0x07A6, 0x07B0], [0x07EB, 0x07F3], [0x0816, 0x0819], [0x081B, 0x0823], [0x0825, 0x0827], [0x0829, 0x082D], [0x0859, 0x085B], [0x08E3, 0x0902], 0x093A, 0x093C, [0x0941, 0x0948], 0x094D, [0x0951, 0x0957], 0x0962, 0x0963, 0x0981, 0x09BC, 0x09BE, [0x09C1, 0x09C4], 0x09CD, 0x09D7, 0x09E2, 0x09E3, 0x0A01, 0x0A02, 0x0A3C, 0x0A41, 0x0A42, 0x0A47, 0x0A48, [0x0A4B, 0x0A4D], 0x0A51, 0x0A70, 0x0A71, 0x0A75, 0x0A81, 0x0A82, 0x0ABC, [0x0AC1, 0x0AC5], 0x0AC7, 0x0AC8, 0x0ACD, 0x0AE2, 0x0AE3, 0x0B01, 0x0B3C, 0x0B3E, 0x0B3F, [0x0B41, 0x0B44], 0x0B4D, 0x0B56, 0x0B57, 0x0B62, 0x0B63, 0x0B82, 0x0BBE, 0x0BC0, 0x0BCD, 0x0BD7, 0x0C00, [0x0C3E, 0x0C40], [0x0C46, 0x0C48], [0x0C4A, 0x0C4D], 0x0C55, 0x0C56, 0x0C62, 0x0C63, 0x0C81, 0x0CBC, 0x0CBF, 0x0CC2, 0x0CC6, 0x0CCC, 0x0CCD, 0x0CD5, 0x0CD6, 0x0CE2, 0x0CE3, 0x0D01, 0x0D3E, [0x0D41, 0x0D44], 0x0D4D, 0x0D57, 0x0D62, 0x0D63, 0x0DCA, 0x0DCF, [0x0DD2, 0x0DD4], 0x0DD6, 0x0DDF, 0x0E31, [0x0E34, 0x0E3A], [0x0E47, 0x0E4E], 0x0EB1, [0x0EB4, 0x0EB9], 0x0EBB, 0x0EBC, [0x0EC8, 0x0ECD], 0x0F18, 0x0F19, 0x0F35, 0x0F37, 0x0F39, [0x0F71, 0x0F7E], [0x0F80, 0x0F84], 0x0F86, 0x0F87, [0x0F8D, 0x0F97], [0x0F99, 0x0FBC], 0x0FC6, [0x102D, 0x1030], [0x1032, 0x1037], 0x1039, 0x103A, 0x103D, 0x103E, 0x1058, 0x1059, [0x105E, 0x1060], [0x1071, 0x1074], 0x1082, 0x1085, 0x1086, 0x108D, 0x109D, [0x135D, 0x135F], [0x1712, 0x1714], [0x1732, 0x1734], 0x1752, 0x1753, 0x1772, 0x1773, 0x17B4, 0x17B5, [0x17B7, 0x17BD], 0x17C6, [0x17C9, 0x17D3], 0x17DD, [0x180B, 0x180D], 0x18A9, [0x1920, 0x1922], 0x1927, 0x1928, 0x1932, [0x1939, 0x193B], 0x1A17, 0x1A18, 0x1A1B, 0x1A56, [0x1A58, 0x1A5E], 0x1A60, 0x1A62, [0x1A65, 0x1A6C], [0x1A73, 0x1A7C], 0x1A7F, [0x1AB0, 0x1ABE], [0x1B00, 0x1B03], 0x1B34, [0x1B36, 0x1B3A], 0x1B3C, 0x1B42, [0x1B6B, 0x1B73], 0x1B80, 0x1B81, [0x1BA2, 0x1BA5], 0x1BA8, 0x1BA9, [0x1BAB, 0x1BAD], 0x1BE6, 0x1BE8, 0x1BE9, 0x1BED, [0x1BEF, 0x1BF1], [0x1C2C, 0x1C33], 0x1C36, 0x1C37, [0x1CD0, 0x1CD2], [0x1CD4, 0x1CE0], [0x1CE2, 0x1CE8], 0x1CED, 0x1CF4, 0x1CF8, 0x1CF9, [0x1DC0, 0x1DF5], [0x1DFC, 0x1DFF], 0x200C, 0x200D, [0x20D0, 0x20F0], [0x2CEF, 0x2CF1], 0x2D7F, [0x2DE0, 0x2DFF], [0x302A, 0x302F], 0x3099, 0x309A, [0xA66F, 0xA672], [0xA674, 0xA67D], 0xA69E, 0xA69F, 0xA6F0, 0xA6F1, 0xA802, 0xA806, 0xA80B, 0xA825, 0xA826, 0xA8C4, [0xA8E0, 0xA8F1], [0xA926, 0xA92D], [0xA947, 0xA951], [0xA980, 0xA982], 0xA9B3, [0xA9B6, 0xA9B9], 0xA9BC, 0xA9E5, [0xAA29, 0xAA2E], 0xAA31, 0xAA32, 0xAA35, 0xAA36, 0xAA43, 0xAA4C, 0xAA7C, 0xAAB0, [0xAAB2, 0xAAB4], 0xAAB7, 0xAAB8, 0xAABE, 0xAABF, 0xAAC1, 0xAAEC, 0xAAED, 0xAAF6, 0xABE5, 0xABE8, 0xABED, 0xFB1E, [0xFE00, 0xFE0F], [0xFE20, 0xFE2F], 0xFF9E, 0xFF9F, 0x101FD, 0x102E0, [0x10376, 0x1037A], [0x10A01, 0x10A03], 0x10A05, 0x10A06, [0x10A0C, 0x10A0F], [0x10A38, 0x10A3A], 0x10A3F, 0x10AE5, 0x10AE6, 0x11001, [0x11038, 0x11046], [0x1107F, 0x11081], [0x110B3, 0x110B6], 0x110B9, 0x110BA, [0x11100, 0x11102], [0x11127, 0x1112B], [0x1112D, 0x11134], 0x11173, 0x11180, 0x11181, [0x111B6, 0x111BE], [0x111CA, 0x111CC], [0x1122F, 0x11231], 0x11234, 0x11236, 0x11237, 0x112DF, [0x112E3, 0x112EA], 0x11300, 0x11301, 0x1133C, 0x1133E, 0x11340, 0x11357, [0x11366, 0x1136C], [0x11370, 0x11374], 0x114B0, [0x114B3, 0x114B8], 0x114BA, 0x114BD, 0x114BF, 0x114C0, 0x114C2, 0x114C3, 0x115AF, [0x115B2, 0x115B5], 0x115BC, 0x115BD, 0x115BF, 0x115C0, 0x115DC, 0x115DD, [0x11633, 0x1163A], 0x1163D, 0x1163F, 0x11640, 0x116AB, 0x116AD, [0x116B0, 0x116B5], 0x116B7, [0x1171D, 0x1171F], [0x11722, 0x11725], [0x11727, 0x1172B], [0x16AF0, 0x16AF4], [0x16B30, 0x16B36], [0x16F8F, 0x16F92], 0x1BC9D, 0x1BC9E, 0x1D165, [0x1D167, 0x1D169], [0x1D16E, 0x1D172], [0x1D17B, 0x1D182], [0x1D185, 0x1D18B], [0x1D1AA, 0x1D1AD], [0x1D242, 0x1D244], [0x1DA00, 0x1DA36], [0x1DA3B, 0x1DA6C], 0x1DA75, 0x1DA84, [0x1DA9B, 0x1DA9F], [0x1DAA1, 0x1DAAF], [0x1E8D0, 0x1E8D6], [0xE0100, 0xE01EF]],
 	RegionalIndicator: [[0x1F1E6, 0x1F1FF]],
-	SpacingMark: [0x0903, 0x093B, [0x093E, 0x0940], [0x0949, 0x094C], 0x094E, 0x094F, 0x0982, 0x0983, 0x09BF, 0x09C0, 0x09C7, 0x09C8, 0x09CB, 0x09CC, 0x0A03, [0x0A3E, 0x0A40], 0x0A83, [0x0ABE, 0x0AC0], 0x0AC9, 0x0ACB, 0x0ACC, 0x0B02, 0x0B03, 0x0B40, 0x0B47, 0x0B48, 0x0B4B, 0x0B4C, 0x0BBF, 0x0BC1, 0x0BC2, [0x0BC6, 0x0BC8], [0x0BCA, 0x0BCC], [0x0C01, 0x0C03], [0x0C41, 0x0C44], 0x0C82, 0x0C83, 0x0CBE, 0x0CC0, 0x0CC1, 0x0CC3, 0x0CC4, 0x0CC7, 0x0CC8, 0x0CCA, 0x0CCB, 0x0D02, 0x0D03, 0x0D3F, 0x0D40, [0x0D46, 0x0D48], [0x0D4A, 0x0D4C], 0x0D82, 0x0D83, 0x0DD0, 0x0DD1, [0x0DD8, 0x0DDE], 0x0DF2, 0x0DF3, 0x0E33, 0x0EB3, 0x0F3E, 0x0F3F, 0x0F7F, 0x1031, 0x103B, 0x103C, 0x1056, 0x1057, 0x1084, 0x17B6, [0x17BE, 0x17C5], 0x17C7, 0x17C8, [0x1923, 0x1926], [0x1929, 0x192B], 0x1930, 0x1931, [0x1933, 0x1938], [0x19B5, 0x19B7], 0x19BA, 0x1A19, 0x1A1A, 0x1A55, 0x1A57, [0x1A6D, 0x1A72], 0x1B04, 0x1B35, 0x1B3B, [0x1B3D, 0x1B41], 0x1B43, 0x1B44, 0x1B82, 0x1BA1, 0x1BA6, 0x1BA7, 0x1BAA, 0x1BE7, [0x1BEA, 0x1BEC], 0x1BEE, 0x1BF2, 0x1BF3, [0x1C24, 0x1C2B], 0x1C34, 0x1C35, 0x1CE1, 0x1CF2, 0x1CF3, 0xA823, 0xA824, 0xA827, 0xA880, 0xA881, [0xA8B4, 0xA8C3], 0xA952, 0xA953, 0xA983, 0xA9B4, 0xA9B5, 0xA9BA, 0xA9BB, [0xA9BD, 0xA9C0], 0xAA2F, 0xAA30, 0xAA33, 0xAA34, 0xAA4D, 0xAAEB, 0xAAEE, 0xAAEF, 0xAAF5, 0xABE3, 0xABE4, 0xABE6, 0xABE7, 0xABE9, 0xABEA, 0xABEC, 0x11000, 0x11002, 0x11082, [0x110B0, 0x110B2], 0x110B7, 0x110B8, 0x1112C, 0x11182, [0x111B3, 0x111B5], 0x111BF, 0x111C0, [0x1122C, 0x1122E], 0x11232, 0x11233, 0x11235, [0x112E0, 0x112E2], 0x11302, 0x11303, 0x1133F, [0x11341, 0x11344], 0x11347, 0x11348, [0x1134B, 0x1134D], 0x11362, 0x11363, 0x114B1, 0x114B2, 0x114B9, 0x114BB, 0x114BC, 0x114BE, 0x114C1, 0x115B0, 0x115B1, [0x115B8, 0x115BB], 0x115BE, [0x11630, 0x11632], 0x1163B, 0x1163C, 0x1163E, 0x116AC, 0x116AE, 0x116AF, 0x116B6, [0x16F51, 0x16F7E], 0x1D166, 0x1D16D],
+	SpacingMark: [0x0903, 0x093B, [0x093E, 0x0940], [0x0949, 0x094C], 0x094E, 0x094F, 0x0982, 0x0983, 0x09BF, 0x09C0, 0x09C7, 0x09C8, 0x09CB, 0x09CC, 0x0A03, [0x0A3E, 0x0A40], 0x0A83, [0x0ABE, 0x0AC0], 0x0AC9, 0x0ACB, 0x0ACC, 0x0B02, 0x0B03, 0x0B40, 0x0B47, 0x0B48, 0x0B4B, 0x0B4C, 0x0BBF, 0x0BC1, 0x0BC2, [0x0BC6, 0x0BC8], [0x0BCA, 0x0BCC], [0x0C01, 0x0C03], [0x0C41, 0x0C44], 0x0C82, 0x0C83, 0x0CBE, 0x0CC0, 0x0CC1, 0x0CC3, 0x0CC4, 0x0CC7, 0x0CC8, 0x0CCA, 0x0CCB, 0x0D02, 0x0D03, 0x0D3F, 0x0D40, [0x0D46, 0x0D48], [0x0D4A, 0x0D4C], 0x0D82, 0x0D83, 0x0DD0, 0x0DD1, [0x0DD8, 0x0DDE], 0x0DF2, 0x0DF3, 0x0E33, 0x0EB3, 0x0F3E, 0x0F3F, 0x0F7F, 0x1031, 0x103B, 0x103C, 0x1056, 0x1057, 0x1084, 0x17B6, [0x17BE, 0x17C5], 0x17C7, 0x17C8, [0x1923, 0x1926], [0x1929, 0x192B], 0x1930, 0x1931, [0x1933, 0x1938], 0x1A19, 0x1A1A, 0x1A55, 0x1A57, [0x1A6D, 0x1A72], 0x1B04, 0x1B35, 0x1B3B, [0x1B3D, 0x1B41], 0x1B43, 0x1B44, 0x1B82, 0x1BA1, 0x1BA6, 0x1BA7, 0x1BAA, 0x1BE7, [0x1BEA, 0x1BEC], 0x1BEE, 0x1BF2, 0x1BF3, [0x1C24, 0x1C2B], 0x1C34, 0x1C35, 0x1CE1, 0x1CF2, 0x1CF3, 0xA823, 0xA824, 0xA827, 0xA880, 0xA881, [0xA8B4, 0xA8C3], 0xA952, 0xA953, 0xA983, 0xA9B4, 0xA9B5, 0xA9BA, 0xA9BB, [0xA9BD, 0xA9C0], 0xAA2F, 0xAA30, 0xAA33, 0xAA34, 0xAA4D, 0xAAEB, 0xAAEE, 0xAAEF, 0xAAF5, 0xABE3, 0xABE4, 0xABE6, 0xABE7, 0xABE9, 0xABEA, 0xABEC, 0x11000, 0x11002, 0x11082, [0x110B0, 0x110B2], 0x110B7, 0x110B8, 0x1112C, 0x11182, [0x111B3, 0x111B5], 0x111BF, 0x111C0, [0x1122C, 0x1122E], 0x11232, 0x11233, 0x11235, [0x112E0, 0x112E2], 0x11302, 0x11303, 0x1133F, [0x11341, 0x11344], 0x11347, 0x11348, [0x1134B, 0x1134D], 0x11362, 0x11363, 0x114B1, 0x114B2, 0x114B9, 0x114BB, 0x114BC, 0x114BE, 0x114C1, 0x115B0, 0x115B1, [0x115B8, 0x115BB], 0x115BE, [0x11630, 0x11632], 0x1163B, 0x1163C, 0x1163E, 0x116AC, 0x116AE, 0x116AF, 0x116B6, 0x11720, 0x11721, 0x11726, [0x16F51, 0x16F7E], 0x1D166, 0x1D16D],
 	L: [[0x1100, 0x115F], [0xA960, 0xA97C]],
 	V: [[0x1160, 0x11A7], [0xD7B0, 0xD7C6]],
 	T: [[0x11A8, 0x11FF], [0xD7CB, 0xD7FB]],
@@ -22250,15 +24024,15 @@ unicodeJS.wordbreakproperties = {
 	CR: [0x000D],
 	LF: [0x000A],
 	Newline: [0x000B, 0x000C, 0x0085, 0x2028, 0x2029],
-	Extend: [[0x0300, 0x036F], [0x0483, 0x0489], [0x0591, 0x05BD], 0x05BF, 0x05C1, 0x05C2, 0x05C4, 0x05C5, 0x05C7, [0x0610, 0x061A], [0x064B, 0x065F], 0x0670, [0x06D6, 0x06DC], [0x06DF, 0x06E4], 0x06E7, 0x06E8, [0x06EA, 0x06ED], 0x0711, [0x0730, 0x074A], [0x07A6, 0x07B0], [0x07EB, 0x07F3], [0x0816, 0x0819], [0x081B, 0x0823], [0x0825, 0x0827], [0x0829, 0x082D], [0x0859, 0x085B], [0x08E4, 0x0903], [0x093A, 0x093C], [0x093E, 0x094F], [0x0951, 0x0957], 0x0962, 0x0963, [0x0981, 0x0983], 0x09BC, [0x09BE, 0x09C4], 0x09C7, 0x09C8, [0x09CB, 0x09CD], 0x09D7, 0x09E2, 0x09E3, [0x0A01, 0x0A03], 0x0A3C, [0x0A3E, 0x0A42], 0x0A47, 0x0A48, [0x0A4B, 0x0A4D], 0x0A51, 0x0A70, 0x0A71, 0x0A75, [0x0A81, 0x0A83], 0x0ABC, [0x0ABE, 0x0AC5], [0x0AC7, 0x0AC9], [0x0ACB, 0x0ACD], 0x0AE2, 0x0AE3, [0x0B01, 0x0B03], 0x0B3C, [0x0B3E, 0x0B44], 0x0B47, 0x0B48, [0x0B4B, 0x0B4D], 0x0B56, 0x0B57, 0x0B62, 0x0B63, 0x0B82, [0x0BBE, 0x0BC2], [0x0BC6, 0x0BC8], [0x0BCA, 0x0BCD], 0x0BD7, [0x0C00, 0x0C03], [0x0C3E, 0x0C44], [0x0C46, 0x0C48], [0x0C4A, 0x0C4D], 0x0C55, 0x0C56, 0x0C62, 0x0C63, [0x0C81, 0x0C83], 0x0CBC, [0x0CBE, 0x0CC4], [0x0CC6, 0x0CC8], [0x0CCA, 0x0CCD], 0x0CD5, 0x0CD6, 0x0CE2, 0x0CE3, [0x0D01, 0x0D03], [0x0D3E, 0x0D44], [0x0D46, 0x0D48], [0x0D4A, 0x0D4D], 0x0D57, 0x0D62, 0x0D63, 0x0D82, 0x0D83, 0x0DCA, [0x0DCF, 0x0DD4], 0x0DD6, [0x0DD8, 0x0DDF], 0x0DF2, 0x0DF3, 0x0E31, [0x0E34, 0x0E3A], [0x0E47, 0x0E4E], 0x0EB1, [0x0EB4, 0x0EB9], 0x0EBB, 0x0EBC, [0x0EC8, 0x0ECD], 0x0F18, 0x0F19, 0x0F35, 0x0F37, 0x0F39, 0x0F3E, 0x0F3F, [0x0F71, 0x0F84], 0x0F86, 0x0F87, [0x0F8D, 0x0F97], [0x0F99, 0x0FBC], 0x0FC6, [0x102B, 0x103E], [0x1056, 0x1059], [0x105E, 0x1060], [0x1062, 0x1064], [0x1067, 0x106D], [0x1071, 0x1074], [0x1082, 0x108D], 0x108F, [0x109A, 0x109D], [0x135D, 0x135F], [0x1712, 0x1714], [0x1732, 0x1734], 0x1752, 0x1753, 0x1772, 0x1773, [0x17B4, 0x17D3], 0x17DD, [0x180B, 0x180D], 0x18A9, [0x1920, 0x192B], [0x1930, 0x193B], [0x19B0, 0x19C0], 0x19C8, 0x19C9, [0x1A17, 0x1A1B], [0x1A55, 0x1A5E], [0x1A60, 0x1A7C], 0x1A7F, [0x1AB0, 0x1ABE], [0x1B00, 0x1B04], [0x1B34, 0x1B44], [0x1B6B, 0x1B73], [0x1B80, 0x1B82], [0x1BA1, 0x1BAD], [0x1BE6, 0x1BF3], [0x1C24, 0x1C37], [0x1CD0, 0x1CD2], [0x1CD4, 0x1CE8], 0x1CED, [0x1CF2, 0x1CF4], 0x1CF8, 0x1CF9, [0x1DC0, 0x1DF5], [0x1DFC, 0x1DFF], 0x200C, 0x200D, [0x20D0, 0x20F0], [0x2CEF, 0x2CF1], 0x2D7F, [0x2DE0, 0x2DFF], [0x302A, 0x302F], 0x3099, 0x309A, [0xA66F, 0xA672], [0xA674, 0xA67D], 0xA69F, 0xA6F0, 0xA6F1, 0xA802, 0xA806, 0xA80B, [0xA823, 0xA827], 0xA880, 0xA881, [0xA8B4, 0xA8C4], [0xA8E0, 0xA8F1], [0xA926, 0xA92D], [0xA947, 0xA953], [0xA980, 0xA983], [0xA9B3, 0xA9C0], 0xA9E5, [0xAA29, 0xAA36], 0xAA43, 0xAA4C, 0xAA4D, [0xAA7B, 0xAA7D], 0xAAB0, [0xAAB2, 0xAAB4], 0xAAB7, 0xAAB8, 0xAABE, 0xAABF, 0xAAC1, [0xAAEB, 0xAAEF], 0xAAF5, 0xAAF6, [0xABE3, 0xABEA], 0xABEC, 0xABED, 0xFB1E, [0xFE00, 0xFE0F], [0xFE20, 0xFE2D], 0xFF9E, 0xFF9F, 0x101FD, 0x102E0, [0x10376, 0x1037A], [0x10A01, 0x10A03], 0x10A05, 0x10A06, [0x10A0C, 0x10A0F], [0x10A38, 0x10A3A], 0x10A3F, 0x10AE5, 0x10AE6, [0x11000, 0x11002], [0x11038, 0x11046], [0x1107F, 0x11082], [0x110B0, 0x110BA], [0x11100, 0x11102], [0x11127, 0x11134], 0x11173, [0x11180, 0x11182], [0x111B3, 0x111C0], [0x1122C, 0x11237], [0x112DF, 0x112EA], [0x11301, 0x11303], 0x1133C, [0x1133E, 0x11344], 0x11347, 0x11348, [0x1134B, 0x1134D], 0x11357, 0x11362, 0x11363, [0x11366, 0x1136C], [0x11370, 0x11374], [0x114B0, 0x114C3], [0x115AF, 0x115B5], [0x115B8, 0x115C0], [0x11630, 0x11640], [0x116AB, 0x116B7], [0x16AF0, 0x16AF4], [0x16B30, 0x16B36], [0x16F51, 0x16F7E], [0x16F8F, 0x16F92], 0x1BC9D, 0x1BC9E, [0x1D165, 0x1D169], [0x1D16D, 0x1D172], [0x1D17B, 0x1D182], [0x1D185, 0x1D18B], [0x1D1AA, 0x1D1AD], [0x1D242, 0x1D244], [0x1E8D0, 0x1E8D6], [0xE0100, 0xE01EF]],
+	Extend: [[0x0300, 0x036F], [0x0483, 0x0489], [0x0591, 0x05BD], 0x05BF, 0x05C1, 0x05C2, 0x05C4, 0x05C5, 0x05C7, [0x0610, 0x061A], [0x064B, 0x065F], 0x0670, [0x06D6, 0x06DC], [0x06DF, 0x06E4], 0x06E7, 0x06E8, [0x06EA, 0x06ED], 0x0711, [0x0730, 0x074A], [0x07A6, 0x07B0], [0x07EB, 0x07F3], [0x0816, 0x0819], [0x081B, 0x0823], [0x0825, 0x0827], [0x0829, 0x082D], [0x0859, 0x085B], [0x08E3, 0x0903], [0x093A, 0x093C], [0x093E, 0x094F], [0x0951, 0x0957], 0x0962, 0x0963, [0x0981, 0x0983], 0x09BC, [0x09BE, 0x09C4], 0x09C7, 0x09C8, [0x09CB, 0x09CD], 0x09D7, 0x09E2, 0x09E3, [0x0A01, 0x0A03], 0x0A3C, [0x0A3E, 0x0A42], 0x0A47, 0x0A48, [0x0A4B, 0x0A4D], 0x0A51, 0x0A70, 0x0A71, 0x0A75, [0x0A81, 0x0A83], 0x0ABC, [0x0ABE, 0x0AC5], [0x0AC7, 0x0AC9], [0x0ACB, 0x0ACD], 0x0AE2, 0x0AE3, [0x0B01, 0x0B03], 0x0B3C, [0x0B3E, 0x0B44], 0x0B47, 0x0B48, [0x0B4B, 0x0B4D], 0x0B56, 0x0B57, 0x0B62, 0x0B63, 0x0B82, [0x0BBE, 0x0BC2], [0x0BC6, 0x0BC8], [0x0BCA, 0x0BCD], 0x0BD7, [0x0C00, 0x0C03], [0x0C3E, 0x0C44], [0x0C46, 0x0C48], [0x0C4A, 0x0C4D], 0x0C55, 0x0C56, 0x0C62, 0x0C63, [0x0C81, 0x0C83], 0x0CBC, [0x0CBE, 0x0CC4], [0x0CC6, 0x0CC8], [0x0CCA, 0x0CCD], 0x0CD5, 0x0CD6, 0x0CE2, 0x0CE3, [0x0D01, 0x0D03], [0x0D3E, 0x0D44], [0x0D46, 0x0D48], [0x0D4A, 0x0D4D], 0x0D57, 0x0D62, 0x0D63, 0x0D82, 0x0D83, 0x0DCA, [0x0DCF, 0x0DD4], 0x0DD6, [0x0DD8, 0x0DDF], 0x0DF2, 0x0DF3, 0x0E31, [0x0E34, 0x0E3A], [0x0E47, 0x0E4E], 0x0EB1, [0x0EB4, 0x0EB9], 0x0EBB, 0x0EBC, [0x0EC8, 0x0ECD], 0x0F18, 0x0F19, 0x0F35, 0x0F37, 0x0F39, 0x0F3E, 0x0F3F, [0x0F71, 0x0F84], 0x0F86, 0x0F87, [0x0F8D, 0x0F97], [0x0F99, 0x0FBC], 0x0FC6, [0x102B, 0x103E], [0x1056, 0x1059], [0x105E, 0x1060], [0x1062, 0x1064], [0x1067, 0x106D], [0x1071, 0x1074], [0x1082, 0x108D], 0x108F, [0x109A, 0x109D], [0x135D, 0x135F], [0x1712, 0x1714], [0x1732, 0x1734], 0x1752, 0x1753, 0x1772, 0x1773, [0x17B4, 0x17D3], 0x17DD, [0x180B, 0x180D], 0x18A9, [0x1920, 0x192B], [0x1930, 0x193B], [0x1A17, 0x1A1B], [0x1A55, 0x1A5E], [0x1A60, 0x1A7C], 0x1A7F, [0x1AB0, 0x1ABE], [0x1B00, 0x1B04], [0x1B34, 0x1B44], [0x1B6B, 0x1B73], [0x1B80, 0x1B82], [0x1BA1, 0x1BAD], [0x1BE6, 0x1BF3], [0x1C24, 0x1C37], [0x1CD0, 0x1CD2], [0x1CD4, 0x1CE8], 0x1CED, [0x1CF2, 0x1CF4], 0x1CF8, 0x1CF9, [0x1DC0, 0x1DF5], [0x1DFC, 0x1DFF], 0x200C, 0x200D, [0x20D0, 0x20F0], [0x2CEF, 0x2CF1], 0x2D7F, [0x2DE0, 0x2DFF], [0x302A, 0x302F], 0x3099, 0x309A, [0xA66F, 0xA672], [0xA674, 0xA67D], 0xA69E, 0xA69F, 0xA6F0, 0xA6F1, 0xA802, 0xA806, 0xA80B, [0xA823, 0xA827], 0xA880, 0xA881, [0xA8B4, 0xA8C4], [0xA8E0, 0xA8F1], [0xA926, 0xA92D], [0xA947, 0xA953], [0xA980, 0xA983], [0xA9B3, 0xA9C0], 0xA9E5, [0xAA29, 0xAA36], 0xAA43, 0xAA4C, 0xAA4D, [0xAA7B, 0xAA7D], 0xAAB0, [0xAAB2, 0xAAB4], 0xAAB7, 0xAAB8, 0xAABE, 0xAABF, 0xAAC1, [0xAAEB, 0xAAEF], 0xAAF5, 0xAAF6, [0xABE3, 0xABEA], 0xABEC, 0xABED, 0xFB1E, [0xFE00, 0xFE0F], [0xFE20, 0xFE2F], 0xFF9E, 0xFF9F, 0x101FD, 0x102E0, [0x10376, 0x1037A], [0x10A01, 0x10A03], 0x10A05, 0x10A06, [0x10A0C, 0x10A0F], [0x10A38, 0x10A3A], 0x10A3F, 0x10AE5, 0x10AE6, [0x11000, 0x11002], [0x11038, 0x11046], [0x1107F, 0x11082], [0x110B0, 0x110BA], [0x11100, 0x11102], [0x11127, 0x11134], 0x11173, [0x11180, 0x11182], [0x111B3, 0x111C0], [0x111CA, 0x111CC], [0x1122C, 0x11237], [0x112DF, 0x112EA], [0x11300, 0x11303], 0x1133C, [0x1133E, 0x11344], 0x11347, 0x11348, [0x1134B, 0x1134D], 0x11357, 0x11362, 0x11363, [0x11366, 0x1136C], [0x11370, 0x11374], [0x114B0, 0x114C3], [0x115AF, 0x115B5], [0x115B8, 0x115C0], 0x115DC, 0x115DD, [0x11630, 0x11640], [0x116AB, 0x116B7], [0x1171D, 0x1172B], [0x16AF0, 0x16AF4], [0x16B30, 0x16B36], [0x16F51, 0x16F7E], [0x16F8F, 0x16F92], 0x1BC9D, 0x1BC9E, [0x1D165, 0x1D169], [0x1D16D, 0x1D172], [0x1D17B, 0x1D182], [0x1D185, 0x1D18B], [0x1D1AA, 0x1D1AD], [0x1D242, 0x1D244], [0x1DA00, 0x1DA36], [0x1DA3B, 0x1DA6C], 0x1DA75, 0x1DA84, [0x1DA9B, 0x1DA9F], [0x1DAA1, 0x1DAAF], [0x1E8D0, 0x1E8D6], [0xE0100, 0xE01EF]],
 	RegionalIndicator: [[0x1F1E6, 0x1F1FF]],
 	Format: [0x00AD, [0x0600, 0x0605], 0x061C, 0x06DD, 0x070F, 0x180E, 0x200E, 0x200F, [0x202A, 0x202E], [0x2060, 0x2064], [0x2066, 0x206F], 0xFEFF, [0xFFF9, 0xFFFB], 0x110BD, [0x1BCA0, 0x1BCA3], [0x1D173, 0x1D17A], 0xE0001, [0xE0020, 0xE007F]],
 	Katakana: [[0x3031, 0x3035], 0x309B, 0x309C, [0x30A0, 0x30FA], [0x30FC, 0x30FF], [0x31F0, 0x31FF], [0x32D0, 0x32FE], [0x3300, 0x3357], [0xFF66, 0xFF9D], 0x1B000],
-	ALetter: [[0x0041, 0x005A], [0x0061, 0x007A], 0x00AA, 0x00B5, 0x00BA, [0x00C0, 0x00D6], [0x00D8, 0x00F6], [0x00F8, 0x02C1], [0x02C6, 0x02D1], [0x02E0, 0x02E4], 0x02EC, 0x02EE, [0x0370, 0x0374], 0x0376, 0x0377, [0x037A, 0x037D], 0x037F, 0x0386, [0x0388, 0x038A], 0x038C, [0x038E, 0x03A1], [0x03A3, 0x03F5], [0x03F7, 0x0481], [0x048A, 0x052F], [0x0531, 0x0556], 0x0559, [0x0561, 0x0587], 0x05F3, [0x0620, 0x064A], 0x066E, 0x066F, [0x0671, 0x06D3], 0x06D5, 0x06E5, 0x06E6, 0x06EE, 0x06EF, [0x06FA, 0x06FC], 0x06FF, 0x0710, [0x0712, 0x072F], [0x074D, 0x07A5], 0x07B1, [0x07CA, 0x07EA], 0x07F4, 0x07F5, 0x07FA, [0x0800, 0x0815], 0x081A, 0x0824, 0x0828, [0x0840, 0x0858], [0x08A0, 0x08B2], [0x0904, 0x0939], 0x093D, 0x0950, [0x0958, 0x0961], [0x0971, 0x0980], [0x0985, 0x098C], 0x098F, 0x0990, [0x0993, 0x09A8], [0x09AA, 0x09B0], 0x09B2, [0x09B6, 0x09B9], 0x09BD, 0x09CE, 0x09DC, 0x09DD, [0x09DF, 0x09E1], 0x09F0, 0x09F1, [0x0A05, 0x0A0A], 0x0A0F, 0x0A10, [0x0A13, 0x0A28], [0x0A2A, 0x0A30], 0x0A32, 0x0A33, 0x0A35, 0x0A36, 0x0A38, 0x0A39, [0x0A59, 0x0A5C], 0x0A5E, [0x0A72, 0x0A74], [0x0A85, 0x0A8D], [0x0A8F, 0x0A91], [0x0A93, 0x0AA8], [0x0AAA, 0x0AB0], 0x0AB2, 0x0AB3, [0x0AB5, 0x0AB9], 0x0ABD, 0x0AD0, 0x0AE0, 0x0AE1, [0x0B05, 0x0B0C], 0x0B0F, 0x0B10, [0x0B13, 0x0B28], [0x0B2A, 0x0B30], 0x0B32, 0x0B33, [0x0B35, 0x0B39], 0x0B3D, 0x0B5C, 0x0B5D, [0x0B5F, 0x0B61], 0x0B71, 0x0B83, [0x0B85, 0x0B8A], [0x0B8E, 0x0B90], [0x0B92, 0x0B95], 0x0B99, 0x0B9A, 0x0B9C, 0x0B9E, 0x0B9F, 0x0BA3, 0x0BA4, [0x0BA8, 0x0BAA], [0x0BAE, 0x0BB9], 0x0BD0, [0x0C05, 0x0C0C], [0x0C0E, 0x0C10], [0x0C12, 0x0C28], [0x0C2A, 0x0C39], 0x0C3D, 0x0C58, 0x0C59, 0x0C60, 0x0C61, [0x0C85, 0x0C8C], [0x0C8E, 0x0C90], [0x0C92, 0x0CA8], [0x0CAA, 0x0CB3], [0x0CB5, 0x0CB9], 0x0CBD, 0x0CDE, 0x0CE0, 0x0CE1, 0x0CF1, 0x0CF2, [0x0D05, 0x0D0C], [0x0D0E, 0x0D10], [0x0D12, 0x0D3A], 0x0D3D, 0x0D4E, 0x0D60, 0x0D61, [0x0D7A, 0x0D7F], [0x0D85, 0x0D96], [0x0D9A, 0x0DB1], [0x0DB3, 0x0DBB], 0x0DBD, [0x0DC0, 0x0DC6], 0x0F00, [0x0F40, 0x0F47], [0x0F49, 0x0F6C], [0x0F88, 0x0F8C], [0x10A0, 0x10C5], 0x10C7, 0x10CD, [0x10D0, 0x10FA], [0x10FC, 0x1248], [0x124A, 0x124D], [0x1250, 0x1256], 0x1258, [0x125A, 0x125D], [0x1260, 0x1288], [0x128A, 0x128D], [0x1290, 0x12B0], [0x12B2, 0x12B5], [0x12B8, 0x12BE], 0x12C0, [0x12C2, 0x12C5], [0x12C8, 0x12D6], [0x12D8, 0x1310], [0x1312, 0x1315], [0x1318, 0x135A], [0x1380, 0x138F], [0x13A0, 0x13F4], [0x1401, 0x166C], [0x166F, 0x167F], [0x1681, 0x169A], [0x16A0, 0x16EA], [0x16EE, 0x16F8], [0x1700, 0x170C], [0x170E, 0x1711], [0x1720, 0x1731], [0x1740, 0x1751], [0x1760, 0x176C], [0x176E, 0x1770], [0x1820, 0x1877], [0x1880, 0x18A8], 0x18AA, [0x18B0, 0x18F5], [0x1900, 0x191E], [0x1A00, 0x1A16], [0x1B05, 0x1B33], [0x1B45, 0x1B4B], [0x1B83, 0x1BA0], 0x1BAE, 0x1BAF, [0x1BBA, 0x1BE5], [0x1C00, 0x1C23], [0x1C4D, 0x1C4F], [0x1C5A, 0x1C7D], [0x1CE9, 0x1CEC], [0x1CEE, 0x1CF1], 0x1CF5, 0x1CF6, [0x1D00, 0x1DBF], [0x1E00, 0x1F15], [0x1F18, 0x1F1D], [0x1F20, 0x1F45], [0x1F48, 0x1F4D], [0x1F50, 0x1F57], 0x1F59, 0x1F5B, 0x1F5D, [0x1F5F, 0x1F7D], [0x1F80, 0x1FB4], [0x1FB6, 0x1FBC], 0x1FBE, [0x1FC2, 0x1FC4], [0x1FC6, 0x1FCC], [0x1FD0, 0x1FD3], [0x1FD6, 0x1FDB], [0x1FE0, 0x1FEC], [0x1FF2, 0x1FF4], [0x1FF6, 0x1FFC], 0x2071, 0x207F, [0x2090, 0x209C], 0x2102, 0x2107, [0x210A, 0x2113], 0x2115, [0x2119, 0x211D], 0x2124, 0x2126, 0x2128, [0x212A, 0x212D], [0x212F, 0x2139], [0x213C, 0x213F], [0x2145, 0x2149], 0x214E, [0x2160, 0x2188], [0x24B6, 0x24E9], [0x2C00, 0x2C2E], [0x2C30, 0x2C5E], [0x2C60, 0x2CE4], [0x2CEB, 0x2CEE], 0x2CF2, 0x2CF3, [0x2D00, 0x2D25], 0x2D27, 0x2D2D, [0x2D30, 0x2D67], 0x2D6F, [0x2D80, 0x2D96], [0x2DA0, 0x2DA6], [0x2DA8, 0x2DAE], [0x2DB0, 0x2DB6], [0x2DB8, 0x2DBE], [0x2DC0, 0x2DC6], [0x2DC8, 0x2DCE], [0x2DD0, 0x2DD6], [0x2DD8, 0x2DDE], 0x2E2F, 0x3005, 0x303B, 0x303C, [0x3105, 0x312D], [0x3131, 0x318E], [0x31A0, 0x31BA], [0xA000, 0xA48C], [0xA4D0, 0xA4FD], [0xA500, 0xA60C], [0xA610, 0xA61F], 0xA62A, 0xA62B, [0xA640, 0xA66E], [0xA67F, 0xA69D], [0xA6A0, 0xA6EF], [0xA717, 0xA71F], [0xA722, 0xA788], [0xA78B, 0xA78E], [0xA790, 0xA7AD], 0xA7B0, 0xA7B1, [0xA7F7, 0xA801], [0xA803, 0xA805], [0xA807, 0xA80A], [0xA80C, 0xA822], [0xA840, 0xA873], [0xA882, 0xA8B3], [0xA8F2, 0xA8F7], 0xA8FB, [0xA90A, 0xA925], [0xA930, 0xA946], [0xA960, 0xA97C], [0xA984, 0xA9B2], 0xA9CF, [0xAA00, 0xAA28], [0xAA40, 0xAA42], [0xAA44, 0xAA4B], [0xAAE0, 0xAAEA], [0xAAF2, 0xAAF4], [0xAB01, 0xAB06], [0xAB09, 0xAB0E], [0xAB11, 0xAB16], [0xAB20, 0xAB26], [0xAB28, 0xAB2E], [0xAB30, 0xAB5A], [0xAB5C, 0xAB5F], 0xAB64, 0xAB65, [0xABC0, 0xABE2], [0xAC00, 0xD7A3], [0xD7B0, 0xD7C6], [0xD7CB, 0xD7FB], [0xFB00, 0xFB06], [0xFB13, 0xFB17], [0xFB50, 0xFBB1], [0xFBD3, 0xFD3D], [0xFD50, 0xFD8F], [0xFD92, 0xFDC7], [0xFDF0, 0xFDFB], [0xFE70, 0xFE74], [0xFE76, 0xFEFC], [0xFF21, 0xFF3A], [0xFF41, 0xFF5A], [0xFFA0, 0xFFBE], [0xFFC2, 0xFFC7], [0xFFCA, 0xFFCF], [0xFFD2, 0xFFD7], [0xFFDA, 0xFFDC], [0x10000, 0x1000B], [0x1000D, 0x10026], [0x10028, 0x1003A], 0x1003C, 0x1003D, [0x1003F, 0x1004D], [0x10050, 0x1005D], [0x10080, 0x100FA], [0x10140, 0x10174], [0x10280, 0x1029C], [0x102A0, 0x102D0], [0x10300, 0x1031F], [0x10330, 0x1034A], [0x10350, 0x10375], [0x10380, 0x1039D], [0x103A0, 0x103C3], [0x103C8, 0x103CF], [0x103D1, 0x103D5], [0x10400, 0x1049D], [0x10500, 0x10527], [0x10530, 0x10563], [0x10600, 0x10736], [0x10740, 0x10755], [0x10760, 0x10767], [0x10800, 0x10805], 0x10808, [0x1080A, 0x10835], 0x10837, 0x10838, 0x1083C, [0x1083F, 0x10855], [0x10860, 0x10876], [0x10880, 0x1089E], [0x10900, 0x10915], [0x10920, 0x10939], [0x10980, 0x109B7], 0x109BE, 0x109BF, 0x10A00, [0x10A10, 0x10A13], [0x10A15, 0x10A17], [0x10A19, 0x10A33], [0x10A60, 0x10A7C], [0x10A80, 0x10A9C], [0x10AC0, 0x10AC7], [0x10AC9, 0x10AE4], [0x10B00, 0x10B35], [0x10B40, 0x10B55], [0x10B60, 0x10B72], [0x10B80, 0x10B91], [0x10C00, 0x10C48], [0x11003, 0x11037], [0x11083, 0x110AF], [0x110D0, 0x110E8], [0x11103, 0x11126], [0x11150, 0x11172], 0x11176, [0x11183, 0x111B2], [0x111C1, 0x111C4], 0x111DA, [0x11200, 0x11211], [0x11213, 0x1122B], [0x112B0, 0x112DE], [0x11305, 0x1130C], 0x1130F, 0x11310, [0x11313, 0x11328], [0x1132A, 0x11330], 0x11332, 0x11333, [0x11335, 0x11339], 0x1133D, [0x1135D, 0x11361], [0x11480, 0x114AF], 0x114C4, 0x114C5, 0x114C7, [0x11580, 0x115AE], [0x11600, 0x1162F], 0x11644, [0x11680, 0x116AA], [0x118A0, 0x118DF], 0x118FF, [0x11AC0, 0x11AF8], [0x12000, 0x12398], [0x12400, 0x1246E], [0x13000, 0x1342E], [0x16800, 0x16A38], [0x16A40, 0x16A5E], [0x16AD0, 0x16AED], [0x16B00, 0x16B2F], [0x16B40, 0x16B43], [0x16B63, 0x16B77], [0x16B7D, 0x16B8F], [0x16F00, 0x16F44], 0x16F50, [0x16F93, 0x16F9F], [0x1BC00, 0x1BC6A], [0x1BC70, 0x1BC7C], [0x1BC80, 0x1BC88], [0x1BC90, 0x1BC99], [0x1D400, 0x1D454], [0x1D456, 0x1D49C], 0x1D49E, 0x1D49F, 0x1D4A2, 0x1D4A5, 0x1D4A6, [0x1D4A9, 0x1D4AC], [0x1D4AE, 0x1D4B9], 0x1D4BB, [0x1D4BD, 0x1D4C3], [0x1D4C5, 0x1D505], [0x1D507, 0x1D50A], [0x1D50D, 0x1D514], [0x1D516, 0x1D51C], [0x1D51E, 0x1D539], [0x1D53B, 0x1D53E], [0x1D540, 0x1D544], 0x1D546, [0x1D54A, 0x1D550], [0x1D552, 0x1D6A5], [0x1D6A8, 0x1D6C0], [0x1D6C2, 0x1D6DA], [0x1D6DC, 0x1D6FA], [0x1D6FC, 0x1D714], [0x1D716, 0x1D734], [0x1D736, 0x1D74E], [0x1D750, 0x1D76E], [0x1D770, 0x1D788], [0x1D78A, 0x1D7A8], [0x1D7AA, 0x1D7C2], [0x1D7C4, 0x1D7CB], [0x1E800, 0x1E8C4], [0x1EE00, 0x1EE03], [0x1EE05, 0x1EE1F], 0x1EE21, 0x1EE22, 0x1EE24, 0x1EE27, [0x1EE29, 0x1EE32], [0x1EE34, 0x1EE37], 0x1EE39, 0x1EE3B, 0x1EE42, 0x1EE47, 0x1EE49, 0x1EE4B, [0x1EE4D, 0x1EE4F], 0x1EE51, 0x1EE52, 0x1EE54, 0x1EE57, 0x1EE59, 0x1EE5B, 0x1EE5D, 0x1EE5F, 0x1EE61, 0x1EE62, 0x1EE64, [0x1EE67, 0x1EE6A], [0x1EE6C, 0x1EE72], [0x1EE74, 0x1EE77], [0x1EE79, 0x1EE7C], 0x1EE7E, [0x1EE80, 0x1EE89], [0x1EE8B, 0x1EE9B], [0x1EEA1, 0x1EEA3], [0x1EEA5, 0x1EEA9], [0x1EEAB, 0x1EEBB], [0x1F130, 0x1F149], [0x1F150, 0x1F169], [0x1F170, 0x1F189]],
+	ALetter: [[0x0041, 0x005A], [0x0061, 0x007A], 0x00AA, 0x00B5, 0x00BA, [0x00C0, 0x00D6], [0x00D8, 0x00F6], [0x00F8, 0x02C1], [0x02C6, 0x02D1], [0x02E0, 0x02E4], 0x02EC, 0x02EE, [0x0370, 0x0374], 0x0376, 0x0377, [0x037A, 0x037D], 0x037F, 0x0386, [0x0388, 0x038A], 0x038C, [0x038E, 0x03A1], [0x03A3, 0x03F5], [0x03F7, 0x0481], [0x048A, 0x052F], [0x0531, 0x0556], 0x0559, [0x0561, 0x0587], 0x05F3, [0x0620, 0x064A], 0x066E, 0x066F, [0x0671, 0x06D3], 0x06D5, 0x06E5, 0x06E6, 0x06EE, 0x06EF, [0x06FA, 0x06FC], 0x06FF, 0x0710, [0x0712, 0x072F], [0x074D, 0x07A5], 0x07B1, [0x07CA, 0x07EA], 0x07F4, 0x07F5, 0x07FA, [0x0800, 0x0815], 0x081A, 0x0824, 0x0828, [0x0840, 0x0858], [0x08A0, 0x08B4], [0x0904, 0x0939], 0x093D, 0x0950, [0x0958, 0x0961], [0x0971, 0x0980], [0x0985, 0x098C], 0x098F, 0x0990, [0x0993, 0x09A8], [0x09AA, 0x09B0], 0x09B2, [0x09B6, 0x09B9], 0x09BD, 0x09CE, 0x09DC, 0x09DD, [0x09DF, 0x09E1], 0x09F0, 0x09F1, [0x0A05, 0x0A0A], 0x0A0F, 0x0A10, [0x0A13, 0x0A28], [0x0A2A, 0x0A30], 0x0A32, 0x0A33, 0x0A35, 0x0A36, 0x0A38, 0x0A39, [0x0A59, 0x0A5C], 0x0A5E, [0x0A72, 0x0A74], [0x0A85, 0x0A8D], [0x0A8F, 0x0A91], [0x0A93, 0x0AA8], [0x0AAA, 0x0AB0], 0x0AB2, 0x0AB3, [0x0AB5, 0x0AB9], 0x0ABD, 0x0AD0, 0x0AE0, 0x0AE1, 0x0AF9, [0x0B05, 0x0B0C], 0x0B0F, 0x0B10, [0x0B13, 0x0B28], [0x0B2A, 0x0B30], 0x0B32, 0x0B33, [0x0B35, 0x0B39], 0x0B3D, 0x0B5C, 0x0B5D, [0x0B5F, 0x0B61], 0x0B71, 0x0B83, [0x0B85, 0x0B8A], [0x0B8E, 0x0B90], [0x0B92, 0x0B95], 0x0B99, 0x0B9A, 0x0B9C, 0x0B9E, 0x0B9F, 0x0BA3, 0x0BA4, [0x0BA8, 0x0BAA], [0x0BAE, 0x0BB9], 0x0BD0, [0x0C05, 0x0C0C], [0x0C0E, 0x0C10], [0x0C12, 0x0C28], [0x0C2A, 0x0C39], 0x0C3D, [0x0C58, 0x0C5A], 0x0C60, 0x0C61, [0x0C85, 0x0C8C], [0x0C8E, 0x0C90], [0x0C92, 0x0CA8], [0x0CAA, 0x0CB3], [0x0CB5, 0x0CB9], 0x0CBD, 0x0CDE, 0x0CE0, 0x0CE1, 0x0CF1, 0x0CF2, [0x0D05, 0x0D0C], [0x0D0E, 0x0D10], [0x0D12, 0x0D3A], 0x0D3D, 0x0D4E, [0x0D5F, 0x0D61], [0x0D7A, 0x0D7F], [0x0D85, 0x0D96], [0x0D9A, 0x0DB1], [0x0DB3, 0x0DBB], 0x0DBD, [0x0DC0, 0x0DC6], 0x0F00, [0x0F40, 0x0F47], [0x0F49, 0x0F6C], [0x0F88, 0x0F8C], [0x10A0, 0x10C5], 0x10C7, 0x10CD, [0x10D0, 0x10FA], [0x10FC, 0x1248], [0x124A, 0x124D], [0x1250, 0x1256], 0x1258, [0x125A, 0x125D], [0x1260, 0x1288], [0x128A, 0x128D], [0x1290, 0x12B0], [0x12B2, 0x12B5], [0x12B8, 0x12BE], 0x12C0, [0x12C2, 0x12C5], [0x12C8, 0x12D6], [0x12D8, 0x1310], [0x1312, 0x1315], [0x1318, 0x135A], [0x1380, 0x138F], [0x13A0, 0x13F5], [0x13F8, 0x13FD], [0x1401, 0x166C], [0x166F, 0x167F], [0x1681, 0x169A], [0x16A0, 0x16EA], [0x16EE, 0x16F8], [0x1700, 0x170C], [0x170E, 0x1711], [0x1720, 0x1731], [0x1740, 0x1751], [0x1760, 0x176C], [0x176E, 0x1770], [0x1820, 0x1877], [0x1880, 0x18A8], 0x18AA, [0x18B0, 0x18F5], [0x1900, 0x191E], [0x1A00, 0x1A16], [0x1B05, 0x1B33], [0x1B45, 0x1B4B], [0x1B83, 0x1BA0], 0x1BAE, 0x1BAF, [0x1BBA, 0x1BE5], [0x1C00, 0x1C23], [0x1C4D, 0x1C4F], [0x1C5A, 0x1C7D], [0x1CE9, 0x1CEC], [0x1CEE, 0x1CF1], 0x1CF5, 0x1CF6, [0x1D00, 0x1DBF], [0x1E00, 0x1F15], [0x1F18, 0x1F1D], [0x1F20, 0x1F45], [0x1F48, 0x1F4D], [0x1F50, 0x1F57], 0x1F59, 0x1F5B, 0x1F5D, [0x1F5F, 0x1F7D], [0x1F80, 0x1FB4], [0x1FB6, 0x1FBC], 0x1FBE, [0x1FC2, 0x1FC4], [0x1FC6, 0x1FCC], [0x1FD0, 0x1FD3], [0x1FD6, 0x1FDB], [0x1FE0, 0x1FEC], [0x1FF2, 0x1FF4], [0x1FF6, 0x1FFC], 0x2071, 0x207F, [0x2090, 0x209C], 0x2102, 0x2107, [0x210A, 0x2113], 0x2115, [0x2119, 0x211D], 0x2124, 0x2126, 0x2128, [0x212A, 0x212D], [0x212F, 0x2139], [0x213C, 0x213F], [0x2145, 0x2149], 0x214E, [0x2160, 0x2188], [0x24B6, 0x24E9], [0x2C00, 0x2C2E], [0x2C30, 0x2C5E], [0x2C60, 0x2CE4], [0x2CEB, 0x2CEE], 0x2CF2, 0x2CF3, [0x2D00, 0x2D25], 0x2D27, 0x2D2D, [0x2D30, 0x2D67], 0x2D6F, [0x2D80, 0x2D96], [0x2DA0, 0x2DA6], [0x2DA8, 0x2DAE], [0x2DB0, 0x2DB6], [0x2DB8, 0x2DBE], [0x2DC0, 0x2DC6], [0x2DC8, 0x2DCE], [0x2DD0, 0x2DD6], [0x2DD8, 0x2DDE], 0x2E2F, 0x3005, 0x303B, 0x303C, [0x3105, 0x312D], [0x3131, 0x318E], [0x31A0, 0x31BA], [0xA000, 0xA48C], [0xA4D0, 0xA4FD], [0xA500, 0xA60C], [0xA610, 0xA61F], 0xA62A, 0xA62B, [0xA640, 0xA66E], [0xA67F, 0xA69D], [0xA6A0, 0xA6EF], [0xA717, 0xA71F], [0xA722, 0xA788], [0xA78B, 0xA7AD], [0xA7B0, 0xA7B7], [0xA7F7, 0xA801], [0xA803, 0xA805], [0xA807, 0xA80A], [0xA80C, 0xA822], [0xA840, 0xA873], [0xA882, 0xA8B3], [0xA8F2, 0xA8F7], 0xA8FB, 0xA8FD, [0xA90A, 0xA925], [0xA930, 0xA946], [0xA960, 0xA97C], [0xA984, 0xA9B2], 0xA9CF, [0xAA00, 0xAA28], [0xAA40, 0xAA42], [0xAA44, 0xAA4B], [0xAAE0, 0xAAEA], [0xAAF2, 0xAAF4], [0xAB01, 0xAB06], [0xAB09, 0xAB0E], [0xAB11, 0xAB16], [0xAB20, 0xAB26], [0xAB28, 0xAB2E], [0xAB30, 0xAB5A], [0xAB5C, 0xAB65], [0xAB70, 0xABE2], [0xAC00, 0xD7A3], [0xD7B0, 0xD7C6], [0xD7CB, 0xD7FB], [0xFB00, 0xFB06], [0xFB13, 0xFB17], [0xFB50, 0xFBB1], [0xFBD3, 0xFD3D], [0xFD50, 0xFD8F], [0xFD92, 0xFDC7], [0xFDF0, 0xFDFB], [0xFE70, 0xFE74], [0xFE76, 0xFEFC], [0xFF21, 0xFF3A], [0xFF41, 0xFF5A], [0xFFA0, 0xFFBE], [0xFFC2, 0xFFC7], [0xFFCA, 0xFFCF], [0xFFD2, 0xFFD7], [0xFFDA, 0xFFDC], [0x10000, 0x1000B], [0x1000D, 0x10026], [0x10028, 0x1003A], 0x1003C, 0x1003D, [0x1003F, 0x1004D], [0x10050, 0x1005D], [0x10080, 0x100FA], [0x10140, 0x10174], [0x10280, 0x1029C], [0x102A0, 0x102D0], [0x10300, 0x1031F], [0x10330, 0x1034A], [0x10350, 0x10375], [0x10380, 0x1039D], [0x103A0, 0x103C3], [0x103C8, 0x103CF], [0x103D1, 0x103D5], [0x10400, 0x1049D], [0x10500, 0x10527], [0x10530, 0x10563], [0x10600, 0x10736], [0x10740, 0x10755], [0x10760, 0x10767], [0x10800, 0x10805], 0x10808, [0x1080A, 0x10835], 0x10837, 0x10838, 0x1083C, [0x1083F, 0x10855], [0x10860, 0x10876], [0x10880, 0x1089E], [0x108E0, 0x108F2], 0x108F4, 0x108F5, [0x10900, 0x10915], [0x10920, 0x10939], [0x10980, 0x109B7], 0x109BE, 0x109BF, 0x10A00, [0x10A10, 0x10A13], [0x10A15, 0x10A17], [0x10A19, 0x10A33], [0x10A60, 0x10A7C], [0x10A80, 0x10A9C], [0x10AC0, 0x10AC7], [0x10AC9, 0x10AE4], [0x10B00, 0x10B35], [0x10B40, 0x10B55], [0x10B60, 0x10B72], [0x10B80, 0x10B91], [0x10C00, 0x10C48], [0x10C80, 0x10CB2], [0x10CC0, 0x10CF2], [0x11003, 0x11037], [0x11083, 0x110AF], [0x110D0, 0x110E8], [0x11103, 0x11126], [0x11150, 0x11172], 0x11176, [0x11183, 0x111B2], [0x111C1, 0x111C4], 0x111DA, 0x111DC, [0x11200, 0x11211], [0x11213, 0x1122B], [0x11280, 0x11286], 0x11288, [0x1128A, 0x1128D], [0x1128F, 0x1129D], [0x1129F, 0x112A8], [0x112B0, 0x112DE], [0x11305, 0x1130C], 0x1130F, 0x11310, [0x11313, 0x11328], [0x1132A, 0x11330], 0x11332, 0x11333, [0x11335, 0x11339], 0x1133D, 0x11350, [0x1135D, 0x11361], [0x11480, 0x114AF], 0x114C4, 0x114C5, 0x114C7, [0x11580, 0x115AE], [0x115D8, 0x115DB], [0x11600, 0x1162F], 0x11644, [0x11680, 0x116AA], [0x118A0, 0x118DF], 0x118FF, [0x11AC0, 0x11AF8], [0x12000, 0x12399], [0x12400, 0x1246E], [0x12480, 0x12543], [0x13000, 0x1342E], [0x14400, 0x14646], [0x16800, 0x16A38], [0x16A40, 0x16A5E], [0x16AD0, 0x16AED], [0x16B00, 0x16B2F], [0x16B40, 0x16B43], [0x16B63, 0x16B77], [0x16B7D, 0x16B8F], [0x16F00, 0x16F44], 0x16F50, [0x16F93, 0x16F9F], [0x1BC00, 0x1BC6A], [0x1BC70, 0x1BC7C], [0x1BC80, 0x1BC88], [0x1BC90, 0x1BC99], [0x1D400, 0x1D454], [0x1D456, 0x1D49C], 0x1D49E, 0x1D49F, 0x1D4A2, 0x1D4A5, 0x1D4A6, [0x1D4A9, 0x1D4AC], [0x1D4AE, 0x1D4B9], 0x1D4BB, [0x1D4BD, 0x1D4C3], [0x1D4C5, 0x1D505], [0x1D507, 0x1D50A], [0x1D50D, 0x1D514], [0x1D516, 0x1D51C], [0x1D51E, 0x1D539], [0x1D53B, 0x1D53E], [0x1D540, 0x1D544], 0x1D546, [0x1D54A, 0x1D550], [0x1D552, 0x1D6A5], [0x1D6A8, 0x1D6C0], [0x1D6C2, 0x1D6DA], [0x1D6DC, 0x1D6FA], [0x1D6FC, 0x1D714], [0x1D716, 0x1D734], [0x1D736, 0x1D74E], [0x1D750, 0x1D76E], [0x1D770, 0x1D788], [0x1D78A, 0x1D7A8], [0x1D7AA, 0x1D7C2], [0x1D7C4, 0x1D7CB], [0x1E800, 0x1E8C4], [0x1EE00, 0x1EE03], [0x1EE05, 0x1EE1F], 0x1EE21, 0x1EE22, 0x1EE24, 0x1EE27, [0x1EE29, 0x1EE32], [0x1EE34, 0x1EE37], 0x1EE39, 0x1EE3B, 0x1EE42, 0x1EE47, 0x1EE49, 0x1EE4B, [0x1EE4D, 0x1EE4F], 0x1EE51, 0x1EE52, 0x1EE54, 0x1EE57, 0x1EE59, 0x1EE5B, 0x1EE5D, 0x1EE5F, 0x1EE61, 0x1EE62, 0x1EE64, [0x1EE67, 0x1EE6A], [0x1EE6C, 0x1EE72], [0x1EE74, 0x1EE77], [0x1EE79, 0x1EE7C], 0x1EE7E, [0x1EE80, 0x1EE89], [0x1EE8B, 0x1EE9B], [0x1EEA1, 0x1EEA3], [0x1EEA5, 0x1EEA9], [0x1EEAB, 0x1EEBB], [0x1F130, 0x1F149], [0x1F150, 0x1F169], [0x1F170, 0x1F189]],
 	MidLetter: [0x003A, 0x00B7, 0x02D7, 0x0387, 0x05F4, 0x2027, 0xFE13, 0xFE55, 0xFF1A],
 	MidNum: [0x002C, 0x003B, 0x037E, 0x0589, 0x060C, 0x060D, 0x066C, 0x07F8, 0x2044, 0xFE10, 0xFE14, 0xFE50, 0xFE54, 0xFF0C, 0xFF1B],
 	MidNumLet: [0x002E, 0x2018, 0x2019, 0x2024, 0xFE52, 0xFF07, 0xFF0E],
-	Numeric: [[0x0030, 0x0039], [0x0660, 0x0669], 0x066B, [0x06F0, 0x06F9], [0x07C0, 0x07C9], [0x0966, 0x096F], [0x09E6, 0x09EF], [0x0A66, 0x0A6F], [0x0AE6, 0x0AEF], [0x0B66, 0x0B6F], [0x0BE6, 0x0BEF], [0x0C66, 0x0C6F], [0x0CE6, 0x0CEF], [0x0D66, 0x0D6F], [0x0DE6, 0x0DEF], [0x0E50, 0x0E59], [0x0ED0, 0x0ED9], [0x0F20, 0x0F29], [0x1040, 0x1049], [0x1090, 0x1099], [0x17E0, 0x17E9], [0x1810, 0x1819], [0x1946, 0x194F], [0x19D0, 0x19D9], [0x1A80, 0x1A89], [0x1A90, 0x1A99], [0x1B50, 0x1B59], [0x1BB0, 0x1BB9], [0x1C40, 0x1C49], [0x1C50, 0x1C59], [0xA620, 0xA629], [0xA8D0, 0xA8D9], [0xA900, 0xA909], [0xA9D0, 0xA9D9], [0xA9F0, 0xA9F9], [0xAA50, 0xAA59], [0xABF0, 0xABF9], [0x104A0, 0x104A9], [0x11066, 0x1106F], [0x110F0, 0x110F9], [0x11136, 0x1113F], [0x111D0, 0x111D9], [0x112F0, 0x112F9], [0x114D0, 0x114D9], [0x11650, 0x11659], [0x116C0, 0x116C9], [0x118E0, 0x118E9], [0x16A60, 0x16A69], [0x16B50, 0x16B59], [0x1D7CE, 0x1D7FF]],
+	Numeric: [[0x0030, 0x0039], [0x0660, 0x0669], 0x066B, [0x06F0, 0x06F9], [0x07C0, 0x07C9], [0x0966, 0x096F], [0x09E6, 0x09EF], [0x0A66, 0x0A6F], [0x0AE6, 0x0AEF], [0x0B66, 0x0B6F], [0x0BE6, 0x0BEF], [0x0C66, 0x0C6F], [0x0CE6, 0x0CEF], [0x0D66, 0x0D6F], [0x0DE6, 0x0DEF], [0x0E50, 0x0E59], [0x0ED0, 0x0ED9], [0x0F20, 0x0F29], [0x1040, 0x1049], [0x1090, 0x1099], [0x17E0, 0x17E9], [0x1810, 0x1819], [0x1946, 0x194F], [0x19D0, 0x19D9], [0x1A80, 0x1A89], [0x1A90, 0x1A99], [0x1B50, 0x1B59], [0x1BB0, 0x1BB9], [0x1C40, 0x1C49], [0x1C50, 0x1C59], [0xA620, 0xA629], [0xA8D0, 0xA8D9], [0xA900, 0xA909], [0xA9D0, 0xA9D9], [0xA9F0, 0xA9F9], [0xAA50, 0xAA59], [0xABF0, 0xABF9], [0x104A0, 0x104A9], [0x11066, 0x1106F], [0x110F0, 0x110F9], [0x11136, 0x1113F], [0x111D0, 0x111D9], [0x112F0, 0x112F9], [0x114D0, 0x114D9], [0x11650, 0x11659], [0x116C0, 0x116C9], [0x11730, 0x11739], [0x118E0, 0x118E9], [0x16A60, 0x16A69], [0x16B50, 0x16B59], [0x1D7CE, 0x1D7FF]],
 	ExtendNumLet: [0x005F, 0x203F, 0x2040, 0x2054, 0xFE33, 0xFE34, [0xFE4D, 0xFE4F], 0xFF3F]
 };
 
@@ -22383,7 +24157,7 @@ unicodeJS.wordbreakproperties = {
 	 * Evaluates whether a position within some text is a word boundary.
 	 *
 	 * The text object elements may be code units, codepoints or clusters.
-	 * @param {Object} TextString-like object with read( pos ) returning string|null
+	 * @param {Object} string TextString-like object with read( pos ) returning string|null
 	 * @param {number} pos Character position
 	 * @return {boolean} Is the position a word boundary
 	 */
@@ -22701,7 +24475,7 @@ window.ve = {};
  * values with microsecond precision that are guaranteed to be monotonic. On all other browsers,
  * it will fall back to using `Date.now`.
  *
- * @returns {number} Current time
+ * @return {number} Current time
  */
 ve.now = ( function () {
 	var perf = window.performance,
@@ -22725,13 +24499,13 @@ ve.now = ( function () {
  *
  * @param {Object} subject Object to check
  * @param {Function[]} classes Classes to compare with
- * @returns {boolean} Object inherits from one or more of the classes
+ * @return {boolean} Object inherits from one or more of the classes
  */
 ve.isInstanceOfAny = function ( subject, classes ) {
 	var i = classes.length;
 
-	while ( classes[--i] ) {
-		if ( subject instanceof classes[i] ) {
+	while ( classes[ --i ] ) {
+		if ( subject instanceof classes[ i ] ) {
 			return true;
 		}
 	}
@@ -22781,11 +24555,17 @@ ve.copy = OO.copy;
 ve.debounce = OO.ui.debounce;
 
 /**
+ * @method
+ * @inheritdoc OO.ui.Element#scrollIntoView
+ */
+ve.scrollIntoView = OO.ui.Element.static.scrollIntoView.bind( OO.ui.Element.static );
+
+/**
  * Copy an array of DOM elements, optionally into a different document.
  *
  * @param {HTMLElement[]} domElements DOM elements to copy
  * @param {HTMLDocument} [doc] Document to create the copies in; if unset, simply clone each element
- * @returns {HTMLElement[]} Copy of domElements with copies of each element
+ * @return {HTMLElement[]} Copy of domElements with copies of each element
  */
 ve.copyDomElements = function ( domElements, doc ) {
 	return domElements.map( function ( domElement ) {
@@ -22795,6 +24575,7 @@ ve.copyDomElements = function ( domElements, doc ) {
 
 /**
  * Check if two arrays of DOM elements are equal (according to .isEqualNode())
+ *
  * @param {HTMLElement[]} domElements1 First array of DOM elements
  * @param {HTMLElement[]} domElements2 Second array of DOM elements
  * @return {boolean} All elements are pairwise equal
@@ -22806,7 +24587,7 @@ ve.isEqualDomElements = function ( domElements1, domElements2 ) {
 		return false;
 	}
 	for ( ; i < len; i++ ) {
-		if ( !domElements1[i].isEqualNode( domElements2[i] ) ) {
+		if ( !domElements1[ i ].isEqualNode( domElements2[ i ] ) ) {
 			return false;
 		}
 	}
@@ -22843,7 +24624,7 @@ ve.compareClassLists = function ( classList1, classList2 ) {
  * @method
  * @source <http://api.jquery.com/jQuery.isPlainObject/>
  * @param {Object} obj The object that will be checked to see if it's a plain object
- * @returns {boolean}
+ * @return {boolean}
  */
 ve.isPlainObject = $.isPlainObject;
 
@@ -22853,24 +24634,9 @@ ve.isPlainObject = $.isPlainObject;
  * @method
  * @source <http://api.jquery.com/jQuery.isEmptyObject/>
  * @param {Object} obj The object that will be checked to see if it's empty
- * @returns {boolean}
+ * @return {boolean}
  */
 ve.isEmptyObject = $.isEmptyObject;
-
-/**
- * Wrapper for Array#indexOf.
- *
- * Values are compared without type coercion.
- *
- * @method
- * @source <http://api.jquery.com/jQuery.inArray/>
- * @until ES5: Array#indexOf
- * @param {Mixed} value Element to search for
- * @param {Array} array Array to search in
- * @param {number} [fromIndex=0] Index to being searching from
- * @returns {number} Index of value in array, or -1 if not found
- */
-ve.indexOf = $.inArray;
 
 /**
  * Merge properties of one or more objects into another.
@@ -22885,9 +24651,9 @@ ve.indexOf = $.inArray;
  * @source <http://api.jquery.com/jQuery.extend/>
  * @param {boolean} [recursive=false]
  * @param {Mixed} [target] Object that will receive the new properties
- * @param {Mixed...} [sources] Variadic list of objects containing properties
+ * @param {...Mixed} [sources] Variadic list of objects containing properties
  * to be merged into the target.
- * @returns {Mixed} Modified version of first or second argument
+ * @return {Mixed} Modified version of first or second argument
  */
 ve.extendObject = $.extend;
 
@@ -22909,9 +24675,9 @@ ve.supportsSplice = ( function () {
 	// This returns false in Opera 12.15
 	a = [];
 	n = 256;
-	a[n] = 'a';
+	a[ n ] = 'a';
 	a.splice( n + 1, 0, 'b' );
-	if ( a[n] !== 'a' ) {
+	if ( a[ n ] !== 'a' ) {
 		return false;
 	}
 
@@ -22997,15 +24763,15 @@ ve.batchSplice = function ( arr, offset, remove, data ) {
 /**
  * Insert one array into another.
  *
- * Shortcut for `ve.batchSplice( dst, offset, 0, src )`.
+ * Shortcut for `ve.batchSplice( arr, offset, 0, src )`.
  *
  * @see #batchSplice
  * @param {Array|ve.dm.BranchNode} arr Target object (must have `splice` method)
  * @param {number} offset Offset in arr where items will be inserted
- * @param {Array} data Items to insert at offset
+ * @param {Array} src Items to insert at offset
  */
-ve.insertIntoArray = function ( dst, offset, src ) {
-	ve.batchSplice( dst, offset, 0, src );
+ve.insertIntoArray = function ( arr, offset, src ) {
+	ve.batchSplice( arr, offset, 0, src );
 };
 
 /**
@@ -23016,7 +24782,7 @@ ve.insertIntoArray = function ( dst, offset, src ) {
  *
  * @param {Array|ve.dm.BranchNode} arr Object supporting .push() to insert at the end of the array. Will be modified
  * @param {Array} data Array of items to insert.
- * @returns {number} length of the new array
+ * @return {number} length of the new array
  */
 ve.batchPush = function ( arr, data ) {
 	// We need to push insertion in batches, because of parameter list length limits which vary
@@ -23058,7 +24824,7 @@ ve.binarySearch = function ( arr, searchFunc, forInsertion ) {
 		// Equivalent to Math.floor( ( left + right ) / 2 ) but much faster
 		/*jshint bitwise:false */
 		mid = ( left + right ) >> 1;
-		cmpResult = searchFunc( arr[mid] );
+		cmpResult = searchFunc( arr[ mid ] );
 		if ( cmpResult < 0 ) {
 			right = mid;
 		} else if ( cmpResult > 0 ) {
@@ -23075,7 +24841,7 @@ ve.binarySearch = function ( arr, searchFunc, forInsertion ) {
  *
  * This implementation does nothing, to add a real implementation ve.debug needs to be loaded.
  *
- * @param {Mixed...} [args] Data to log
+ * @param {...Mixed} [args] Data to log
  */
 ve.log = ve.log || function () {
 	// don't do anything, this is just a stub
@@ -23086,7 +24852,7 @@ ve.log = ve.log || function () {
  *
  * This implementation does nothing, to add a real implementation ve.debug needs to be loaded.
  *
- * @param {Mixed...} [args] Data to log
+ * @param {...Mixed} [args] Data to log
  */
 ve.error = ve.error || function () {
 	// don't do anything, this is just a stub
@@ -23119,27 +24885,11 @@ ve.selectElement = function ( element ) {
 };
 
 /**
- * Move the selection to the end of an input.
- *
- * @param {HTMLElement} element Input element
- */
-ve.selectEnd = function ( element ) {
-	element.focus();
-	if ( element.selectionStart !== undefined ) {
-		element.selectionStart = element.selectionEnd = element.value.length;
-	} else if ( element.createTextRange ) {
-		var textRange = element.createTextRange();
-		textRange.collapse( false );
-		textRange.select();
-	}
-};
-
-/**
  * Get a localized message.
  *
  * @param {string} key Message key
- * @param {Mixed...} [params] Message parameters
- * @returns {string} Localized message
+ * @param {...Mixed} [params] Message parameters
+ * @return {string} Localized message
  */
 ve.msg = function () {
 	// Avoid using bind because ve.init.platform doesn't exist yet.
@@ -23151,7 +24901,7 @@ ve.msg = function () {
  * Get a config value.
  *
  * @param {string|string[]} key Config key, or list of keys
- * @returns {Mixed|Object} Config value, or keyed object of config values if list of keys provided
+ * @return {Mixed|Object} Config value, or keyed object of config values if list of keys provided
  */
 ve.config = function () {
 	// Avoid using bind because ve.init.platform doesn't exist yet.
@@ -23163,7 +24913,7 @@ ve.config = function () {
  * Determine if the text consists of only unattached combining marks.
  *
  * @param {string} text Text to test
- * @returns {boolean} The text is unattached combining marks
+ * @return {boolean} The text is unattached combining marks
  */
 ve.isUnattachedCombiningMark = function ( text ) {
 	return ( /^[\u0300-\u036F]+$/ ).test( text );
@@ -23174,7 +24924,7 @@ ve.isUnattachedCombiningMark = function ( text ) {
  *
  * @param {string} text Text in which to calculate offset
  * @param {number} clusterOffset Grapheme cluster offset
- * @returns {number} Byte offset
+ * @return {number} Byte offset
  */
 ve.getByteOffset = function ( text, clusterOffset ) {
 	return unicodeJS.graphemebreak.splitClusters( text )
@@ -23188,7 +24938,7 @@ ve.getByteOffset = function ( text, clusterOffset ) {
  *
  * @param {string} text Text in which to calculate offset
  * @param {number} byteOffset Byte offset
- * @returns {number} Grapheme cluster offset
+ * @return {number} Grapheme cluster offset
  */
 ve.getClusterOffset = function ( text, byteOffset ) {
 	return unicodeJS.graphemebreak.splitClusters( text.slice( 0, byteOffset ) ).length;
@@ -23201,7 +24951,7 @@ ve.getClusterOffset = function ( text, byteOffset ) {
  * @param {number} start Start offset
  * @param {number} end End offset
  * @param {boolean} [outer=false] Include graphemes if the offset splits them
- * @returns {string} Substring of text
+ * @return {string} Substring of text
  */
 ve.graphemeSafeSubstring = function ( text, start, end, outer ) {
 	// TODO: improve performance by incrementally inspecting characters around the offsets
@@ -23229,7 +24979,7 @@ ve.graphemeSafeSubstring = function ( text, start, end, outer ) {
  * Escape non-word characters so they can be safely used as HTML attribute values.
  *
  * @param {string} value Attribute value to escape
- * @returns {string} Escaped attribute value
+ * @return {string} Escaped attribute value
  */
 ve.escapeHtml = ( function () {
 	function escape( value ) {
@@ -23261,7 +25011,7 @@ ve.escapeHtml = ( function () {
  * (e.g. from the user or from the web).
  *
  * @param {Object} [attributes] Key-value map of attributes for the tag
- * @returns {string} HTML attributes
+ * @return {string} HTML attributes
  */
 ve.getHtmlAttributes = function ( attributes ) {
 	var attrName, attrValue,
@@ -23272,7 +25022,7 @@ ve.getHtmlAttributes = function ( attributes ) {
 	}
 
 	for ( attrName in attributes ) {
-		attrValue = attributes[attrName];
+		attrValue = attributes[ attrName ];
 		if ( attrValue === true ) {
 			// Convert name=true to name=name
 			attrValue = attrName;
@@ -23294,9 +25044,9 @@ ve.getHtmlAttributes = function ( attributes ) {
  * responsible for making sure these are sane tag/attribute names and do not contain
  * unsanitized content from an external source (e.g. from the user or from the web).
  *
- * @param {string} tag HTML tag name
+ * @param {string} tagName HTML tag name
  * @param {Object} [attributes] Key-value map of attributes for the tag
- * @returns {string} Opening HTML tag
+ * @return {string} Opening HTML tag
  */
 ve.getOpeningHtmlTag = function ( tagName, attributes ) {
 	var attr = ve.getHtmlAttributes( attributes );
@@ -23307,13 +25057,13 @@ ve.getOpeningHtmlTag = function ( tagName, attributes ) {
  * Get the attributes of a DOM element as an object with key/value pairs.
  *
  * @param {HTMLElement} element
- * @returns {Object}
+ * @return {Object}
  */
 ve.getDomAttributes = function ( element ) {
 	var i,
 		result = {};
 	for ( i = 0; i < element.attributes.length; i++ ) {
-		result[element.attributes[i].name] = element.attributes[i].value;
+		result[ element.attributes[ i ].name ] = element.attributes[ i ].value;
 	}
 	return result;
 };
@@ -23337,10 +25087,10 @@ ve.setDomAttributes = function ( element, attributes, whitelist ) {
 		if ( whitelist && whitelist.indexOf( key.toLowerCase() ) === -1 ) {
 			continue;
 		}
-		if ( attributes[key] === undefined || attributes[key] === null ) {
+		if ( attributes[ key ] === undefined || attributes[ key ] === null ) {
 			element.removeAttribute( key );
 		} else {
-			element.setAttribute( key, attributes[key] );
+			element.setAttribute( key, attributes[ key ] );
 		}
 	}
 };
@@ -23354,7 +25104,7 @@ ve.setDomAttributes = function ( element, attributes, whitelist ) {
  * @private
  * @param {HTMLElement} element Element to summarize
  * @param {boolean} [includeHtml=false] Include an HTML summary for element nodes
- * @returns {Object} Summary of element.
+ * @return {Object} Summary of element.
  */
 ve.getDomElementSummary = function ( element, includeHtml ) {
 	var i,
@@ -23372,13 +25122,13 @@ ve.getDomElementSummary = function ( element, includeHtml ) {
 	// Gather attributes
 	if ( element.attributes ) {
 		for ( i = 0; i < element.attributes.length; i++ ) {
-			summary.attributes[element.attributes[i].name] = element.attributes[i].value;
+			summary.attributes[ element.attributes[ i ].name ] = element.attributes[ i ].value;
 		}
 	}
 	// Summarize children
 	if ( element.childNodes ) {
 		for ( i = 0; i < element.childNodes.length; i++ ) {
-			summary.children.push( ve.getDomElementSummary( element.childNodes[i], includeHtml ) );
+			summary.children.push( ve.getDomElementSummary( element.childNodes[ i ], includeHtml ) );
 		}
 	}
 	return summary;
@@ -23389,7 +25139,7 @@ ve.getDomElementSummary = function ( element, includeHtml ) {
  *
  * @private
  * @param {Object} value Value in the object/array
- * @returns {Object} DOM element summary if value is a node, otherwise just the value
+ * @return {Object} DOM element summary if value is a node, otherwise just the value
  */
 ve.convertDomElements = function ( value ) {
 	// Use duck typing rather than instanceof Node; the latter doesn't always work correctly
@@ -23403,7 +25153,7 @@ ve.convertDomElements = function ( value ) {
  * Check whether a given DOM element has a block element type.
  *
  * @param {HTMLElement|string} element Element or element name
- * @returns {boolean} Element is a block element
+ * @return {boolean} Element is a block element
  */
 ve.isBlockElement = function ( element ) {
 	var elementName = typeof element === 'string' ? element : element.nodeName;
@@ -23414,7 +25164,7 @@ ve.isBlockElement = function ( element ) {
  * Check whether a given DOM element is a void element (can't have children).
  *
  * @param {HTMLElement|string} element Element or element name
- * @returns {boolean} Element is a void element
+ * @return {boolean} Element is a void element
  */
 ve.isVoidElement = function ( element ) {
 	var elementName = typeof element === 'string' ? element : element.nodeName;
@@ -23455,7 +25205,7 @@ ve.elementTypes = {
  * normalization bugs in Internet Explorer, use #parseXhtml and #serializeXhtml.
  *
  * @param {string} html HTML string
- * @returns {HTMLDocument} Document constructed from the HTML string
+ * @return {HTMLDocument} Document constructed from the HTML string
  */
 ve.createDocumentFromHtml = function ( html ) {
 	var newDocument;
@@ -23478,14 +25228,16 @@ ve.createDocumentFromHtml = function ( html ) {
  *
  * @private
  * @param {string} html HTML string
- * @returns {HTMLDocument|undefined} Document constructed from the HTML string or undefined if it failed
+ * @return {HTMLDocument|undefined} Document constructed from the HTML string or undefined if it failed
  */
 ve.createDocumentFromHtmlUsingDomParser = function ( html ) {
+	var newDocument;
+
 	// IE doesn't like empty strings
 	html = html || '<body></body>';
 
 	try {
-		var newDocument = new DOMParser().parseFromString( html, 'text/html' );
+		newDocument = new DOMParser().parseFromString( html, 'text/html' );
 		if ( newDocument ) {
 			return newDocument;
 		}
@@ -23497,7 +25249,7 @@ ve.createDocumentFromHtmlUsingDomParser = function ( html ) {
  *
  * @private
  * @param {string} html HTML string
- * @returns {HTMLDocument|undefined} Document constructed from the HTML string or undefined if it failed
+ * @return {HTMLDocument|undefined} Document constructed from the HTML string or undefined if it failed
  */
 ve.createDocumentFromHtmlUsingIframe = function ( html ) {
 	var newDocument, $iframe, iframe;
@@ -23558,7 +25310,7 @@ ve.createDocumentFromHtmlUsingIframe = function ( html ) {
  *
  * @private
  * @param {string} html HTML string
- * @returns {HTMLDocument} Document constructed from the HTML string
+ * @return {HTMLDocument} Document constructed from the HTML string
  */
 ve.createDocumentFromHtmlUsingInnerHtml = function ( html ) {
 	var i, htmlAttributes, wrapper, attributes,
@@ -23573,14 +25325,14 @@ ve.createDocumentFromHtmlUsingInnerHtml = function ( html ) {
 
 	// Preserve <html> attributes, if any
 	htmlAttributes = html.match( /<html([^>]*>)/i );
-	if ( htmlAttributes && htmlAttributes[1] ) {
+	if ( htmlAttributes && htmlAttributes[ 1 ] ) {
 		wrapper = document.createElement( 'div' );
-		wrapper.innerHTML = '<div ' + htmlAttributes[1] + '></div>';
+		wrapper.innerHTML = '<div ' + htmlAttributes[ 1 ] + '></div>';
 		attributes = wrapper.firstChild.attributes;
 		for ( i = 0; i < attributes.length; i++ ) {
 			newDocument.documentElement.setAttribute(
-				attributes[i].name,
-				attributes[i].value
+				attributes[ i ].name,
+				attributes[ i ].value
 			);
 		}
 	}
@@ -23593,7 +25345,7 @@ ve.createDocumentFromHtmlUsingInnerHtml = function ( html ) {
  *
  * @param {string} url URL to resolve
  * @param {HTMLDocument} base Document whose base URL to use
- * @returns {string} Resolved URL
+ * @return {string} Resolved URL
  */
 ve.resolveUrl = function ( url, base ) {
 	var node = base.createElement( 'a' );
@@ -23610,7 +25362,7 @@ ve.resolveUrl = function ( url, base ) {
  *
  * @param {jQuery} $elements Set of DOM elements to modify
  * @param {HTMLDocument} doc Document to resolve against (different from $elements' .ownerDocument)
- * @param {string[]} attr Attributes to resolve
+ * @param {string[]} attrs Attributes to resolve
  */
 ve.resolveAttributes = function ( $elements, doc, attrs ) {
 	var i, len, attr;
@@ -23618,18 +25370,19 @@ ve.resolveAttributes = function ( $elements, doc, attrs ) {
 	/**
 	 * Callback for jQuery.fn.each that resolves the value of attr to the computed
 	 * property value. Called in the context of an HTMLElement.
+	 *
 	 * @private
 	 */
 	function resolveAttribute() {
 		var nodeInDoc = doc.createElement( this.nodeName );
 		nodeInDoc.setAttribute( attr, this.getAttribute( attr ) );
-		if ( nodeInDoc[attr] ) {
-			this.setAttribute( attr, nodeInDoc[attr] );
+		if ( nodeInDoc[ attr ] ) {
+			this.setAttribute( attr, nodeInDoc[ attr ] );
 		}
 	}
 
 	for ( i = 0, len = attrs.length; i < len; i++ ) {
-		attr = attrs[i];
+		attr = attrs[ i ];
 		$elements.find( '[' + attr + ']' ).each( resolveAttribute );
 		$elements.filter( '[' + attr + ']' ).each( resolveAttribute );
 	}
@@ -23648,7 +25401,7 @@ ve.resolveAttributes = function ( $elements, doc, attrs ) {
  * @param {string} [fallbackBase] Base URL to use if resolving the base URL fails or there is no <base> tag
  */
 ve.fixBase = function ( targetDoc, sourceDoc, fallbackBase ) {
-	var baseNode = targetDoc.getElementsByTagName( 'base' )[0];
+	var baseNode = targetDoc.getElementsByTagName( 'base' )[ 0 ];
 	if ( baseNode ) {
 		if ( !targetDoc.baseURI ) {
 			// <base> tag present but not valid, try resolving its URL
@@ -23689,7 +25442,8 @@ ve.isUriComponentValid = function ( s ) {
  * Safe version of decodeURIComponent() that doesn't throw exceptions.
  *
  * If the native decodeURIComponent() call threw an exception, the original string
- * will be returned
+ * will be returned.
+ *
  * @param {string} s String to decode
  * @return {string} Decoded string, or same string if decoding failed
  * @see #isUriComponentValid
@@ -23710,7 +25464,7 @@ ve.safeDecodeURIComponent = function ( s ) {
  * if the browser is broken, but newlines are preserved in all other cases.
  *
  * @param {HTMLElement} element HTML element to get inner HTML of
- * @returns {string} Inner HTML
+ * @return {string} Inner HTML
  */
 ve.properInnerHtml = function ( element ) {
 	return ve.fixupPreBug( element ).innerHTML;
@@ -23721,7 +25475,7 @@ ve.properInnerHtml = function ( element ) {
  *
  * @see ve#properInnerHtml
  * @param {HTMLElement} element HTML element to get outer HTML of
- * @returns {string} Outer HTML
+ * @return {string} Outer HTML
  */
 ve.properOuterHtml = function ( element ) {
 	return ve.fixupPreBug( element ).outerHTML;
@@ -23735,7 +25489,7 @@ ve.properOuterHtml = function ( element ) {
  * broken, just return the original node.
  *
  * @param {HTMLElement} element HTML element to fix up
- * @returns {HTMLElement} Either element, or a fixed-up clone of it
+ * @return {HTMLElement} Either element, or a fixed-up clone of it
  */
 ve.fixupPreBug = function ( element ) {
 	var div, $element;
@@ -23760,9 +25514,9 @@ ve.fixupPreBug = function ( element ) {
 		var matches;
 		if ( this.firstChild && this.firstChild.nodeType === Node.TEXT_NODE ) {
 			matches = this.firstChild.data.match( /^(\r\n|\r|\n)/ );
-			if ( matches && matches[1] ) {
+			if ( matches && matches[ 1 ] ) {
 				// Prepend a newline exactly like the one we saw
-				this.firstChild.insertData( 0, matches[1] );
+				this.firstChild.insertData( 0, matches[ 1 ] );
 			}
 		}
 	} );
@@ -23799,7 +25553,7 @@ ve.normalizeAttributeValue = function ( name, value, nodeName ) {
  *
  * @param {string} html HTML string. Must also be valid XML
  * @param {boolean} unmask Map the masked attributes back to their originals
- * @returns {string} HTML string modified to mask/unmask broken attributes
+ * @return {string} HTML string modified to mask/unmask broken attributes
  */
 ve.transformStyleAttributes = function ( html, unmask ) {
 	var xmlDoc, fromAttr, toAttr, i, len,
@@ -23818,8 +25572,8 @@ ve.transformStyleAttributes = function ( html, unmask ) {
 
 	// Go through and mask/unmask each attribute on all elements that have it
 	for ( i = 0, len = maskAttrs.length; i < len; i++ ) {
-		fromAttr = unmask ? 'data-ve-' + maskAttrs[i] : maskAttrs[i];
-		toAttr = unmask ? maskAttrs[i] : 'data-ve-' + maskAttrs[i];
+		fromAttr = unmask ? 'data-ve-' + maskAttrs[ i ] : maskAttrs[ i ];
+		toAttr = unmask ? maskAttrs[ i ] : 'data-ve-' + maskAttrs[ i ];
 		/*jshint loopfunc:true */
 		$( xmlDoc ).find( '[' + fromAttr + ']' ).each( function () {
 			var toAttrValue, fromAttrNormalized,
@@ -23946,6 +25700,7 @@ ve.normalizeNode = function ( node ) {
 
 /**
  * Translate rect by some fixed vector and return a new offset object
+ *
  * @param {Object} rect Offset object containing all or any of top, left, bottom, right, width & height
  * @param {number} x Horizontal translation
  * @param {number} y Vertical translation
@@ -23976,6 +25731,7 @@ ve.translateRect = function ( rect, x, y ) {
 
 /**
  * Get the start and end rectangles (in a text flow sense) from a list of rectangles
+ *
  * @param {Array} rects Full list of rectangles
  * @return {Object|null} Object containing two rectangles: start and end, or null if there are no rectangles
  */
@@ -23985,22 +25741,22 @@ ve.getStartAndEndRects = function ( rects ) {
 		return null;
 	}
 	for ( i = 0, l = rects.length; i < l; i++ ) {
-		if ( !startRect || rects[i].top < startRect.top ) {
+		if ( !startRect || rects[ i ].top < startRect.top ) {
 			// Use ve.extendObject as ve.copy copies non-plain objects by reference
-			startRect = ve.extendObject( {}, rects[i] );
-		} else if ( rects[i].top === startRect.top ) {
+			startRect = ve.extendObject( {}, rects[ i ] );
+		} else if ( rects[ i ].top === startRect.top ) {
 			// Merge rects with the same top coordinate
-			startRect.left = Math.min( startRect.left, rects[i].left );
-			startRect.right = Math.max( startRect.right, rects[i].right );
+			startRect.left = Math.min( startRect.left, rects[ i ].left );
+			startRect.right = Math.max( startRect.right, rects[ i ].right );
 			startRect.width = startRect.right - startRect.left;
 		}
-		if ( !endRect || rects[i].bottom > endRect.bottom ) {
+		if ( !endRect || rects[ i ].bottom > endRect.bottom ) {
 			// Use ve.extendObject as ve.copy copies non-plain objects by reference
-			endRect = ve.extendObject( {}, rects[i] );
-		} else if ( rects[i].bottom === endRect.bottom ) {
+			endRect = ve.extendObject( {}, rects[ i ] );
+		} else if ( rects[ i ].bottom === endRect.bottom ) {
 			// Merge rects with the same bottom coordinate
-			endRect.left = Math.min( endRect.left, rects[i].left );
-			endRect.right = Math.max( endRect.right, rects[i].right );
+			endRect.left = Math.min( endRect.left, rects[ i ].left );
+			endRect.right = Math.max( endRect.right, rects[ i ].right );
 			endRect.width = startRect.right - startRect.left;
 		}
 	}
@@ -24013,8 +25769,8 @@ ve.getStartAndEndRects = function ( rects ) {
 /**
  * Find the nearest common ancestor of DOM nodes
  *
- * @param {Node...} DOM nodes in the same document
- * @returns {Node|null} Nearest common ancestor node
+ * @param {...Node} DOM nodes in the same document
+ * @return {Node|null} Nearest common ancestor node
  */
 ve.getCommonAncestor = function () {
 	var i, j, nodeCount, chain, node,
@@ -24099,8 +25855,8 @@ ve.getOffsetPath = function ( ancestor, node, nodeOffset ) {
 ve.compareTuples = function ( a, b ) {
 	var i, len;
 	for ( i = 0, len = Math.min( a.length, b.length ); i < len; i++ ) {
-		if ( a[i] !== b[i] ) {
-			return a[i] - b[i];
+		if ( a[ i ] !== b[ i ] ) {
+			return a[ i ] - b[ i ];
 		}
 	}
 	if ( a.length > b.length ) {
@@ -24141,7 +25897,7 @@ ve.compareDocumentOrder = function ( node1, offset1, node2, offset2 ) {
  * not to need this information before the platform is constructed.
  *
  * @see ve.init.Platform#getSystemPlatform
- * @returns {string} Client platform string
+ * @return {string} Client platform string
  */
 ve.getSystemPlatform = function () {
 	return ( ve.init.platform && ve.init.platform.constructor || ve.init.Platform ).static.getSystemPlatform();
@@ -24152,7 +25908,7 @@ ve.getSystemPlatform = function () {
  *
  * @param {string} text Text
  * @param {string} query Query to find
- * @returns {jQuery} Text with query substring wrapped in highlighted span
+ * @return {jQuery} Text with query substring wrapped in highlighted span
  */
 ve.highlightQuery = function ( text, query ) {
 	var $result = $( '<span>' ),
@@ -24171,6 +25927,177 @@ ve.highlightQuery = function ( text, query ) {
 	return $result.contents();
 };
 
+/**
+ * Get the closest matching DOM position in document order (forward or reverse)
+ *
+ * A DOM position is represented as an object with "node" and "offset" properties. The noDescend
+ * option can be used to exclude the positions inside certain element nodes; it is a jQuery
+ * selector/function ( used as a test by $node.is() - see http://api.jquery.com/is/ ); it defaults
+ * to ve.rejectsCursor. Void elements (those matching ve.isVoidElement) are always excluded.
+ *
+ * If the skipSoft option is true (default), positions cursor-equivalent to the start position are
+ * stepped over and the nearest non-equivalent position is returned. Cursor-equivalent positions
+ * include just before/just after the boundary of a text element or an annotation element. So in
+ * &lt;#text&gt;X&lt;/#text&gt;&lt;b&gt;&lt;#text&gt;y&lt;/#text&gt;&lt;/b&gt; there are four
+ * cursor-equivalent positions between X and Y.
+ * Chromium normalizes cursor focus/offset, when they are set, to the start-most equivalent
+ * position in document order. Firefox does not normalize, but jumps when cursoring over positions
+ * that are equivalent to the start position.
+ *
+ * As well as the end position, an array of the steps taken is returned. This will have length 1
+ * unless skipSoft is true. Each step gives the node, the type of crossing (which can be
+ * "enter", "leave", or "cross" for any node, or "internal" for a step over a
+ * character in a text node), and the offset (defined for "internal" steps only).
+ *
+ * Limitation: skipSoft treats the interior of grapheme clusters as non-equivalent, but in fact
+ * browser cursoring does skip over most grapheme clusters e.g. 'x\u0301' (though not all e.g.
+ * '\u062D\u0627').
+ *
+ * Limitation: some DOM positions cannot actually hold the cursor; e.g. the start of the interior
+ * of a table node.
+ *
+ * @param {Object} position Start position
+ * @param {Node} position.node Start node
+ * @param {Node} position.offset Start offset
+ * @param {number} direction +1 for forward, -1 for reverse
+ * @param {Object} [options]
+ * @param {Function|string} [options.noDescend] Selector or function: nodes to skip over
+ * @param {boolean} [options.skipSoft] Skip tags that don't expend a cursor press (default: true)
+ * @return {Object} The adjacent DOM position encountered
+ * @return {Node|null} return.node The node, or null if we stepped past the root node
+ * @return {number|null} return.offset The offset, or null if we stepped past the root node
+ * @return {Object[]} return.steps Steps taken {node: x, type: leave|cross|enter|internal, offset: n}
+ */
+ve.adjacentDomPosition = function ( position, direction, options ) {
+	var forward, childNode, isHard, noDescend, skipSoft,
+		node = position.node,
+		offset = position.offset,
+		steps = [];
+
+	options = options || {};
+	noDescend = options.noDescend || ve.rejectsCursor;
+	skipSoft = 'skipSoft' in options ? options.skipSoft : true;
+
+	direction = direction < 0 ? -1 : 1;
+	forward = ( direction === 1 );
+
+	while ( true ) {
+		// If we're at the node's leading edge, move to the adjacent position in the parent node
+		if ( offset === ( forward ? node.length || node.childNodes.length : 0 ) ) {
+			steps.push( {
+				node: node,
+				type: 'leave'
+			} );
+			isHard = ve.hasHardCursorBoundaries( node );
+			if ( node.parentNode === null ) {
+				return {
+					node: null,
+					offset: null,
+					steps: steps
+				};
+			}
+			offset = Array.prototype.indexOf.call( node.parentNode.childNodes, node ) +
+				( forward ? 1 : 0 );
+			node = node.parentNode;
+			if ( !skipSoft || isHard ) {
+				return {
+					node: node,
+					offset: offset,
+					steps: steps
+				};
+			}
+			// Else take another step
+			continue;
+		}
+		// Else we're in the interior of a node
+
+		// If we're in a text node, move to the position in this node at the next offset
+		if ( node.nodeType === Node.TEXT_NODE ) {
+			steps.push( {
+				node: node,
+				type: 'internal',
+				offset: offset - ( forward ? 0 : 1 )
+			} );
+			return {
+				node: node,
+				offset: offset + direction,
+				steps: steps
+			};
+		}
+		// Else we're in the interior of an element node
+
+		childNode = node.childNodes[ forward ? offset : offset - 1 ];
+
+		// If the child is uncursorable, or is an element matching noDescend, do not
+		// descend into it: instead, return the position just beyond it in the current node
+		if (
+			childNode.nodeType === Node.ELEMENT_NODE &&
+			( ve.isVoidElement( childNode ) || $( childNode ).is( noDescend ) )
+		) {
+			steps.push( {
+				node: childNode,
+				type: 'cross'
+			} );
+			return {
+				node: node,
+				offset: offset + ( forward ? 1 : -1 ),
+				steps: steps
+			};
+		}
+
+		// Go to the closest offset inside the child node
+		isHard = ve.hasHardCursorBoundaries( childNode );
+		node = childNode;
+		offset = forward ? 0 : node.length || node.childNodes.length;
+		steps.push( {
+			node: node,
+			type: 'enter'
+		} );
+		if ( !skipSoft || isHard ) {
+			return {
+				node: node,
+				offset: offset,
+				steps: steps
+			};
+		}
+	}
+};
+
+/**
+ * Test whether crossing a node's boundaries uses up a cursor press
+ *
+ * Essentially, this is true unless the node is a text node or an annotation node
+ *
+ * @param {Node} node Element node or text node
+ * @return {boolean} Whether crossing the node's boundaries uses up a cursor press
+ */
+ve.hasHardCursorBoundaries = function ( node ) {
+	return node.nodeType === node.ELEMENT_NODE && (
+		ve.isBlockElement( node ) || ve.isVoidElement( node )
+	);
+};
+
+/**
+ * Tests whether an adjacent cursor would be prevented from entering the node
+ *
+ * @param {Node} [node] Element node or text node; defaults to "this" if a Node
+ * @return {boolean} Whether an adjacent cursor would be prevented from entering
+ */
+ve.rejectsCursor = function ( node ) {
+	if ( !node && this instanceof Node ) {
+		node = this;
+	}
+	if ( node.nodeType === node.TEXT_NODE ) {
+		return false;
+	}
+	if ( ve.isVoidElement( node ) ) {
+		return true;
+	}
+	// We don't need to check whether the ancestor-nearest contenteditable tag is
+	// false, because if so then there can be no adjacent cursor.
+	return node.contentEditable === 'false';
+};
+
 /*!
  * VisualEditor UserInterface TriggerListener class.
  *
@@ -24185,7 +26112,7 @@ ve.highlightQuery = function ( text, query ) {
  * @constructor
  * @param {string[]} commands Commands to listen to triggers for
  */
-ve.TriggerListener = function VeUiTriggerListener( commands ) {
+ve.TriggerListener = function VeTriggerListener( commands ) {
 	// Properties
 	this.commands = [];
 	this.commandsByTrigger = {};
@@ -24210,13 +26137,13 @@ ve.TriggerListener.prototype.setupCommands = function ( commands ) {
 	this.commands = commands;
 	if ( commands.length ) {
 		for ( i = this.commands.length - 1; i >= 0; i-- ) {
-			command = this.commands[i];
+			command = this.commands[ i ];
 			triggers = ve.ui.triggerRegistry.lookup( command );
 			if ( triggers ) {
 				for ( j = triggers.length - 1; j >= 0; j-- ) {
-					this.commandsByTrigger[triggers[j].toString()] = ve.ui.commandRegistry.lookup( command );
+					this.commandsByTrigger[ triggers[ j ].toString() ] = ve.init.target.commandRegistry.lookup( command );
 				}
-				this.triggers[command] = triggers;
+				this.triggers[ command ] = triggers;
 			}
 		}
 	}
@@ -24225,7 +26152,7 @@ ve.TriggerListener.prototype.setupCommands = function ( commands ) {
 /**
  * Get list of commands.
  *
- * @returns {string[]} Commands
+ * @return {string[]} Commands
  */
 ve.TriggerListener.prototype.getCommands = function () {
 	return this.commands;
@@ -24236,20 +26163,20 @@ ve.TriggerListener.prototype.getCommands = function () {
  *
  * @method
  * @param {string} trigger Trigger string
- * @returns {ve.ui.Command|undefined} Command
+ * @return {ve.ui.Command|undefined} Command
  */
 ve.TriggerListener.prototype.getCommandByTrigger = function ( trigger ) {
-	return this.commandsByTrigger[trigger];
+	return this.commandsByTrigger[ trigger ];
 };
 
 /**
  * Get triggers for a specified name.
  *
  * @param {string} name Trigger name
- * @returns {ve.ui.Trigger[]|undefined} Triggers
+ * @return {ve.ui.Trigger[]|undefined} Triggers
  */
 ve.TriggerListener.prototype.getTriggers = function ( name ) {
-	return this.triggers[name];
+	return this.triggers[ name ];
 };
 
 /*!
@@ -24357,11 +26284,38 @@ ve.init.Platform = function VeInitPlatform() {
 	// Provide messages to OOUI
 	OO.ui.getUserLanguages = this.getUserLanguages.bind( this );
 	OO.ui.msg = this.getMessage.bind( this );
+
+	// Notify those waiting for a platform that they can finish initialization
+	setTimeout( function () {
+		ve.init.Platform.static.deferredPlatform.resolve( ve.init.platform );
+	} );
 };
 
 /* Inheritance */
 
 OO.mixinClass( ve.init.Platform, OO.EventEmitter );
+
+/* Static Properties */
+
+/**
+ * A jQuery.Deferred that tracks when the platform has been created.
+ * @private
+ */
+ve.init.Platform.static.deferredPlatform = $.Deferred();
+
+/**
+ * A promise that tracks when ve.init.platform is ready for use.  When
+ * this promise is resolved the platform will have been created and
+ * initialized.
+ *
+ * This promise is safe to access early in VE startup before
+ * `ve.init.platform` has been set.
+ *
+ * @property {jQuery.Promise}
+ */
+ve.init.Platform.static.initializedPromise = ve.init.Platform.static.deferredPlatform.promise().then( function ( platform ) {
+	return platform.getInitializedPromise();
+} );
 
 /* Static Methods */
 
@@ -24371,7 +26325,7 @@ OO.mixinClass( ve.init.Platform, OO.EventEmitter );
  * @static
  * @method
  * @inheritable
- * @returns {string} Client platform string
+ * @return {string} Client platform string
  */
 ve.init.Platform.static.getSystemPlatform = function () {
 	return $.client.profile().platform;
@@ -24386,7 +26340,7 @@ ve.init.Platform.static.getSystemPlatform = function () {
  * @static
  * @method
  * @inheritable
- * @returns {boolean} We are in IE
+ * @return {boolean} We are in IE
  */
 ve.init.Platform.static.isInternetExplorer = function () {
 	return $.client.profile().name === 'msie';
@@ -24407,13 +26361,24 @@ ve.init.Platform.static.isIos = function () {
 /* Methods */
 
 /**
- * Get a regular expression that matches allowed external link URLs.
+ * Get an anchored regular expression that matches allowed external link URLs
+ * starting at the beginning of an input string.
  *
  * @method
  * @abstract
- * @returns {RegExp} Regular expression object
+ * @return {RegExp} Regular expression object
  */
 ve.init.Platform.prototype.getExternalLinkUrlProtocolsRegExp = null;
+
+/**
+ * Get an unanchored regular expression that matches allowed external link URLs
+ * anywhere in an input string.
+ *
+ * @method
+ * @abstract
+ * @return {RegExp} Regular expression object
+ */
+ve.init.Platform.prototype.getUnanchoredExternalLinkUrlProtocolsRegExp = null;
 
 /**
  * Get a config value from the platform.
@@ -24421,7 +26386,7 @@ ve.init.Platform.prototype.getExternalLinkUrlProtocolsRegExp = null;
  * @method
  * @abstract
  * @param {string|string[]} key Config key, or list of keys
- * @returns {Mixed|Object} Config value, or keyed object of config values if list of keys provided
+ * @return {Mixed|Object} Config value, or keyed object of config values if list of keys provided
  */
 ve.init.Platform.prototype.getConfig = null;
 
@@ -24440,8 +26405,8 @@ ve.init.Platform.prototype.addMessages = null;
  * @method
  * @abstract
  * @param {string} key Message key
- * @param {Mixed...} [args] List of arguments which will be injected at $1, $2, etc. in the message
- * @returns {string} Localized message, or key or '<' + key + '>' if message not found
+ * @param {...Mixed} [args] List of arguments which will be injected at $1, $2, etc. in the message
+ * @return {string} Localized message, or key or '<' + key + '>' if message not found
  */
 ve.init.Platform.prototype.getMessage = null;
 
@@ -24462,7 +26427,7 @@ ve.init.Platform.prototype.addParsedMessages = null;
  * @method
  * @abstract
  * @param {string} key Message key
- * @returns {string} Parsed localized message as HTML string
+ * @return {string} Parsed localized message as HTML string
  */
 ve.init.Platform.prototype.getParsedMessage = null;
 
@@ -24471,7 +26436,7 @@ ve.init.Platform.prototype.getParsedMessage = null;
  *
  * @method
  * @abstract
- * @returns {string[]} User language strings
+ * @return {string[]} User language strings
  */
 ve.init.Platform.prototype.getUserLanguages = null;
 
@@ -24480,7 +26445,7 @@ ve.init.Platform.prototype.getUserLanguages = null;
  *
  * @method
  * @abstract
- * @returns {string[]} API URLs
+ * @return {string[]} API URLs
  */
 ve.init.Platform.prototype.getMediaSources = null;
 
@@ -24489,7 +26454,7 @@ ve.init.Platform.prototype.getMediaSources = null;
  *
  * @method
  * @abstract
- * @returns {string[]} Language codes
+ * @return {string[]} Language codes
  */
 ve.init.Platform.prototype.getLanguageCodes = null;
 
@@ -24499,7 +26464,7 @@ ve.init.Platform.prototype.getLanguageCodes = null;
  * @method
  * @abstract
  * @param {string} code Language code
- * @returns {string} Language name
+ * @return {string} Language name
  */
 ve.init.Platform.prototype.getLanguageName = null;
 
@@ -24509,7 +26474,7 @@ ve.init.Platform.prototype.getLanguageName = null;
  * @method
  * @abstract
  * @param {string} code Language code
- * @returns {string} Language autonym
+ * @return {string} Language autonym
  */
 ve.init.Platform.prototype.getLanguageAutonym = null;
 
@@ -24519,7 +26484,7 @@ ve.init.Platform.prototype.getLanguageAutonym = null;
  * @method
  * @abstract
  * @param {string} code Language code
- * @returns {string} Language direction
+ * @return {string} Language direction
  */
 ve.init.Platform.prototype.getLanguageDirection = null;
 
@@ -24530,7 +26495,7 @@ ve.init.Platform.prototype.getLanguageDirection = null;
  * External callers should not call this. Instead, call #getInitializedPromise.
  *
  * @private
- * @returns {jQuery.Promise} Promise that will be resolved once initialization is done
+ * @return {jQuery.Promise} Promise that will be resolved once initialization is done
  */
 ve.init.Platform.prototype.initialize = function () {
 	return $.Deferred().resolve().promise();
@@ -24545,7 +26510,7 @@ ve.init.Platform.prototype.initialize = function () {
  * (shared between different Target instances) it is important not to rely
  * on this promise being asynchronous.
  *
- * @returns {jQuery.Promise} Promise that will be resolved once the platform is ready
+ * @return {jQuery.Promise} Promise that will be resolved once the platform is ready
  */
 ve.init.Platform.prototype.getInitializedPromise = function () {
 	if ( !this.initialized ) {
@@ -24559,7 +26524,7 @@ ve.init.Platform.prototype.getInitializedPromise = function () {
  *
  * Returns a promise which resolves with the character list
  *
- * @returns {jQuery.Promise}
+ * @return {jQuery.Promise}
  */
 ve.init.Platform.prototype.fetchSpecialCharList = function () {
 	var charsObj = {};
@@ -24594,22 +26559,36 @@ ve.init.Platform.prototype.fetchSpecialCharList = function () {
  * @mixins OO.EventEmitter
  *
  * @constructor
- * @param {Object} toolbarConfig Configuration options for the toolbar
+ * @param {Object} [config] Configuration options
+ * @cfg {Object} [toolbarConfig] Configuration options for the toolbar
+ * @cfg {ve.ui.CommandRegistry} [commandRegistry] Command registry to use
+ * @cfg {ve.ui.SequenceRegistry} [sequenceRegistry] Sequence registry to use
+ * @cfg {ve.ui.DataTransferHandlerFactory} [dataTransferHandlerFactory] Data transfer handler factory to use
  */
-ve.init.Target = function VeInitTarget( toolbarConfig ) {
+ve.init.Target = function VeInitTarget( config ) {
+	config = config || {};
+
 	// Parent constructor
-	OO.ui.Element.call( this );
+	ve.init.Target.super.call( this, config );
 
 	// Mixin constructors
 	OO.EventEmitter.call( this );
+
+	// Register
+	ve.init.target = this;
 
 	// Properties
 	this.surfaces = [];
 	this.surface = null;
 	this.toolbar = null;
-	this.toolbarConfig = toolbarConfig;
+	this.toolbarConfig = config.toolbarConfig;
+	this.commandRegistry = config.commandRegistry || ve.ui.commandRegistry;
+	this.sequenceRegistry = config.sequenceRegistry || ve.ui.sequenceRegistry;
+	this.dataTransferHandlerFactory = config.dataTransferHandlerFactory || ve.ui.dataTransferHandlerFactory;
 	this.documentTriggerListener = new ve.TriggerListener( this.constructor.static.documentCommands );
 	this.targetTriggerListener = new ve.TriggerListener( this.constructor.static.targetCommands );
+	this.$scrollContainer = this.getScrollContainer();
+	this.toolbarScrollOffset = 0;
 
 	// Initialization
 	this.$element.addClass( 've-init-target' );
@@ -24621,10 +26600,8 @@ ve.init.Target = function VeInitTarget( toolbarConfig ) {
 	// Events
 	this.onDocumentKeyDownHandler = this.onDocumentKeyDown.bind( this );
 	this.onTargetKeyDownHandler = this.onTargetKeyDown.bind( this );
+	this.onContainerScrollHandler = this.onContainerScroll.bind( this );
 	this.bindHandlers();
-
-	// Register
-	ve.init.target = this;
 };
 
 /* Inheritance */
@@ -24712,6 +26689,15 @@ ve.init.Target.static.documentCommands = [ 'commandHelp' ];
 ve.init.Target.static.targetCommands = [ 'findAndReplace', 'findNext', 'findPrevious' ];
 
 /**
+ * List of commands to include in the target
+ *
+ * Null means all commands in the registry are used (excluding excludeCommands)
+ *
+ * @type {string[]|null} List of command names
+ */
+ve.init.Target.static.includeCommands = null;
+
+/**
  * List of commands to exclude from the target entirely
  *
  * @type {string[]} List of command names
@@ -24747,6 +26733,7 @@ ve.init.Target.static.importRules = {
 ve.init.Target.prototype.bindHandlers = function () {
 	$( this.getElementDocument() ).on( 'keydown', this.onDocumentKeyDownHandler );
 	this.$element.on( 'keydown', this.onTargetKeyDownHandler );
+	this.$scrollContainer.on( 'scroll', this.onContainerScrollHandler );
 };
 
 /**
@@ -24755,6 +26742,7 @@ ve.init.Target.prototype.bindHandlers = function () {
 ve.init.Target.prototype.unbindHandlers = function () {
 	$( this.getElementDocument() ).off( 'keydown', this.onDocumentKeyDownHandler );
 	this.$element.off( 'keydown', this.onTargetKeyDownHandler );
+	this.$scrollContainer.off( 'scroll', this.onContainerScrollHandler );
 };
 
 /**
@@ -24769,6 +26757,33 @@ ve.init.Target.prototype.destroy = function () {
 	this.$element.remove();
 	this.unbindHandlers();
 	ve.init.target = null;
+};
+
+/**
+ * Get the target's scroll container
+ *
+ * @return {jQuery} The target's scroll container
+ */
+ve.init.Target.prototype.getScrollContainer = function () {
+	return $( this.getElementWindow() );
+};
+
+/**
+ * Handle scroll container scroll events
+ */
+ve.init.Target.prototype.onContainerScroll = function () {
+	var scrollTop,
+		toolbar = this.getToolbar();
+
+	if ( toolbar.isFloatable() ) {
+		scrollTop = this.$scrollContainer.scrollTop();
+
+		if ( scrollTop + this.toolbarScrollOffset > toolbar.getElementOffset().top ) {
+			toolbar.float();
+		} else {
+			toolbar.unfloat();
+		}
+	}
 };
 
 /**
@@ -24802,15 +26817,33 @@ ve.init.Target.prototype.onTargetKeyDown = function ( e ) {
 };
 
 /**
+ * Handle toolbar resize events
+ */
+ve.init.Target.prototype.onToolbarResize = function () {
+	this.getSurface().setToolbarHeight( this.getToolbar().getHeight() + this.toolbarScrollOffset );
+};
+
+/**
  * Create a surface.
  *
  * @method
  * @param {ve.dm.Document} dmDoc Document model
  * @param {Object} [config] Configuration options
- * @returns {ve.ui.Surface}
+ * @return {ve.ui.DesktopSurface}
  */
 ve.init.Target.prototype.createSurface = function ( dmDoc, config ) {
-	config = ve.extendObject( {
+	return new ve.ui.DesktopSurface( dmDoc, this.getSurfaceConfig( config ) );
+};
+
+/**
+ * Get surface configuration options
+ *
+ * @param {Object} config Configuration option overrides
+ * @return {Object} Surface configuration options
+ */
+ve.init.Target.prototype.getSurfaceConfig = function ( config ) {
+	return ve.extendObject( {
+		includeCommands: this.constructor.static.includeCommands,
 		excludeCommands: OO.simpleArrayUnion(
 			this.constructor.static.excludeCommands,
 			this.constructor.static.documentCommands,
@@ -24818,7 +26851,6 @@ ve.init.Target.prototype.createSurface = function ( dmDoc, config ) {
 		),
 		importRules: this.constructor.static.importRules
 	}, config );
-	return new ve.ui.DesktopSurface( new ve.dm.Surface(dmDoc), config );
 };
 
 /**
@@ -24826,12 +26858,15 @@ ve.init.Target.prototype.createSurface = function ( dmDoc, config ) {
  *
  * @param {ve.dm.Document} dmDoc Document model
  * @param {Object} [config] Configuration options
- * @returns {ve.ui.Surface}
+ * @return {ve.ui.DesktopSurface}
  */
 ve.init.Target.prototype.addSurface = function ( dmDoc, config ) {
 	var surface = this.createSurface( dmDoc, config );
 	this.surfaces.push( surface );
-	surface.getView().connect( this, { focus: this.onSurfaceViewFocus.bind( this, surface ) } );
+	surface.getView().connect( this, {
+		focus: this.onSurfaceViewFocus.bind( this, surface ),
+		keyup: this.onSurfaceViewKeyUp.bind( this, surface )
+	} );
 	return surface;
 };
 
@@ -24851,6 +26886,64 @@ ve.init.Target.prototype.clearSurfaces = function () {
  */
 ve.init.Target.prototype.onSurfaceViewFocus = function ( surface ) {
 	this.setSurface( surface );
+};
+
+/**
+ * Handle key up events from a surface's view
+ *
+ * @param {ve.ui.Surface} surface Surface firing the event
+ */
+ve.init.Target.prototype.onSurfaceViewKeyUp = function ( surface ) {
+	this.scrollCursorIntoView( surface );
+};
+
+/**
+ * Check if the toolbar is overlapping the surface
+ *
+ * @return {boolean} Toolbar is overlapping the surface
+ */
+ve.init.Target.prototype.isToolbarOverSurface = function () {
+	return this.getToolbar().isFloating();
+};
+
+/**
+ * Scroll the cursor into view.
+ *
+ * @param {ve.ui.Surface} surface Surface to scroll
+ */
+ve.init.Target.prototype.scrollCursorIntoView = function ( surface ) {
+	var nativeRange, clientRect, cursorTop, scrollTo, toolbarBottom;
+
+	if ( !this.isToolbarOverSurface() ) {
+		return;
+	}
+
+	nativeRange = surface.getView().getNativeRange();
+	if ( !nativeRange ) {
+		return;
+	}
+
+	clientRect = RangeFix.getBoundingClientRect( nativeRange );
+	if ( !clientRect ) {
+		return;
+	}
+
+	cursorTop = clientRect.top - 5;
+	toolbarBottom = this.getSurface().toolbarHeight;
+
+	if ( cursorTop < toolbarBottom ) {
+		scrollTo = this.$scrollContainer.scrollTop() + cursorTop - toolbarBottom;
+		this.scrollTo( scrollTo );
+	}
+};
+
+/**
+ * Scroll the scroll container to a specific offset
+ *
+ * @param {number} offset Scroll offset
+ */
+ve.init.Target.prototype.scrollTo = function ( offset ) {
+	this.$scrollContainer.scrollTop( offset );
 };
 
 /**
@@ -24892,9 +26985,14 @@ ve.init.Target.prototype.getToolbar = function () {
  * @param {ve.ui.Surface} surface Surface
  */
 ve.init.Target.prototype.setupToolbar = function ( surface ) {
-	this.getToolbar().setup( this.constructor.static.toolbarGroups, surface );
+	var toolbar = this.getToolbar();
+
+	toolbar.connect( this, { resize: 'onToolbarResize' } );
+
+	toolbar.setup( this.constructor.static.toolbarGroups, surface );
 	this.attachToolbar( surface );
-	this.getToolbar().$bar.append( surface.getToolbarDialogs().$element );
+	toolbar.$bar.append( surface.getToolbarDialogs().$element );
+	this.onContainerScroll();
 };
 
 /**
@@ -24902,6 +27000,7 @@ ve.init.Target.prototype.setupToolbar = function ( surface ) {
  */
 ve.init.Target.prototype.attachToolbar = function () {
 	this.getToolbar().$element.insertBefore( this.getToolbar().getSurface().$element );
+	this.getToolbar().initialize();
 };
 
 /*!
@@ -24976,21 +27075,21 @@ ve.Range.static.newFromHash = function ( hash ) {
  * @static
  * @param {Array} ranges Array of ve.Range objects (at least one)
  * @param {boolean} backwards Return a backwards range
- * @returns {ve.Range} Range that spans all of the given ranges
+ * @return {ve.Range} Range that spans all of the given ranges
  */
 ve.Range.static.newCoveringRange = function ( ranges, backwards ) {
 	var minStart, maxEnd, i, range;
 	if ( !ranges || ranges.length === 0 ) {
 		throw new Error( 'newCoveringRange() requires at least one range' );
 	}
-	minStart = ranges[0].start;
-	maxEnd = ranges[0].end;
+	minStart = ranges[ 0 ].start;
+	maxEnd = ranges[ 0 ].end;
 	for ( i = 1; i < ranges.length; i++ ) {
-		if ( ranges[i].start < minStart ) {
-			minStart = ranges[i].start;
+		if ( ranges[ i ].start < minStart ) {
+			minStart = ranges[ i ].start;
 		}
-		if ( ranges[i].end > maxEnd ) {
-			maxEnd = ranges[i].end;
+		if ( ranges[ i ].end > maxEnd ) {
+			maxEnd = ranges[ i ].end;
 		}
 	}
 	if ( backwards ) {
@@ -25006,7 +27105,7 @@ ve.Range.static.newCoveringRange = function ( ranges, backwards ) {
 /**
  * Get a clone.
  *
- * @returns {ve.Range} Clone of range
+ * @return {ve.Range} Clone of range
  */
 ve.Range.prototype.clone = function () {
 	return new this.constructor( this.from, this.to );
@@ -25019,7 +27118,7 @@ ve.Range.prototype.clone = function () {
  * this is the same as #containsRange( new ve.Range( offset, offset + 1 ) ).
  *
  * @param {number} offset Offset to check
- * @returns {boolean} If offset is within the range
+ * @return {boolean} If offset is within the range
  */
 ve.Range.prototype.containsOffset = function ( offset ) {
 	return offset >= this.start && offset < this.end;
@@ -25028,27 +27127,17 @@ ve.Range.prototype.containsOffset = function ( offset ) {
 /**
  * Check if another range is within the range.
  *
- * @param {ve.Range} offset Range to check
- * @returns {boolean} If other range is within the range
+ * @param {ve.Range} range Range to check
+ * @return {boolean} If other range is within the range
  */
 ve.Range.prototype.containsRange = function ( range ) {
 	return range.start >= this.start && range.end <= this.end;
 };
 
 /**
- * Check if another range is intersects with this range.
- *
- * @param {ve.Range} other Range to check
- * @returns {boolean} If other range intersects with the range
- */
-ve.Range.prototype.intersects = function ( other ) {
-	return !(other.end < this.start || other.start > this.end);
-};
-
-/**
  * Get the length of the range.
  *
- * @returns {number} Length of range
+ * @return {number} Length of range
  */
 ve.Range.prototype.getLength = function () {
 	return this.end - this.start;
@@ -25057,7 +27146,7 @@ ve.Range.prototype.getLength = function () {
 /**
  * Gets a range with reversed direction.
  *
- * @returns {ve.Range} A new range
+ * @return {ve.Range} A new range
  */
 ve.Range.prototype.flip = function () {
 	return new ve.Range( this.to, this.from );
@@ -25067,7 +27156,7 @@ ve.Range.prototype.flip = function () {
  * Get a range that's a translated version of this one.
  *
  * @param {number} distance Distance to move range by
- * @returns {ve.Range} New translated range
+ * @return {ve.Range} New translated range
  */
 ve.Range.prototype.translate = function ( distance ) {
 	return new ve.Range( this.from + distance, this.to + distance );
@@ -25077,7 +27166,7 @@ ve.Range.prototype.translate = function ( distance ) {
  * Check if two ranges are equal, taking direction into account.
  *
  * @param {ve.Range|null} other
- * @returns {boolean}
+ * @return {boolean}
  */
 ve.Range.prototype.equals = function ( other ) {
 	return other && this.from === other.from && this.to === other.to;
@@ -25087,7 +27176,7 @@ ve.Range.prototype.equals = function ( other ) {
  * Check if two ranges are equal, ignoring direction.
  *
  * @param {ve.Range|null} other
- * @returns {boolean}
+ * @return {boolean}
  */
 ve.Range.prototype.equalsSelection = function ( other ) {
 	return other && this.end === other.end && this.start === other.start;
@@ -25097,7 +27186,7 @@ ve.Range.prototype.equalsSelection = function ( other ) {
  * Create a new range with a limited length.
  *
  * @param {number} length Length of the new range (negative for truncate from right)
- * @returns {ve.Range} A new range
+ * @return {ve.Range} A new range
  */
 ve.Range.prototype.truncate = function ( length ) {
 	if ( length >= 0 ) {
@@ -25126,7 +27215,7 @@ ve.Range.prototype.expand = function ( other ) {
  *
  * A collapsed range has equal start and end values making its length zero.
  *
- * @returns {boolean} Range is collapsed
+ * @return {boolean} Range is collapsed
  */
 ve.Range.prototype.isCollapsed = function () {
 	return this.from === this.to;
@@ -25135,7 +27224,7 @@ ve.Range.prototype.isCollapsed = function () {
 /**
  * Check if the range is backwards, i.e. from > to
  *
- * @returns {boolean} Range is backwards
+ * @return {boolean} Range is backwards
  */
 ve.Range.prototype.isBackwards = function () {
 	return this.from > this.to;
@@ -25144,7 +27233,7 @@ ve.Range.prototype.isBackwards = function () {
 /**
  * Get a object summarizing the range for JSON serialization
  *
- * @returns {Object} Object for JSON serialization
+ * @return {Object} Object for JSON serialization
  */
 ve.Range.prototype.toJSON = function () {
 	return {
@@ -25152,6 +27241,133 @@ ve.Range.prototype.toJSON = function () {
 		from: this.from,
 		to: this.to
 	};
+};
+
+/*!
+ * VisualEditor DOM selection-like class
+ *
+ * @copyright 2011-2015 VisualEditor Team and others; see http://ve.mit-license.org
+ */
+
+/**
+ * Like the DOM Selection object, but not updated live from the actual selection
+ *
+ * WARNING: the Nodes are still live and mutable, which can change the meaning
+ * of the offsets or invalidate the value of isBackwards.
+ *
+ * @class
+ *
+ * @constructor
+ * @param {ve.SelectionState|Selection|Object} selection DOM Selection-like object
+ * @param {Node|null} selection.anchorNode the Anchor node (null if no selection)
+ * @param {number} selection.anchorOffset the Anchor offset (0 if no selection)
+ * @param {Node|null} selection.focusNode the Focus node (null if no selection)
+ * @param {number} selection.focusOffset the Focusoffset (0 if no selection)
+ * @param {boolean} [selection.isCollapsed] Whether the anchor and focus are the same
+ * @param {boolean} [selection.isBackwards] Whether the focus is before the anchor in document order
+ */
+ve.SelectionState = function VeSelectionState( selection ) {
+	this.anchorNode = selection.anchorNode;
+	this.anchorOffset = selection.anchorOffset;
+	this.focusNode = selection.focusNode;
+	this.focusOffset = selection.focusOffset;
+
+	this.isCollapsed = selection.isCollapsed;
+	if ( this.isCollapsed === undefined ) {
+		// Set to true if nodes are null (matches DOM Selection object's behaviour)
+		this.isCollapsed = this.anchorNode === this.focusNode &&
+			this.anchorOffset === this.focusOffset;
+	}
+	this.isBackwards = selection.isBackwards;
+	if ( this.isBackwards === undefined ) {
+		// Set to false if nodes are null
+		this.isBackwards = this.focusNode !== null && ve.compareDocumentOrder(
+			this.focusNode,
+			this.focusOffset,
+			this.anchorNode,
+			this.anchorOffset
+		) < 0;
+	}
+};
+
+/* Inheritance */
+
+OO.initClass( ve.SelectionState );
+
+/* Static methods */
+
+/**
+ * Create a selection state object representing no selection
+ *
+ * @return {ve.SelectionState} Object representing no selection
+ */
+ve.SelectionState.static.newNullSelection = function () {
+	return new ve.SelectionState( {
+		focusNode: null,
+		focusOffset: 0,
+		anchorNode: null,
+		anchorOffset: 0
+	} );
+};
+
+/* Methods */
+
+/**
+ * Returns the selection with the anchor and focus swapped
+ *
+ * @return {ve.SelectionState} selection with anchor/focus swapped. Object-identical to this if isCollapsed
+ */
+ve.SelectionState.prototype.flip = function () {
+	if ( this.isCollapsed ) {
+		return this;
+	}
+	return new ve.SelectionState( {
+		anchorNode: this.focusNode,
+		anchorOffset: this.focusOffset,
+		focusNode: this.anchorNode,
+		focusOffset: this.anchorOffset,
+		isCollapsed: false,
+		isBackwards: !this.isBackwards
+	} );
+};
+
+/**
+ * Whether the selection represents is the same range as another DOM Selection-like object
+ *
+ * @param {Object} other DOM Selection-like object
+ * @return {boolean} True if the anchors/focuses are equal (including null)
+ */
+ve.SelectionState.prototype.equalsSelection = function ( other ) {
+	return this.anchorNode === other.anchorNode &&
+		this.anchorOffset === other.anchorOffset &&
+		this.focusNode === other.focusNode &&
+		this.focusOffset === other.focusOffset;
+};
+
+/**
+ * Get a range representation of the selection
+ *
+ * N.B. Range objects do not show whether the selection is backwards
+ *
+ * @param {HTMLDocument} doc The owner document of the selection nodes
+ * @return {Range|null} Range
+ */
+ve.SelectionState.prototype.getNativeRange = function ( doc ) {
+	var range;
+	if ( this.anchorNode === null ) {
+		return null;
+	}
+	range = doc.createRange();
+	if ( this.isBackwards ) {
+		range.setStart( this.focusNode, this.focusOffset );
+		range.setEnd( this.anchorNode, this.anchorOffset );
+	} else {
+		range.setStart( this.anchorNode, this.anchorOffset );
+		if ( !this.isCollapsed ) {
+			range.setEnd( this.focusNode, this.focusOffset );
+		}
+	}
+	return range;
 };
 
 /*!
@@ -25201,7 +27417,7 @@ ve.Node = function VeNode() {
  *
  * @method
  * @abstract
- * @returns {string[]|null} List of node types allowed as children or null if any type is allowed
+ * @return {string[]|null} List of node types allowed as children or null if any type is allowed
  */
 ve.Node.prototype.getChildNodeTypes = null;
 
@@ -25210,7 +27426,7 @@ ve.Node.prototype.getChildNodeTypes = null;
  *
  * @method
  * @abstract
- * @returns {string[]|null} List of node types allowed as parents or null if any type is allowed
+ * @return {string[]|null} List of node types allowed as parents or null if any type is allowed
  */
 ve.Node.prototype.getParentNodeTypes = null;
 
@@ -25241,7 +27457,7 @@ ve.Node.prototype.isAllowedParentNodeType = function ( type ) {
  *
  * @method
  * @abstract
- * @returns {string[]|null} List of node types suggested as parents or null if any type is suggested
+ * @return {string[]|null} List of node types suggested as parents or null if any type is suggested
  */
 ve.Node.prototype.getSuggestedParentNodeTypes = null;
 
@@ -25250,7 +27466,7 @@ ve.Node.prototype.getSuggestedParentNodeTypes = null;
  *
  * @method
  * @abstract
- * @returns {boolean} Node can have children
+ * @return {boolean} Node can have children
  */
 ve.Node.prototype.canHaveChildren = null;
 
@@ -25259,7 +27475,7 @@ ve.Node.prototype.canHaveChildren = null;
  *
  * @method
  * @abstract
- * @returns {boolean} Node can have children but not content nor be content
+ * @return {boolean} Node can have children but not content nor be content
  */
 ve.Node.prototype.canHaveChildrenNotContent = null;
 
@@ -25268,7 +27484,7 @@ ve.Node.prototype.canHaveChildrenNotContent = null;
  *
  * @method
  * @abstract
- * @returns {boolean} Node can contain content
+ * @return {boolean} Node can contain content
  */
 ve.Node.prototype.canContainContent = null;
 
@@ -25277,7 +27493,7 @@ ve.Node.prototype.canContainContent = null;
  *
  * @method
  * @abstract
- * @returns {boolean} Node is content
+ * @return {boolean} Node is content
  */
 ve.Node.prototype.isContent = null;
 
@@ -25286,7 +27502,7 @@ ve.Node.prototype.isContent = null;
  *
  * @method
  * @abstract
- * @returns {boolean} Node represents a wrapped element
+ * @return {boolean} Node represents a wrapped element
  */
 ve.Node.prototype.isWrapped = null;
 
@@ -25295,7 +27511,7 @@ ve.Node.prototype.isWrapped = null;
  *
  * @method
  * @abstract
- * @returns {boolean} Node is focusable
+ * @return {boolean} Node is focusable
  */
 ve.Node.prototype.isFocusable = null;
 
@@ -25304,9 +27520,27 @@ ve.Node.prototype.isFocusable = null;
  *
  * @method
  * @abstract
- * @returns {boolean} Node is alignable
+ * @return {boolean} Node is alignable
  */
 ve.Node.prototype.isAlignable = null;
+
+/**
+ * Check if the node can behave as a table cell
+ *
+ * @method
+ * @abstract
+ * @return {boolean} Node can behave as a table cell
+ */
+ve.Node.prototype.isCellable = null;
+
+/**
+ * Check the node, behaving as a table cell, can be edited in place
+ *
+ * @method
+ * @abstract
+ * @return {boolean} Node can be edited in place
+ */
+ve.Node.prototype.isCellEditable = null;
 
 /**
  * Check if the node has significant whitespace.
@@ -25315,7 +27549,7 @@ ve.Node.prototype.isAlignable = null;
  *
  * @method
  * @abstract
- * @returns {boolean} Node has significant whitespace
+ * @return {boolean} Node has significant whitespace
  */
 ve.Node.prototype.hasSignificantWhitespace = null;
 
@@ -25324,7 +27558,7 @@ ve.Node.prototype.hasSignificantWhitespace = null;
  *
  * @method
  * @abstract
- * @returns {boolean} Node handles its own children
+ * @return {boolean} Node handles its own children
  */
 ve.Node.prototype.handlesOwnChildren = null;
 
@@ -25333,7 +27567,7 @@ ve.Node.prototype.handlesOwnChildren = null;
  *
  * @method
  * @abstract
- * @returns {boolean} Node's children should be ignored
+ * @return {boolean} Node's children should be ignored
  */
 ve.Node.prototype.shouldIgnoreChildren = null;
 
@@ -25342,7 +27576,7 @@ ve.Node.prototype.shouldIgnoreChildren = null;
  *
  * @method
  * @abstract
- * @returns {number} Node length
+ * @return {number} Node length
  */
 ve.Node.prototype.getLength = null;
 
@@ -25353,7 +27587,7 @@ ve.Node.prototype.getLength = null;
  *
  * @method
  * @abstract
- * @returns {number} Offset of node
+ * @return {number} Offset of node
  * @throws {Error} Node not found in parent's children array
  */
 ve.Node.prototype.getOffset = null;
@@ -25363,7 +27597,7 @@ ve.Node.prototype.getOffset = null;
  *
  * @method
  * @param {boolean} backwards Return a backwards range
- * @returns {ve.Range} Inner node range
+ * @return {ve.Range} Inner node range
  */
 ve.Node.prototype.getRange = function ( backwards ) {
 	var offset = this.getOffset() + ( this.isWrapped() ? 1 : 0 ),
@@ -25376,7 +27610,7 @@ ve.Node.prototype.getRange = function ( backwards ) {
  *
  * @method
  * @param {boolean} backwards Return a backwards range
- * @returns {ve.Range} Node outer range
+ * @return {ve.Range} Node outer range
  */
 ve.Node.prototype.getOuterRange = function ( backwards ) {
 	var range = new ve.Range( this.getOffset(), this.getOffset() + this.getOuterLength() );
@@ -25387,7 +27621,7 @@ ve.Node.prototype.getOuterRange = function ( backwards ) {
  * Get the outer length of the node, which includes wrappers if present.
  *
  * @method
- * @returns {number} Node outer length
+ * @return {number} Node outer length
  */
 ve.Node.prototype.getOuterLength = function () {
 	return this.getLength() + ( this.isWrapped() ? 2 : 0 );
@@ -25399,7 +27633,7 @@ ve.Node.prototype.getOuterLength = function () {
  * Get the symbolic node type name.
  *
  * @method
- * @returns {string} Symbolic name of element type
+ * @return {string} Symbolic name of element type
  */
 ve.Node.prototype.getType = function () {
 	return this.type;
@@ -25409,7 +27643,7 @@ ve.Node.prototype.getType = function () {
  * Get a reference to the node's parent.
  *
  * @method
- * @returns {ve.Node} Reference to the node's parent
+ * @return {ve.Node} Reference to the node's parent
  */
 ve.Node.prototype.getParent = function () {
 	return this.parent;
@@ -25419,7 +27653,7 @@ ve.Node.prototype.getParent = function () {
  * Get the root node of the tree the node is currently attached to.
  *
  * @method
- * @returns {ve.Node} Root node
+ * @return {ve.Node} Root node
  */
 ve.Node.prototype.getRoot = function () {
 	return this.root;
@@ -25450,7 +27684,7 @@ ve.Node.prototype.setRoot = function ( root ) {
  * Get the document the node is a part of.
  *
  * @method
- * @returns {ve.Document} Document the node is a part of
+ * @return {ve.Document} Document the node is a part of
  */
 ve.Node.prototype.getDocument = function () {
 	return this.doc;
@@ -25503,7 +27737,7 @@ ve.Node.prototype.detach = function () {
  *
  * @method
  * @param {Function} callback Callback method to be called for every traversed node. Returning false stops the traversal.
- * @returns {ve.Node|null} Node which caused the traversal to stop, or null if it didn't
+ * @return {ve.Node|null} Node which caused the traversal to stop, or null if it didn't
  */
 ve.Node.prototype.traverseUpstream = function ( callback ) {
 	var node = this;
@@ -25558,9 +27792,9 @@ ve.BranchNode.static.traverse = function ( node, callback ) {
 		children = node.getChildren();
 
 	for ( i = 0, len = children.length; i < len; i++ ) {
-		callback.call( this, children[i] );
-		if ( children[i] instanceof ve.ce.BranchNode ) {
-			this.traverse( children[i], callback );
+		callback.call( this, children[ i ] );
+		if ( children[ i ] instanceof ve.ce.BranchNode ) {
+			this.traverse( children[ i ], callback );
 		}
 	}
 };
@@ -25571,7 +27805,7 @@ ve.BranchNode.static.traverse = function ( node, callback ) {
  * Check if the node has children.
  *
  * @method
- * @returns {boolean} Whether the node has children
+ * @return {boolean} Whether the node has children
  */
 ve.BranchNode.prototype.hasChildren = function () {
 	return true;
@@ -25581,7 +27815,7 @@ ve.BranchNode.prototype.hasChildren = function () {
  * Get child nodes.
  *
  * @method
- * @returns {ve.Node[]} List of child nodes
+ * @return {ve.Node[]} List of child nodes
  */
 ve.BranchNode.prototype.getChildren = function () {
 	return this.children;
@@ -25592,7 +27826,7 @@ ve.BranchNode.prototype.getChildren = function () {
  *
  * @method
  * @param {ve.dm.Node} node Child node to find index of
- * @returns {number} Index of child node or -1 if node was not found
+ * @return {number} Index of child node or -1 if node was not found
  */
 ve.BranchNode.prototype.indexOf = function ( node ) {
 	return this.children.indexOf( node );
@@ -25606,13 +27840,14 @@ ve.BranchNode.prototype.indexOf = function ( node ) {
  * @param {ve.Node} root Node to use as root
  */
 ve.BranchNode.prototype.setRoot = function ( root ) {
+	var i;
 	if ( root === this.root ) {
 		// Nothing to do, don't recurse into all descendants
 		return;
 	}
 	this.root = root;
-	for ( var i = 0; i < this.children.length; i++ ) {
-		this.children[i].setRoot( root );
+	for ( i = 0; i < this.children.length; i++ ) {
+		this.children[ i ].setRoot( root );
 	}
 };
 
@@ -25621,16 +27856,17 @@ ve.BranchNode.prototype.setRoot = function ( root ) {
  *
  * @method
  * @see ve.Node#setDocument
- * @param {ve.Document} root Node to use as root
+ * @param {ve.Document} doc Document this node is a part of
  */
 ve.BranchNode.prototype.setDocument = function ( doc ) {
+	var i;
 	if ( doc === this.doc ) {
 		// Nothing to do, don't recurse into all descendants
 		return;
 	}
 	this.doc = doc;
-	for ( var i = 0; i < this.children.length; i++ ) {
-		this.children[i].setDocument( doc );
+	for ( i = 0; i < this.children.length; i++ ) {
+		this.children[ i ].setDocument( doc );
 	}
 };
 
@@ -25645,18 +27881,18 @@ ve.BranchNode.prototype.setDocument = function ( doc ) {
  * @method
  * @param {number} offset Offset get node for
  * @param {boolean} [shallow] Do not iterate into child nodes of child nodes
- * @returns {ve.Node|null} Node at offset, or null if none was found
+ * @return {ve.Node|null} Node at offset, or null if none was found
  */
 ve.BranchNode.prototype.getNodeFromOffset = function ( offset, shallow ) {
+	var i, length, nodeLength, childNode, nodeOffset;
 	if ( offset === 0 ) {
 		return this;
 	}
 	// TODO a lot of logic is duplicated in selectNodes(), abstract that into a traverser or something
 	if ( this.children.length ) {
-		var i, length, nodeLength, childNode,
-			nodeOffset = 0;
+		nodeOffset = 0;
 		for ( i = 0, length = this.children.length; i < length; i++ ) {
-			childNode = this.children[i];
+			childNode = this.children[ i ];
 			if ( offset === nodeOffset ) {
 				// The requested offset is right before childNode,
 				// so it's not inside any of this's children, but inside this
@@ -25704,7 +27940,7 @@ ve.LeafNode = function VeLeafNode() {
  * Check if the node has children.
  *
  * @method
- * @returns {boolean} Whether the node has children
+ * @return {boolean} Whether the node has children
  */
 ve.LeafNode.prototype.hasChildren = function () {
 	return false;
@@ -25744,7 +27980,7 @@ OO.mixinClass( ve.Document, OO.EventEmitter );
  * Get the root of the document's node tree.
  *
  * @method
- * @returns {ve.Node} Root of node tree
+ * @return {ve.Node} Root of node tree
  */
 ve.Document.prototype.getDocumentNode = function () {
 	return this.documentNode;
@@ -25755,7 +27991,7 @@ ve.Document.prototype.getDocumentNode = function () {
  *
  * @method
  * @param {number} offset Offset to get node at
- * @returns {ve.Node|null} Node at offset
+ * @return {ve.Node|null} Node at offset
  */
 ve.Document.prototype.getBranchNodeFromOffset = function ( offset ) {
 	var node = this.getDocumentNode().getNodeFromOffset( offset );
@@ -25779,7 +28015,7 @@ ve.Document.prototype.getBranchNodeFromOffset = function ( offset ) {
  *   children aren't returned separately.
  * - `siblings`: Return a set of adjacent siblings covered by the range (descends as long as the
  *   range is in a single node)
- * @returns {Array} List of objects describing nodes in the selection and the ranges therein:
+ * @return {Array} List of objects describing nodes in the selection and the ranges therein:
  *
  * - `node`: Reference to a ve.Node
  * - `range`: ve.Range, missing if the entire node is covered
@@ -25817,7 +28053,7 @@ ve.Document.prototype.selectNodes = function ( range, mode ) {
 			// First offset inside node
 			startOffset: 0
 		} ],
-		currentFrame = stack[0],
+		currentFrame = stack[ 0 ],
 		startFound = false;
 
 	mode = mode || 'leaves';
@@ -25843,12 +28079,12 @@ ve.Document.prototype.selectNodes = function ( range, mode ) {
 			nodeOuterRange: nodeRange
 		} ];
 	}
-	left = doc.children[0].isWrapped() ? 1 : 0;
+	left = doc.children[ 0 ].isWrapped() ? 1 : 0;
 
 	do {
-		node = currentFrame.node.children[currentFrame.index];
-		prevNode = currentFrame.node.children[currentFrame.index - 1];
-		nextNode = currentFrame.node.children[currentFrame.index + 1];
+		node = currentFrame.node.children[ currentFrame.index ];
+		prevNode = currentFrame.node.children[ currentFrame.index - 1 ];
+		nextNode = currentFrame.node.children[ currentFrame.index + 1 ];
 		right = left + node.getLength();
 		// Is the start inside node?
 		startInside = start >= left && start <= right;
@@ -25885,9 +28121,9 @@ ve.Document.prototype.selectNodes = function ( range, mode ) {
 					parentRange.start - isWrapped, parentRange.end + isWrapped
 				)
 			} );
-			parentFrame = stack[stack.length - 2];
+			parentFrame = stack[ stack.length - 2 ];
 			if ( parentFrame ) {
-				retval[retval.length - 1].index = parentFrame.index;
+				retval[ retval.length - 1 ].index = parentFrame.index;
 			}
 			return retval;
 		}
@@ -25904,9 +28140,9 @@ ve.Document.prototype.selectNodes = function ( range, mode ) {
 					parentRange.start - isWrapped, parentRange.end + isWrapped
 				)
 			} ];
-			parentFrame = stack[stack.length - 2];
+			parentFrame = stack[ stack.length - 2 ];
 			if ( parentFrame ) {
-				retval[0].index = parentFrame.index;
+				retval[ 0 ].index = parentFrame.index;
 			}
 			return retval;
 		} else if ( startBetween ) {
@@ -25933,7 +28169,7 @@ ve.Document.prototype.selectNodes = function ( range, mode ) {
 				stack.push( currentFrame );
 				startFound = true;
 				// If the first child of node has an opening, skip over it
-				if ( node.children[0].isWrapped() ) {
+				if ( node.children[ 0 ].isWrapped() ) {
 					left++;
 				}
 				continue;
@@ -25976,7 +28212,7 @@ ve.Document.prototype.selectNodes = function ( range, mode ) {
 				};
 				stack.push( currentFrame );
 				// If the first child of node has an opening, skip over it
-				if ( node.children[0].isWrapped() ) {
+				if ( node.children[ 0 ].isWrapped() ) {
 					left++;
 				}
 				continue;
@@ -25994,7 +28230,7 @@ ve.Document.prototype.selectNodes = function ( range, mode ) {
 					)
 				} ];
 				if ( isEmptyBranch ) {
-					retval[0].indexInNode = 0;
+					retval[ 0 ].indexInNode = 0;
 				}
 				return retval;
 			}
@@ -26013,7 +28249,7 @@ ve.Document.prototype.selectNodes = function ( range, mode ) {
 				};
 				stack.push( currentFrame );
 				// If the first child of node has an opening, skip over it
-				if ( node.children[0].isWrapped() ) {
+				if ( node.children[ 0 ].isWrapped() ) {
 					left++;
 				}
 				continue;
@@ -26050,7 +28286,7 @@ ve.Document.prototype.selectNodes = function ( range, mode ) {
 				};
 				stack.push( currentFrame );
 				// If the first child of node has an opening, skip over it
-				if ( node.children[0].isWrapped() ) {
+				if ( node.children[ 0 ].isWrapped() ) {
 					left++;
 				}
 				continue;
@@ -26084,7 +28320,7 @@ ve.Document.prototype.selectNodes = function ( range, mode ) {
 				};
 				stack.push( currentFrame );
 				// If the first child of node has an opening, skip over it
-				if ( node.children[0].isWrapped() ) {
+				if ( node.children[ 0 ].isWrapped() ) {
 					left++;
 				}
 				continue;
@@ -26121,7 +28357,7 @@ ve.Document.prototype.selectNodes = function ( range, mode ) {
 				};
 				stack.push( currentFrame );
 				// If the first child of node has an opening, skip over it
-				if ( node.children[0].isWrapped() ) {
+				if ( node.children[ 0 ].isWrapped() ) {
 					left++;
 				}
 				continue;
@@ -26176,9 +28412,9 @@ ve.Document.prototype.selectNodes = function ( range, mode ) {
 							parentRange.start - isWrapped, parentRange.end + isWrapped
 						)
 					} ];
-					parentFrame = stack[stack.length - 2];
+					parentFrame = stack[ stack.length - 2 ];
 					if ( parentFrame ) {
-						retval[0].index = parentFrame.index;
+						retval[ 0 ].index = parentFrame.index;
 					}
 				}
 
@@ -26188,9 +28424,9 @@ ve.Document.prototype.selectNodes = function ( range, mode ) {
 					// This shouldn't be possible
 					return retval;
 				}
-				currentFrame = stack[stack.length - 1];
+				currentFrame = stack[ stack.length - 1 ];
 				currentFrame.index++;
-				nextNode = currentFrame.node.children[currentFrame.index];
+				nextNode = currentFrame.node.children[ currentFrame.index ];
 				// Skip over the parent node's closing
 				// (this is present for sure, because the parent has children)
 				left++;
@@ -26212,7 +28448,7 @@ ve.Document.prototype.selectNodes = function ( range, mode ) {
  * Get groups of sibling nodes covered by the given range.
  *
  * @param {ve.Range} range Range
- * @returns {Array} Array of objects. Each object has the following keys:
+ * @return {Array} Array of objects. Each object has the following keys:
  *
  *  - nodes: Array of sibling nodes covered by a part of range
  *  - parent: Parent of all of these nodes
@@ -26224,11 +28460,11 @@ ve.Document.prototype.getCoveredSiblingGroups = function ( range ) {
 		groups = [],
 		lastEndOffset = 0;
 	for ( i = 0; i < leaves.length; i++ ) {
-		if ( leaves[i].nodeOuterRange.end <= lastEndOffset ) {
+		if ( leaves[ i ].nodeOuterRange.end <= lastEndOffset ) {
 			// This range is contained within a range we've already processed
 			continue;
 		}
-		node = leaves[i].node;
+		node = leaves[ i ].node;
 		// Traverse up to a content branch from content elements
 		if ( node.isContent() ) {
 			node = node.getParent();
@@ -26248,14 +28484,14 @@ ve.Document.prototype.getCoveredSiblingGroups = function ( range ) {
 		siblingNode = firstCoveredSibling;
 		do {
 			// Add this to its sibling's group
-			groups[groups.length - 1].nodes.push( siblingNode );
+			groups[ groups.length - 1 ].nodes.push( siblingNode );
 			lastCoveredSibling = siblingNode;
 			i++;
-			if ( leaves[i] === undefined ) {
+			if ( leaves[ i ] === undefined ) {
 				break;
 			}
 			// Traverse up to a content branch from content elements
-			siblingNode = leaves[i].node;
+			siblingNode = leaves[ i ].node;
 			if ( siblingNode.isContent() ) {
 				siblingNode = siblingNode.getParent();
 			}
@@ -26270,11 +28506,11 @@ ve.Document.prototype.getCoveredSiblingGroups = function ( range ) {
  * Test whether a range lies within a single leaf node.
  *
  * @param {ve.Range} range The range to test
- * @returns {boolean} Whether the range lies within a single node
+ * @return {boolean} Whether the range lies within a single node
  */
 ve.Document.prototype.rangeInsideOneLeafNode = function ( range ) {
 	var selected = this.selectNodes( range, 'leaves' );
-	return selected.length === 1 && selected[0].nodeRange.containsRange( range ) && selected[0].indexInNode === undefined;
+	return selected.length === 1 && selected[ 0 ].nodeRange.containsRange( range ) && selected[ 0 ].indexInNode === undefined;
 };
 
 /*!
@@ -26337,7 +28573,7 @@ ve.EventSequencer = function VeEventSequencer( eventNames ) {
 	 *
 	 * @private
 	 * @param {string} eventName The event's name
-	 * @returns {Function} An event handler
+	 * @return {Function} An event handler
 	 */
 	function makeEventHandler( eventName ) {
 		return function ( ev ) {
@@ -26370,11 +28606,11 @@ ve.EventSequencer = function VeEventSequencer( eventNames ) {
 	this.afterOneListenersForEvent = {};
 
 	for ( i = 0, len = eventNames.length; i < len; i++ ) {
-		eventName = eventNames[i];
-		this.onListenersForEvent[eventName] = [];
-		this.afterListenersForEvent[eventName] = [];
-		this.afterOneListenersForEvent[eventName] = [];
-		this.eventHandlers[eventName] = makeEventHandler( eventName );
+		eventName = eventNames[ i ];
+		this.onListenersForEvent[ eventName ] = [];
+		this.afterListenersForEvent[ eventName ] = [];
+		this.afterOneListenersForEvent[ eventName ] = [];
+		this.eventHandlers[ eventName ] = makeEventHandler( eventName );
 	}
 
 	/**
@@ -26434,17 +28670,22 @@ ve.EventSequencer.prototype.detach = function () {
 
 /**
  * Add listeners to be fired at the start of the Javascript event loop iteration
+ *
  * @method
- * @param {Function[]} listeners Listeners that take no arguments
+ * @param {Function|Function[]} listeners Listener(s) that take no arguments
  * @chainable
  */
 ve.EventSequencer.prototype.onLoop = function ( listeners ) {
+	if ( !Array.isArray( listeners ) ) {
+		listeners = [ listeners ];
+	}
 	ve.batchPush( this.onLoopListeners, listeners );
 	return this;
 };
 
 /**
  * Add listeners to be fired just before the browser native action
+ *
  * @method
  * @param {Object.<string,Function>} listeners Function for each event
  * @chainable
@@ -26452,13 +28693,14 @@ ve.EventSequencer.prototype.onLoop = function ( listeners ) {
 ve.EventSequencer.prototype.on = function ( listeners ) {
 	var eventName;
 	for ( eventName in listeners ) {
-		this.onListenersForEvent[eventName].push( listeners[eventName] );
+		this.onListenersForEvent[ eventName ].push( listeners[ eventName ] );
 	}
 	return this;
 };
 
 /**
  * Add listeners to be fired as soon as possible after the native action
+ *
  * @method
  * @param {Object.<string,Function>} listeners Function for each event
  * @chainable
@@ -26466,13 +28708,14 @@ ve.EventSequencer.prototype.on = function ( listeners ) {
 ve.EventSequencer.prototype.after = function ( listeners ) {
 	var eventName;
 	for ( eventName in listeners ) {
-		this.afterListenersForEvent[eventName].push( listeners[eventName] );
+		this.afterListenersForEvent[ eventName ].push( listeners[ eventName ] );
 	}
 	return this;
 };
 
 /**
  * Add listeners to be fired once, as soon as possible after the native action
+ *
  * @method
  * @param {Object.<string,Function[]>} listeners Function for each event
  * @chainable
@@ -26480,13 +28723,14 @@ ve.EventSequencer.prototype.after = function ( listeners ) {
 ve.EventSequencer.prototype.afterOne = function ( listeners ) {
 	var eventName;
 	for ( eventName in listeners ) {
-		this.afterOneListenersForEvent[eventName].push( listeners[eventName] );
+		this.afterOneListenersForEvent[ eventName ].push( listeners[ eventName ] );
 	}
 	return this;
 };
 
 /**
  * Add listeners to be fired at the end of the Javascript event loop iteration
+ *
  * @method
  * @param {Function|Function[]} listeners Listener(s) that take no arguments
  * @chainable
@@ -26501,6 +28745,7 @@ ve.EventSequencer.prototype.afterLoop = function ( listeners ) {
 
 /**
  * Add listeners to be fired once, at the end of the Javascript event loop iteration
+ *
  * @method
  * @param {Function|Function[]} listeners Listener(s) that take no arguments
  * @chainable
@@ -26515,6 +28760,7 @@ ve.EventSequencer.prototype.afterLoopOne = function ( listeners ) {
 
 /**
  * Generic listener method which does the sequencing
+ *
  * @private
  * @method
  * @param {string} eventName Javascript name of the event, e.g. 'keydown'
@@ -26532,7 +28778,7 @@ ve.EventSequencer.prototype.onEvent = function ( eventName, ev ) {
 
 	// Length cache 'len' is required, as an onListener could add another onListener
 	for ( i = 0, len = onListeners.length; i < len; i++ ) {
-		onListener = onListeners[i];
+		onListener = onListeners[ i ];
 		this.callListener( 'on', eventName, i, onListener, ev );
 	}
 	// Create a cancellable pending call. We need one even if there are no after*Listeners, to
@@ -26557,6 +28803,7 @@ ve.EventSequencer.prototype.onEvent = function ( eventName, ev ) {
 
 /**
  * Generic after listener method which gets queued
+ *
  * @private
  * @method
  * @param {string} eventName Javascript name of the event, e.g. 'keydown'
@@ -26567,21 +28814,22 @@ ve.EventSequencer.prototype.afterEvent = function ( eventName, ev ) {
 
 	// Snapshot the listener lists, and blank *OneListener list.
 	// This ensures reasonable behaviour if a function called adds another listener.
-	afterListeners = ( this.afterListenersForEvent[eventName] || [] ).slice();
-	afterOneListeners = ( this.afterOneListenersForEvent[eventName] || [] ).slice();
-	( this.afterOneListenersForEvent[eventName] || [] ).length = 0;
+	afterListeners = ( this.afterListenersForEvent[ eventName ] || [] ).slice();
+	afterOneListeners = ( this.afterOneListenersForEvent[ eventName ] || [] ).slice();
+	( this.afterOneListenersForEvent[ eventName ] || [] ).length = 0;
 
 	for ( i = 0, len = afterListeners.length; i < len; i++ ) {
-		this.callListener( 'after', eventName, i, afterListeners[i], ev );
+		this.callListener( 'after', eventName, i, afterListeners[ i ], ev );
 	}
 
 	for ( i = 0, len = afterOneListeners.length; i < len; i++ ) {
-		this.callListener( 'afterOne', eventName, i, afterOneListeners[i], ev );
+		this.callListener( 'afterOne', eventName, i, afterOneListeners[ i ], ev );
 	}
 };
 
 /**
  * Call each onLoopListener once
+ *
  * @private
  * @method
  */
@@ -26589,12 +28837,13 @@ ve.EventSequencer.prototype.doOnLoop = function () {
 	var i, len;
 	// Length cache 'len' is required, as the functions called may add another listener
 	for ( i = 0, len = this.onLoopListeners.length; i < len; i++ ) {
-		this.callListener( 'onLoop', null, i, this.onLoopListeners[i], null );
+		this.callListener( 'onLoop', null, i, this.onLoopListeners[ i ], null );
 	}
 };
 
 /**
  * Call each afterLoopListener once, unless the setTimeout is already cancelled
+ *
  * @private
  * @method
  * @param {number} myTimeoutId The calling setTimeout id
@@ -26614,17 +28863,19 @@ ve.EventSequencer.prototype.doAfterLoop = function ( myTimeoutId ) {
 	afterLoopOneListeners = this.afterLoopOneListeners.slice();
 	this.afterLoopOneListeners.length = 0;
 
-	for ( i = 0, len = this.afterLoopListeners.length; i < len; i++ ) {
-		this.callListener( 'afterLoop', null, i, this.afterLoopListeners[i], null );
+	for ( i = 0, len = afterLoopListeners.length; i < len; i++ ) {
+		this.callListener( 'afterLoop', null, i, this.afterLoopListeners[ i ], null );
 	}
 
-	for ( i = 0, len = this.afterLoopOneListeners.length; i < len; i++ ) {
-		this.callListener( 'afterLoopOne', null, i, this.afterLoopOneListeners[i], null );
+	for ( i = 0, len = afterLoopOneListeners.length; i < len; i++ ) {
+		this.callListener( 'afterLoopOne', null, i, afterLoopOneListeners[ i ], null );
 	}
+	this.doneOnLoop = false;
 };
 
 /**
  * Push any pending doAfterLoop to end of task queue (cancel, then re-set)
+ *
  * @private
  * @method
  */
@@ -26641,6 +28892,7 @@ ve.EventSequencer.prototype.resetAfterLoopTimeout = function () {
 
 /**
  * Run any pending listeners, and clear the pending queue
+ *
  * @private
  * @method
  * @param {string} eventName The name of the event currently being triggered
@@ -26652,7 +28904,7 @@ ve.EventSequencer.prototype.runPendingCalls = function ( eventName ) {
 		// Length cache not possible, as a pending call appends another pending call.
 		// It's important that this list remains mutable, in the case that this
 		// function indirectly recurses.
-		pendingCall = this.pendingCalls[i];
+		pendingCall = this.pendingCalls[ i ];
 		if ( pendingCall.id === null ) {
 			// the call has already run
 			continue;
@@ -26680,7 +28932,7 @@ ve.EventSequencer.prototype.runPendingCalls = function ( eventName ) {
  * This is a separate function because that makes it easier to replace when testing
  *
  * @param {Function} callback The function to call
- * @returns {number} Unique postponed timeout id
+ * @return {number} Unique postponed timeout id
  */
 ve.EventSequencer.prototype.postpone = function ( callback ) {
 	return setTimeout( callback );
@@ -26691,7 +28943,7 @@ ve.EventSequencer.prototype.postpone = function ( callback ) {
  *
  * This is a separate function because that makes it easier to replace when testing
  *
- * @param {number} callId Unique postponed timeout id
+ * @param {number} timeoutId Unique postponed timeout id
  */
 ve.EventSequencer.prototype.cancelPostponed = function ( timeoutId ) {
 	clearTimeout( timeoutId );
@@ -26752,7 +29004,8 @@ ve.init.sa.Platform = function VeInitSaPlatform( messagePaths ) {
 	ve.init.Platform.call( this );
 
 	// Properties
-	this.externalLinkUrlProtocolsRegExp = /^https?\:\/\//;
+	this.externalLinkUrlProtocolsRegExp = /^https?\:\/\//i;
+	this.unanchoredExternalLinkUrlProtocolsRegExp = /https?\:\/\//i;
 	this.messagePaths = messagePaths || [];
 	this.parsedMessages = {};
 	this.userLanguages = [ 'en' ];
@@ -26769,10 +29022,15 @@ ve.init.sa.Platform.prototype.getExternalLinkUrlProtocolsRegExp = function () {
 	return this.externalLinkUrlProtocolsRegExp;
 };
 
+/** @inheritdoc */
+ve.init.sa.Platform.prototype.getUnanchoredExternalLinkUrlProtocolsRegExp = function () {
+	return this.unanchoredExternalLinkUrlProtocolsRegExp;
+};
+
 /**
  * Get message folder paths
  *
- * @returns {string[]} Message folder paths
+ * @return {string[]} Message folder paths
  */
 ve.init.sa.Platform.prototype.getMessagePaths = function () {
 	return this.messagePaths;
@@ -26791,15 +29049,16 @@ ve.init.sa.Platform.prototype.getMessage = $.i18n;
 
 /** @inheritdoc */
 ve.init.sa.Platform.prototype.addParsedMessages = function ( messages ) {
-	for ( var key in messages ) {
-		this.parsedMessages[key] = messages[key];
+	var key;
+	for ( key in messages ) {
+		this.parsedMessages[ key ] = messages[ key ];
 	}
 };
 
 /** @inheritdoc */
 ve.init.sa.Platform.prototype.getParsedMessage = function ( key ) {
 	if ( Object.prototype.hasOwnProperty.call( this.parsedMessages, key ) ) {
-		return this.parsedMessages[key];
+		return this.parsedMessages[ key ];
 	}
 	// Fallback to regular messages, html escaping applied.
 	return this.getMessage( key ).replace( /['"<>&]/g, function escapeCallback( s ) {
@@ -26854,7 +29113,7 @@ ve.init.sa.Platform.prototype.initialize = function () {
 		languages = [ locale, 'en' ], // Always use 'en' as the final fallback
 		languagesCovered = {},
 		promises = [],
-		fallbacks = $.i18n.fallbacks[locale];
+		fallbacks = $.i18n.fallbacks[ locale ];
 
 	if ( !fallbacks ) {
 		// Try to find something that has fallbacks (which means it's a language we know about)
@@ -26865,7 +29124,7 @@ ve.init.sa.Platform.prototype.initialize = function () {
 		while ( localeParts.length && !fallbacks ) {
 			partialLocale = localeParts.join( '-' );
 			languages.push( partialLocale );
-			fallbacks = $.i18n.fallbacks[partialLocale];
+			fallbacks = $.i18n.fallbacks[ partialLocale ];
 			localeParts.pop();
 		}
 	}
@@ -26877,18 +29136,18 @@ ve.init.sa.Platform.prototype.initialize = function () {
 	this.userLanguages = languages;
 
 	for ( i = 0, iLen = languages.length; i < iLen; i++ ) {
-		if ( languagesCovered[languages[i]] ) {
+		if ( languagesCovered[ languages[ i ] ] ) {
 			continue;
 		}
-		languagesCovered[languages[i]] = true;
+		languagesCovered[ languages[ i ] ] = true;
 
 		// Lower-case the language code for the filename. jQuery.i18n does not case-fold
 		// language codes, so we should not case-fold the second argument in #load.
-		filename = languages[i].toLowerCase() + '.json';
+		filename = languages[ i ].toLowerCase() + '.json';
 
 		for ( j = 0, jLen = messagePaths.length; j < jLen; j++ ) {
 			deferred = $.Deferred();
-			$.i18n().load( messagePaths[j] + filename, languages[i] )
+			$.i18n().load( messagePaths[ j ] + filename, languages[ i ] )
 				.always( deferred.resolve );
 			promises.push( deferred.promise() );
 		}
@@ -26909,7 +29168,7 @@ ve.init.sa.Platform.prototype.initialize = function () {
  *
  *     @example
  *     ve.init.platform.initialize().done( function () {
- *         var target = new ve.init.sa.Target();
+ *         var target = new ve.init.sa.DesktopTarget();
  *         target.addSurface(
  *             ve.dm.converter.getModelFromDom(
  *                 ve.createDocumentFromHtml( '<p>Hello, World!</p>' )
@@ -26918,38 +29177,24 @@ ve.init.sa.Platform.prototype.initialize = function () {
  *         $( 'body' ).append( target.$element );
  *     } );
  *
+ * @abstract
  * @class
  * @extends ve.init.Target
  *
  * @constructor
- * @param {string} [surfaceType] Type of surface to use, 'desktop' or 'mobile'
- * @param {Object} [toolbarConfig] Configuration options for the toolbar
- * @throws {Error} Unknown surfaceType
+ * @param {Object} [config] Configuration options
+ * @cfg {Object} [toolbarConfig] Configuration options for the toolbar
  */
-ve.init.sa.Target = function VeInitSaTarget( surfaceType, toolbarConfig ) {
-	toolbarConfig = $.extend( { shadow: true, actions: true, floatable: true }, toolbarConfig );
+ve.init.sa.Target = function VeInitSaTarget( config ) {
+	config = config || {};
+	config.toolbarConfig = $.extend( { shadow: true, actions: true, floatable: true }, config.toolbarConfig );
 
 	// Parent constructor
-	ve.init.Target.call( this, toolbarConfig );
+	ve.init.sa.Target.super.call( this, config );
 
-	this.surfaceType = surfaceType || this.constructor.static.defaultSurfaceType;
 	this.actions = null;
 
-	switch ( this.surfaceType ) {
-		case 'desktop':
-			this.surfaceClass = ve.ui.DesktopSurface;
-			break;
-		case 'mobile':
-			this.surfaceClass = ve.ui.MobileSurface;
-			break;
-		default:
-			throw new Error( 'Unknown surfaceType: ' + this.surfaceType );
-	}
-
-	// The following classes can be used here:
-	// ve-init-sa-target-mobile
-	// ve-init-sa-target-desktop
-	this.$element.addClass( 've-init-sa-target ve-init-sa-target-' + this.surfaceType );
+	this.$element.addClass( 've-init-sa-target' );
 };
 
 /* Inheritance */
@@ -26957,8 +29202,6 @@ ve.init.sa.Target = function VeInitSaTarget( surfaceType, toolbarConfig ) {
 OO.inheritClass( ve.init.sa.Target, ve.init.Target );
 
 /* Static properties */
-
-ve.init.sa.Target.static.defaultSurfaceType = 'desktop';
 
 ve.init.sa.Target.static.actionGroups = [
 	{
@@ -26987,36 +29230,9 @@ ve.init.sa.Target.prototype.addSurface = function () {
 /**
  * @inheritdoc
  */
-ve.init.sa.Target.prototype.createSurface = function ( dmDoc, config ) {
-	config = ve.extendObject( {
-		excludeCommands: OO.simpleArrayUnion(
-			this.constructor.static.excludeCommands,
-			this.constructor.static.documentCommands,
-			this.constructor.static.targetCommands
-		),
-		importRules: this.constructor.static.importRules
-	}, config );
-	return new this.surfaceClass( new ve.dm.Surface(dmDoc), config );
-};
-
-/**
- * @inheritdoc
- */
 ve.init.sa.Target.prototype.setupToolbar = function ( surface ) {
 	// Parent method
 	ve.init.sa.Target.super.prototype.setupToolbar.call( this, surface );
 
-	if ( !this.getToolbar().initialized ) {
-		this.getToolbar().$element.addClass( 've-init-sa-target-toolbar' );
-		this.actions = new ve.ui.TargetToolbar( this );
-		this.getToolbar().$actions.append( this.actions.$element );
-	}
-	this.getToolbar().initialize();
-
-	this.actions.setup( this.constructor.static.actionGroups, this.getSurface() );
-
-	// HACK: On mobile place the context inside toolbar.$bar which floats
-	if ( this.surfaceType === 'mobile' ) {
-		this.getToolbar().$bar.append( surface.context.$element );
-	}
+	this.getToolbar().$element.addClass( 've-init-sa-target-toolbar' );
 };

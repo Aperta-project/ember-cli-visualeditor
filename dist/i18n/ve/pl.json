@@ -15,7 +15,8 @@
 			"Wpedzich",
 			"Matik7",
 			"Rezonansowy",
-			"Openbk"
+			"Openbk",
+			"The Polish"
 		]
 	},
 	"visualeditor": "VisualEditor",
@@ -24,6 +25,7 @@
 	"visualeditor-align-widget-left": "Do lewej",
 	"visualeditor-align-widget-right": "Do prawej",
 	"visualeditor-alignablecontextitem-title": "Wyrównanie",
+	"visualeditor-aliencontextitem-title": "Element",
 	"visualeditor-annotationbutton-bold-tooltip": "Pogrubienie",
 	"visualeditor-annotationbutton-code-tooltip": "Kod programu",
 	"visualeditor-annotationbutton-italic-tooltip": "Kursywa",
@@ -43,6 +45,7 @@
 	"visualeditor-commentinspector-tooltip": "Komentarz",
 	"visualeditor-content-select-all": "Wybierz wszystko",
 	"visualeditor-contextitemwidget-label-secondary": "Edytuj",
+	"visualeditor-contextitemwidget-label-remove": "Usuń",
 	"visualeditor-dialog-action-apply": "Zastosuj",
 	"visualeditor-dialog-action-cancel": "Anuluj",
 	"visualeditor-dialog-action-done": "Gotowe",
@@ -123,6 +126,7 @@
 	"visualeditor-table-insert-table": "Tabela",
 	"visualeditor-table-merge-cells": "Scal komórki",
 	"visualeditor-tablecell-tooltip": "Kliknij dwukrotnie, aby edytować komórkę tabeli",
+	"visualeditor-tablecell-contextitem": "Komórka tabeli",
 	"visualeditor-toolbar-format-tooltip": "Formatowanie akapitu",
 	"visualeditor-toolbar-history": "Historia",
 	"visualeditor-toolbar-insert": "Wstaw",
