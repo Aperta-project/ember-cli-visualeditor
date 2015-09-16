@@ -13,20 +13,11 @@ var VeItemComponent = Tool.extend({
 
   command: null,
 
-  willInsertElement: function() {
-    var self = this;
-    $(this.element).find('*[role=menuitem]')
-      .click(function(e) {
-        e.preventDefault();
-        self.onClickItem();
-      });
-  },
-
-  onClickItem: function() {
+  click: function() {
     if (this.get('isEnabled')) {
       this.executeCommand();
     }
-  },
+  }
 
 });
 
