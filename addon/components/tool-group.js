@@ -4,20 +4,10 @@ var ToolGroup = Ember.Component.extend({
   isToolGroup: true,
   name: null,
   classNames: ['ve-tool-group'],
+  classNameBindings: ['_classNames', 'name'],
 
   init: function() {
     this._super();
-    var name = this.get('name');
-    if (name) {
-      // HACK: since deactivating prototype extensions
-      // classNames are not provided as strings anymore
-      var classNames = this.get('classNames');
-      if (!Ember.isArray(classNames)) {
-        this.set('classNames', classNames + " " + name);
-      } else {
-        this.get('classNames').push(name);
-      }
-    }
   },
 
   updateState: function(surfaceState) {

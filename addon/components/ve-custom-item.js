@@ -5,9 +5,6 @@ var VeCustomItemComponent = CustomTool.extend({
   layout: layout,
   tagName: 'li',
   classNames: ["dropdown-item"],
-  attributeBindings: ['role'],
-  role: 'presentation',
-  classNameBindings: ['isEnabled:enabled:disabled'],
 
   mouseDown: function(e) {
     return false;

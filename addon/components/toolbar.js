@@ -6,7 +6,7 @@ var Toolbar = Ember.Component.extend({
 
   // disable per default
   classNames: ["ve-toolbar"],
-  classNameBindings: ['isEnabled::disabled'],
+  classNameBindings: ['isEnabled::disabled', '_classNames'],
 
   editorState: null,
 
