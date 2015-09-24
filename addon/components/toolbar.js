@@ -53,7 +53,7 @@ var Toolbar = Ember.Component.extend({
     };
   },
 
-  toolbarComponents: Ember.computed('childViews.@each', function() {
+  toolbarComponents: Ember.computed('childViews.[]', function() {
     return this.extractToolbarComponents(this);
   }),
 
